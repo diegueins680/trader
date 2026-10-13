@@ -1,0 +1,155 @@
+{
+  "baseCi": "https://github.com/diegueins680/trader/actions/runs/38313512581",
+  "baseCommit": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "blockers": [
+    "historically faithful champion export unavailable; continue isolated research as authorized",
+    "all evaluated histories are consumed development data",
+    "no authentic first-seen availability witness",
+    "RL superiority and intervention gates unmet",
+    "18 unresolved formal obligations and incomplete production correspondence",
+    "canonical full verification inference-bridge failure",
+    "safe publication isolation not established"
+  ],
+  "branch": "research/rl-causal-campaign-2026-10-13",
+  "bridgeDiagnostic": {
+    "artifact": "bridge-diagnostic.json",
+    "reason": "standalone codec child timed out after 3 seconds before neural comparison",
+    "status": "failed",
+    "verificationReplacement": false
+  },
+  "checkedImplementationCommit": "f4d677b105cda77e70c0d410e77aa7daa59cccfd",
+  "checks": [
+    {
+      "command": "bash scripts/verify.sh full",
+      "detail": "341 formal regression tests: 340 passed, one error in PPOProcessBridgeTests.test_source_bound_smt_model_and_actual_trained_process. Wrapper stops before later stages.",
+      "exitCode": 1,
+      "id": "full",
+      "log": ".tmp/rl-reproduction-20261013/logs/full.log",
+      "logSha256": "ce14f4c068abf965c85ba3c5aab62414fa89f985d7f01a3d2113c4638ca23742",
+      "status": "failed"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "detail": "One successful invocation of conditional SMT, bounded models and conformance; does not supersede failed full-suite repeatability.",
+      "exitCode": 0,
+      "id": "formal_record",
+      "log": ".tmp/rl-reproduction-20261013/logs/formal-record.log",
+      "logSha256": "95bd560181e7c523103e9a9216e2ad1384de978ba8f9850db4305d9fba7009d3",
+      "status": "passed"
+    },
+    {
+      "command": "python test/rl_composition_test.py",
+      "detail": "24 tests",
+      "exitCode": 0,
+      "id": "rl_regressions",
+      "log": ".tmp/rl-reproduction-20261013/logs/targeted.log",
+      "logSha256": "4c940caa014df6cee29dfe29c9729ac6d9d93fc421f6925db9fff669eaa0d5b6",
+      "status": "passed"
+    },
+    {
+      "command": "python test/rl_replication_test.py",
+      "detail": "6 tests; tool stdout recorded in work session, no separate log file",
+      "exitCode": 0,
+      "id": "replication_regressions",
+      "log": null,
+      "logSha256": null,
+      "status": "passed"
+    },
+    {
+      "command": "bash scripts/verify.sh web",
+      "detail": "Typecheck, 241 tests, build; chunk-size warning",
+      "exitCode": 0,
+      "id": "web",
+      "log": ".tmp/rl-reproduction-20261013/logs/web.log",
+      "logSha256": "b35326e77db7c94d728f08f3854b7acbbee62659021e87461fc942e1572fcaf3",
+      "status": "passed"
+    },
+    {
+      "command": "bash scripts/verify.sh automation",
+      "detail": "182/185 passed; 3 EPERM localhost-bind failures",
+      "exitCode": 1,
+      "id": "automation_sandbox",
+      "log": ".tmp/rl-reproduction-20261013/logs/automation.log",
+      "logSha256": "7797b8294147198b046a1e74300dd6bbd98b100649e15b941e8da1c92e2be3ad",
+      "status": "failed"
+    },
+    {
+      "command": "bash scripts/verify.sh automation",
+      "detail": "185 tests, no failures or skips",
+      "exitCode": 0,
+      "id": "automation_outside_sandbox",
+      "log": ".tmp/rl-reproduction-20261013/logs/automation-outside-sandbox.log",
+      "logSha256": "2b26827f0ffba2b2a12fa19a10e12d4e7eb33e5c49a019f1f77adf09caf67dbb",
+      "status": "passed"
+    },
+    {
+      "command": "python scripts/formal/test_integrity.py PPOProcessBridgeTests.test_source_bound_smt_model_and_actual_trained_process",
+      "detail": "No actual inference for trained policy",
+      "exitCode": 1,
+      "id": "bridge_outside_sandbox",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-outside-sandbox.log",
+      "logSha256": "cf40db21ef2ccd4766b5cb703ccc49f890ad4b1853c64cae6aa4c915b0166c46",
+      "status": "failed"
+    },
+    {
+      "command": "python scripts/formal/test_integrity.py PPOProcessBridgeTests.test_source_bound_smt_model_and_actual_trained_process",
+      "detail": "Same failure after training/archive jobs completed; unchanged deadline",
+      "exitCode": 1,
+      "id": "bridge_after_campaign",
+      "log": ".tmp/rl-reproduction-20261013/logs/bridge-after-campaign.log",
+      "logSha256": "32d0eda93c65dd38c49a6956e2b8dd278673032fcdf8581fbdec514c07b3fbc6",
+      "status": "failed"
+    },
+    {
+      "command": "bash scripts/verify.sh haskell",
+      "detail": "Build, formatting, all lint batches, research lint, smoke and 1/1 Cabal test suites passed. Cabal reports 1/1 test cases at suite granularity; not an assertion count.",
+      "exitCode": 0,
+      "id": "haskell",
+      "log": ".tmp/rl-reproduction-20261013/logs/haskell.log",
+      "logSha256": "166ce166100f2560cdd27695916990fb79ef26808e64b3c138b69396b1e152d1",
+      "status": "passed"
+    }
+  ],
+  "date": "2026-10-13",
+  "environment": {
+    "cabal": "3.12.1.0",
+    "fourmolu": "0.15.0.0",
+    "ghc": "9.4.8",
+    "hlint": "3.8",
+    "node": "20.19.0",
+    "note": "TRADER_ENV_FILE empty prevents Haskell CLI .env discovery. The first full run omitted that setting but stopped in formal tests before Haskell CLI smoke. Research runner has no dotenv loader. NumPy/Z3 installed using hash-pinned requirements; pandas pinned, transitive auxiliary packages recorded but not hash-pinned.",
+    "packages": {
+      "numpy": "2.3.5",
+      "pandas": "2.3.3",
+      "pip": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.5",
+      "six": "1.17.0",
+      "tzdata": "2026.5",
+      "z3-solver": "4.15.4.0"
+    },
+    "python": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+    "researchCommandPrefix": "env -i PATH=/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1",
+    "verificationCommandPrefix": "env -i PATH=/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin TRADER_ENV_FILE= OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1"
+  },
+  "financialOrders": 0,
+  "holdoutOpened": false,
+  "newSelectionTrials": 0,
+  "productionSettingsChanged": false,
+  "promotionAllowed": false,
+  "publication": "Local only; scheduled PR repair can write main and trigger deployment. Existing PR342 untouched.",
+  "researchCommands": [
+    "python scripts/research/run_rl_budget_v3.py --run-registered-budget-v3 --panel .tmp/research/historical-funding-campaign-v1/registered-development-panel.csv --settlements .tmp/research/historical-funding-campaign-v1/registered-development-settlements.csv --output .tmp/research/rl-budget-v3-reproduction-20261013",
+    "python scripts/research/compare_rl_replication.py --parent .tmp/research/rl-training-budget-v3-20261010 --replica .tmp/research/rl-budget-v3-reproduction-20261013 --parent-sha256 360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039 --replica-sha256 5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1 --output .tmp/rl-reproduction-20261013/replication.json",
+    "python scripts/research/summarize_rl_composition.py --source .tmp/research/rl-budget-v3-reproduction-20261013 --output research-notes/rl-exposure-2026-10-10/reproduction-results --expected-index-sha256 5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1"
+  ],
+  "researchExitCodes": [
+    0,
+    0,
+    0
+  ],
+  "reviewReady": false,
+  "runCommit": "8e83b2d9d4085044b03a93ca0712b43edfff8574",
+  "schema": "rl-current-main-verification-v1",
+  "unfinishedChecks": []
+}

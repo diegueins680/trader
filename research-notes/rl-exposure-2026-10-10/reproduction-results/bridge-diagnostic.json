@@ -1,0 +1,7 @@
+{
+  "status": "failed_diagnostic",
+  "error": "Command '['/tmp/trader-ppo-bridge-z2s0d9c0/base/worker', '--snapshot-contract-v3']' timed out after 3 seconds",
+  "calls": [],
+  "result": null,
+  "scope": "Unchanged conformance and deadline; diagnostic wrapper records invocation outputs/times. Not a replacement verification result. Outer wall time includes process startup and cannot identify which internal deadline phase failed."
+}

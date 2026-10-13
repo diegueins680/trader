@@ -4,7 +4,9 @@
   register a complete five-seed training/evaluation replication. Add strict
   full-archive comparison of parameters, buffers, terminal records and paths;
   run failure-oriented archive regressions in formal/full verification. Preserve
-  adoption rejection, protected holdouts and all production configuration.
+  adoption rejection, protected holdouts and all production configuration. Record
+  the successful 50-fit/1,218-replay replication, all-seed economic rejection, and
+  the unresolved inference-bridge failure from canonical full verification.
 - Formal: reuse the reviewed exhaustive sign-case decomposition of the gross
   accounting bound, retaining its premises and ten-second query deadline.
 

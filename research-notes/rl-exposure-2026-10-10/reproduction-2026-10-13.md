@@ -4,8 +4,8 @@ The decision remains **no RL adoption**. This continuation reuses the existing
 causal target-exposure research implementation and reproduces its five-seed
 budget study on verified main. It is engineering replication of consumed
 development evidence, not a new independent financial trial. It cannot establish
-champion superiority, and the user explicitly authorized continuing without the
-missing historically faithful champion export.
+champion superiority: the historically faithful champion export is unavailable.
+Research continues with this adoption blocker explicitly retained.
 
 The starting SHA, recorded before changes, is
 `0b76f2b879f75f5c669fe944a14ea6700d446240`. GitHub's `CI` workflow reported success
@@ -167,8 +167,9 @@ Primary-source metadata rechecked: [PPO v2](https://arxiv.org/abs/1707.06347v2),
 [CQL v3](https://arxiv.org/abs/2006.04779v3),
 [IQL](https://arxiv.org/abs/2110.06169), and
 [shielding v2](https://arxiv.org/abs/1708.08611v2). CQL section 3 explicitly requires
-support and sampling/function-approximation conditions; our fixed α=.1 and small
-nonlinear network do not inherit its lower-bound theorem. PPO's HTML endpoint
+support and sampling/function-approximation conditions; our fixed α=.1, finite
+gamma=1 objective and small nonlinear network do not inherit its discounted
+lower-bound theorem. PPO's HTML endpoint
 was unavailable as useful full text; the retained prior technical review and
 current abstract metadata are distinguished from a fresh full-paper read.
 
@@ -207,7 +208,10 @@ change the registered replication or reverse the existing economic rejection.
 
 Use CPython 3.13.3, NumPy 2.3.5, Z3 4.15.4.0, GHC 9.4.8, Cabal 3.12.1.0,
 Node 20.19.0, fourmolu .15.0.0 and hlint 3.8. Execute research with a clean
-environment and one BLAS/OMP thread. The exact command and run receipt are
+environment and one BLAS/OMP thread. For verification also set `TRADER_ENV_FILE`
+to the empty string: the Haskell CLI otherwise discovers a local `.env` even
+under `env -i`. This is a subprocess-only setting, not a production configuration
+change. The exact command and run receipt are
 recorded with the final results. Choose a fresh output directory:
 
 ```sh
@@ -217,12 +221,13 @@ python scripts/research/run_rl_budget_v3.py --run-registered-budget-v3 \
   --output /path/to/new-replication-archive
 python test/rl_replication_test.py
 python test/rl_composition_test.py
-bash scripts/verify.sh full
+TRADER_ENV_FILE= bash scripts/verify.sh full
 ```
 
 The runner requires committed, hash-identified source. For full-archive comparison,
-use `python scripts/research/compare_rl_replication.py --help`; supply the frozen
-parent index hash above and the new archive's actual index hash. Large archives
+use `python scripts/research/compare_rl_replication.py --help`; supply parent
+index hash `360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039`
+and the new archive's actual index hash. Large archives
 and policy parameters remain outside Git. Do not regenerate or inspect protected
 full snapshots when the exact development exports are unavailable.
 
@@ -233,3 +238,122 @@ whose push triggers deployment. A draft designation is not an isolation boundary
 Existing PR342 is left untouched. Local commits and a patch preserve this work.
 No persistent service, scheduled training, real order, live exploration or new
 live authorization is introduced. Existing production activity is preserved.
+
+## Executed replication and economic results
+
+The 2026-10-13 run completed **50 fits and 1,218 replays**, with zero failed fits or replays. All 12,950 learned parameters, 77,952 economic trace rows and frozen buffers reproduced within the registered absolute/relative 1e-12 tolerance. See [replication receipt](reproduction-results/replication.json), [all-seed results](reproduction-results/all-seed-results.csv), [complete trial registry](reproduction-results/trial-registry.csv), and [economic breakdown](reproduction-results/economic-breakdown.json). This adds zero independent market histories or selection trials.
+
+Each figure below is a mean net return across two 64-bar evaluation windows and three symbols, additionally averaged over all five training seeds for learned policies. It is neither an annualized return nor a compounded portfolio return.
+
+| Policy | Net % | Gross % | Worst path drawdown % | Worst path ES95 % | Intervention % |
+|---|---:|---:|---:|---:|---:|
+| PPO | 0.299 | 0.420 | 4.480 | 1.559 | 23.021 |
+| Double DQN | 0.311 | 0.595 | 5.896 | 1.559 | 34.271 |
+| CQL | -1.605 | -1.161 | 5.959 | 1.714 | 37.656 |
+| CQL α=0 diagnostic | -1.588 | -1.174 | 6.818 | 1.714 | 42.344 |
+| Behavior cloning | -0.171 | 0.276 | 2.911 | 1.381 | 34.115 |
+| Matched momentum | 1.487 | 1.941 | 2.655 | 1.162 | 64.844 |
+| Matched reversal | -2.376 | -1.967 | 4.952 | 1.713 | 64.844 |
+| Shielded constant-long | 0.997 | 1.242 | 4.480 | 1.559 | 60.156 |
+| Cash | 0.000 | 0.000 | 0.000 | -0.000 | 0.000 |
+
+All five base-cost seed means (%), in registered order 11, 23, 47, 71, 101:
+
+| Policy | 11 | 23 | 47 | 71 | 101 |
+|---|---:|---:|---:|---:|---:|
+| PPO | -0.021 | 1.223 | 0.003 | 0.124 | 0.169 |
+| Double DQN | 1.397 | 1.224 | -0.565 | -0.336 | -0.165 |
+| CQL | -1.452 | -1.998 | -1.804 | -0.879 | -1.893 |
+| CQL α=0 diagnostic | -2.953 | -2.616 | -1.391 | 0.172 | -1.153 |
+| Behavior cloning | -0.255 | 0.067 | 0.365 | -0.893 | -0.137 |
+
+Matched cost/delay stress, mean net return (%):
+
+| Scenario | PPO | Double DQN | CQL | Matched momentum |
+|---|---:|---:|---:|---:|
+| base | 0.299 | 0.311 | -1.605 | 1.487 |
+| cost1_5x | 0.247 | 0.180 | -1.803 | 1.269 |
+| cost2x | 0.195 | 0.049 | -2.171 | 1.051 |
+| severe50bp | -0.118 | -0.839 | -3.485 | -0.245 |
+| delay1bar | 0.167 | 0.186 | -0.271 | 0.669 |
+| partial50pct | 0.368 | 0.523 | -0.977 | 1.318 |
+| funding2x | 0.283 | 0.290 | -1.615 | 1.472 |
+
+PPO and Double DQN both turn negative in the second fold; CQL is negative in both folds and for every seed mean. Relative to matched momentum, mean differences are −1.188, −1.176 and −3.093 percentage points respectively. The registered nine-bar circular-block, six-comparison simultaneous 95% descriptive intervals are [−4.621, +1.613], [−4.603, +1.774] and [−7.747, +0.878] percentage points. Block-length sensitivities (3/9/21) are retained in [evidence](reproduction-results/evidence.json); they do not repair adaptive selection or establish confirmation. DSR/PBO and valid real-log OPE remain insufficient evidence.
+
+The independent trace reconstruction found **zero violations** of its specified action-domain, timing, equity, unit, fee, funding, fill and bounded-admission checks. The older archive’s constant `unsafeExecutableIntents=0` field is explicitly not used as evidence. This audit is empirical conformance over these traces, not a proof of all executable intents. Mean intervention rates exceed the registered 20% usability gate for every RL learner; the momentum rule also has high interventions and is not thereby approved for adoption. Unsupported states map to the shield fallback. Gross P&L minus costs plus funding reconciles to net equity; no shaped-reward gain or free terminal reset explains a positive result.
+
+Mean base turnover is 1.045/2.631/4.344 initial-equity units for PPO/DDQN/CQL, with costs of 0.104%/0.263%/0.434% and funding P&L of −0.016%/−0.021%/−0.010%. Mean absolute exposure is 3.750%/6.264%/7.293%. Fill counts include partial rebalances and terminal liquidation and are not independent trades. Holding durations, drawdown durations, symbol/fold breakdowns, and all stress economics are preserved in the economic breakdown and trial registry. There is no new regime-specific generalization claim.
+
+The fixed offline dataset has only 512 **simulated** transitions per fold. CQL α=.1 does not outperform its α=0 diagnostic here, and both underperform behavior cloning. This neither disproves CQL generally nor supplies supported exchange-log counterfactuals. Mean base-path Q-value MSE against realized finite-path reward-to-go is 1.4625 for DDQN, 8.0000 for CQL and 9.4728 for α=0, in squared registered reward units. This compares 32-step training objectives with 64-step realized paths, so it is a diagnostic rather than an unbiased calibration certificate. PPO critic calibration and broader recurrent/risk-objective ablations are not established. Loss diagnostics remain in the archive.
+
+Run wall time was 1,365.167 seconds (22.8 minutes), with 866.910 seconds summed fit time. Reported peak process RSS was 82,632,704 bytes (78.8 MiB); the largest artifact was 4,893 bytes. Across per-fit 100-call warm Python benchmarks, the worst p99 was 9.090 ms. These measurements on a heavily loaded shared CPU exclude production artifact loading, end-to-end Haskell admission and hard-deadline guarantees. All checkpoint rules were fixed before the run; no best seed was selected.
+
+Raw archive: `.tmp/research/rl-budget-v3-reproduction-20261013`. Index SHA256: `5bd417ee7b981004f6e9dfd7600426f8a6a0300c9d48d5fdb8a75e344d9f92e1`. The source commit is `8e83b2d9d4085044b03a93ca0712b43edfff8574`; subsequent changes add verification and reporting, not new training. Data and learned parameters remain outside Git. The current-main replica agrees with the prior archive despite the documented explicit-default runner metadata extension.
+
+## Verification findings and remaining decisions
+
+The [verification receipt](reproduction-results/verification-receipt.json) records
+commands, versions, exit status and local log hashes. The canonical full wrapper
+was executed and **failed** in
+`PPOProcessBridgeTests.test_source_bound_smt_model_and_actual_trained_process`:
+“PPO process bridge: no actual inference for trained policy.” Its formal
+regression stage ran 341 tests with one error, then correctly stopped before the
+later stages. The same unchanged test failed outside the sandbox and again after
+the campaign completed. The 20 ms acceptance budget remains unchanged. The
+observed error does not identify whether decoding, computation, cleanup or
+scheduling consumed the budget; host load alone is not a proven root cause.
+No checks were disabled and no test acceptance threshold was relaxed. A subsequent
+[diagnostic invocation](reproduction-results/bridge-diagnostic.json) also timed out
+at the outer three-second limit for the standalone codec process, before any
+neural request comparison. It remains a failure, not a substitute passing check.
+
+A separate `python scripts/formal/verify.py --record` invocation completed
+successfully, including 91 core SMT results, component-specific certificates,
+finite models and compiled conformance. That receipt records one successful
+invocation, not reliable runtime availability; it does not supersede the failed
+full wrapper. The composed RL path separately has seven SMT composition lemmas,
+two admission lemmas, its 43-state/107-edge model and eight exact ledger witnesses.
+The new six archive-regression tests and 24 existing causal RL learner/accounting
+tests passed. `bash scripts/verify.sh haskell` passed build, formatting, all
+lint batches, research lint, smoke checks and its 1/1 Cabal test suites (the
+reported test-case count is suite granularity, not an assertion count). Web
+verification passed typecheck, all 241 tests and build.
+Automation verification initially had three localhost-bind EPERM failures under
+the sandbox, then passed all 185 tests outside it using the same code and a clean
+environment. No test was skipped in those suites.
+
+The existing assurance ledger's 18 unresolved obligations remain: no-lookahead,
+revision timing, finite outputs, overflow/underflow, live-authority isolation,
+observation causality, valid transitions, terminal accounting, action safety,
+invalid-output fallback, replay determinism, rollback, configuration bounds,
+atomicity, race freedom, shutdown termination, recovery and permanent-lockout
+avoidance. Its 20 scoped closures are 16 exhaustive checks, three finite model
+checks and one SMT closure, not 20 complete implementation theorems. Detailed
+assumptions and critical-source hashes remain in that single ledger. This work
+adds no global neural-network, compiler, exchange-execution or profitability proof.
+
+**RL research: partially completed.** This registered engineering replication is
+complete with trained policies and reconciled evidence. The broader mission still
+lacks a causal champion replay, adequate universe expansion, authentic historical
+availability, untouched confirmation, realistic venue constraints, supported
+real-log OPE, full requested diagnostics/ablations and bounded integrated inference.
+Data/model export availability is an adoption blocker, not a reason to fabricate
+or weaken a comparison.
+
+**RL adoption: continue research; reject these packages for integration.** The
+matched simpler momentum policy has the stronger development mean, but this is
+not authorization to replace the champion with momentum. Material superiority
+and usability gates are unmet; full verification is not green. No disabled
+production challenger is installed, no production Python service is added, and
+no future shadow/paper duration is claimed as completed.
+
+**Formal assurance: scoped checks recorded; integration blocked.** Conditional
+SMT and bounded lifecycle results plus concrete conformance are preserved. The
+18 unresolved obligations, implementation correspondence limits and repeatable
+inference-bridge failure remain explicit.
+
+**Financial execution:** no real orders, live exploration, production authority
+change, merge, deployment or new scheduled process was introduced. Existing
+production operation was preserved. Publication remains local because the
+repository's automatic PR-repair path is not isolated from main deployment.
