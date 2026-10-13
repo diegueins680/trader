@@ -1,0 +1,23 @@
+{
+  "id": "rl-reproduction-2026-10-13",
+  "registeredOn": "2026-10-13",
+  "verifiedMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "kind": "engineering_replication_not_new_financial_trial",
+  "parentRegistration": "research-notes/registrations/rl-training-budget-v3.json",
+  "parentIndexSha256": "360121fd70f03650b8934f18dac5e8d25f3f9eaa143f5da324102814ce510039",
+  "hypothesis": "The registered trained policies and economic paths reproduce after transplanting research-only commits onto current verified main.",
+  "protocol": "Execute the unchanged budget-v3 entrypoint, all five seeds, all five algorithm/control families, two folds, three symbols and seven stresses. No checkpoint or seed selection. Preserve all failed attempts. Compare every trained parameter and every economic path with the admitted parent archive.",
+  "seeds": [11, 23, 47, 71, 101],
+  "fits": 50,
+  "evaluationReplays": 1218,
+  "newSelectionTrials": 0,
+  "tolerance": {"absolute": 1e-12, "relative": 1e-12},
+  "excludedComparisons": "Only explicitly named wall-clock, memory and source/proof identity fields may differ; identities remain reported. Economic values, statuses, counts and action traces must agree. Parameter bytes are decoded to little-endian float64 before numerical comparison.",
+  "data": "Exact parent development-only panel and settlements; no downloads, protected holdout reads, new time periods or production artifacts.",
+  "budget": {"cpuMinutes": 30, "paidCompute": false, "persistentProcesses": false},
+  "environment": "CPython 3.13.3, NumPy 2.3.5, one BLAS/OMP thread; empty inherited process environment apart from explicit executable search path and thread controls.",
+  "decision": "Replication cannot overturn the prior integration rejection, establish independent market evidence or fill the missing historically faithful champion baseline.",
+  "promotionAllowed": false,
+  "liveAuthorization": false,
+  "publication": "Local branch/patch only: scheduled autoloop reads all PR states and may push main; no safe draft-PR isolation established. Existing PR342 is not modified."
+}
