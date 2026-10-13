@@ -1,5 +1,13 @@
 # Trader
 
+RL research continuation (2026-10-13): the [current-main replication report](research-notes/rl-exposure-2026-10-10/reproduction-2026-10-13.md)
+collects the isolated PPO, simulator Double DQN and fixed-dataset CQL path,
+registered five-seed evidence and adoption blockers. The new
+`python scripts/research/compare_rl_replication.py --help` command verifies
+complete archive identities and compares trained parameters, fixed buffers and
+economic paths at 1e-12 tolerance. Its regressions run in `verify.sh formal/full`.
+Replication is development evidence; no policy is enabled or adopted.
+
 The opt-in [causal RL composition pilot](research-notes/rl-exposure-2026-10-10/contract.md)
 connects PPO, Double DQN and fixed-dataset discrete CQL to exact research accounting.
 It is disabled by default, cannot authorize orders, and uses only hash-pinned,

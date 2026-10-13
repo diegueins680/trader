@@ -3,7 +3,7 @@
     "certified": {
       "rollForwardQueries": 15,
       "rollForwardRoundings": 14,
-      "termQueries": 15,
+      "termQueries": 19,
       "terms": {
         "fee": {
           "absolute": 8.000000000000002,
@@ -4176,7 +4176,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "bf91317816d3f91895fba02264913e41e78018dddb659409cec0f6ed7b184a21",
-    "formal/specifications.json": "4cbdd8b03445d052ecb340e660aced4925f9df3979c02bc1c3d8e2b8d10eb9fd",
+    "formal/specifications.json": "7707dbf342210ee899165c1a67db36a9bb49ff7d2aa1a5196b180f0c88ffcf52",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "b925463fef04cbf01be31abbf7a3a2e74ef57f6815552b06530656bfb27d51c0",
@@ -4372,7 +4372,7 @@
     "research-notes/registrations/worker-registry-engineering.json": "b953fe44a73076e465749fb4ff18e05c939ec7ef1b0c04da5ca598fac85f0eca",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
-    "scripts/formal/accounting_reconciliation.py": "0c6d24a1f6e22040ff14d86a122bf131903bb9c5c83c6647f50c2b96a1f0ddb2",
+    "scripts/formal/accounting_reconciliation.py": "02ef466a2915868727d9f0572d69b402fedf0f6ac831803946b2d7973b64a45d",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
     "scripts/formal/artifact_admission.py": "3a431db8ce7522046308af1c97375a9a96957c2a34b553ffc07fe822e2a7200e",
     "scripts/formal/artifact_composition.py": "011e213a9c445e4b325084cdd4f90aa73abad83f4c133470160a1178739426f7",
@@ -4472,7 +4472,7 @@
     "scripts/research/summarize_rl_offline_data_v4.py": "048a3b889b9d81751c5b3e990b1ebf63a96e4cce9736f3fbdb325646f6350f89",
     "scripts/research/summarize_sequential_screen.py": "64963b746e913063472aa2bb4e898770916a4edc37813e32ab79d20d1dda46aa",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
-    "scripts/verify.sh": "594a476f290b84af82e607073cc16bae434202f898b4c777c176d6a7e00d90cb",
+    "scripts/verify.sh": "1bed937aefed53b9d9d8cb4dbcc2fae57adbeddcdc595d7e906ad6f5e59d746b",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/rl_composition_test.py": "8bcf81b10794ab740ade5d3a689942f29067afc573c6b772284eb5331b6a70cd",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
