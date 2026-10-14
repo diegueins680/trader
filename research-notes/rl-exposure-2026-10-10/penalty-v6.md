@@ -229,3 +229,42 @@ prefer the simpler policy for this empirical comparison only. Formal assurance:
 scoped checks with 18 broad obligations unresolved, no integration eligibility.
 Financial execution: no real orders, live exploration or new live authorization;
 existing production activity is preserved.
+
+## Completed verification and local delivery
+
+`python scripts/formal/verify.py --record` passed in 380.408s after the
+canonical statement was synchronized and one unchanged retry. The first
+canonical-statement check failed; the next attempt timed out in the existing
+`ignore_term` process fault fixture at three seconds. Its root cause is not
+established. The timeout, logs and successful unchanged retry are retained;
+no deadline or assertion was relaxed. An earlier corruption-test fixture also
+failed because its constant-long toy produced no changed proposal; alternating
+long/short actions repaired the fixture without changing the audited contract.
+
+Final `bash scripts/verify.sh full` exited 0 on code revision `74e692d0`:
+343 formal regressions (232.427s), seven archive regressions, four inference
+diagnostic regressions, 33 RL/accounting tests (6.845s), certificate reproduction
+(232.889s), Haskell build/fourmolu/hlint/smoke/one Cabal suite, web typecheck/241
+tests/build and 185 automation tests (19.269s). No target was skipped or
+unavailable. The [verification receipt](penalty-v6-results/verification.json)
+contains exact commands, environment, failed/timed-out attempts and log hashes.
+The earlier timeout remains a reliability observation, not a discharged
+hard-real-time guarantee. Documentation/receipt packaging follows that code check.
+
+The 18 broad obligations remaining open or partial are: no-lookahead; revision
+timing; finite outputs; overflow/underflow; live-authority isolation; observation
+causality; valid transitions; terminal accounting; action safety; invalid-output
+fallback; replay determinism; rollback; configuration bounds; atomicity; race
+freedom; shutdown termination; recovery; and no permanent lockout. Their exact
+scopes, assumptions and code mappings remain in the
+[assurance ledger](../../formal/research/proof-ledger.json). This list includes
+broader inherited/frozen-path claims; scoped research checks do not silently
+close them or assert that inherited production is correct.
+
+The local review packet is `.tmp/research/rl-penalty-v6-delivery-20261013`: a
+cumulative patch from the recorded main SHA, commit list, unsubmitted draft PR
+body, verification logs and a hashed delivery manifest. Its patch is checked
+against the final committed tree. No branch push or PR is performed because of
+the documented automation side effects. The pre-existing `.playwright-mcp/`
+directory, production application, workflows, deployment and authorization
+configuration remain unchanged.

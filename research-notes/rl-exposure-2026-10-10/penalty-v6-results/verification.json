@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "baseMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "registrationCommit": "56bab0c8",
+  "trainingSourceCommit": "045129705d266ae510e9f064ccc376512472f2d5",
+  "verificationSourceCommit": "74e692d0d038e9dbb9b11f473fcc82502bd4bd95",
+  "formalResultSha256": "5ffc58e4088038770944933b66717806356485f55960f8a892c9b83f1657445f",
+  "studyIndexSha256": "60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+  "environment": {
+    "cleanViaEnvI": true,
+    "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+    "TRADER_ENV_FILE": "",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3-solver": "4.15.4.0",
+    "ghc": "9.4.8",
+    "node": "20.19.0"
+  },
+  "checks": [
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 0,
+      "detail": "32 tests passed; before independent-audit regression addition",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-targeted.log",
+      "logSha256": "cab30acbcc37a55a738b9acbfe03a936f7853fff109aa88cd3786528dea05e33"
+    },
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 1,
+      "detail": "33 tests; one StopIteration in new corruption fixture: constant-long toy produced no intervened row. Repaired fixture to alternate long/short; assertions and implementation unchanged.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-targeted-final.log",
+      "logSha256": "f6f05887f6f003fbc857024fe151a31447f5eb440c25fba60083c5bbe51864b5"
+    },
+    {
+      "command": "python test/rl_composition_test.py",
+      "exitCode": 0,
+      "detail": "33 tests passed in6.360s",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-targeted-fixed.log",
+      "logSha256": "9f117f819dab7421facc837caa20500cc8f96391de432b4da516c8a1490c4897"
+    },
+    {
+      "command": "python scripts/formal/rl_composition_check.py",
+      "exitCode": 0,
+      "detail": "Initial focused scoped composition checks passed",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-composition.log",
+      "logSha256": "701d2e675ce2c6fdf895ba726decb000d43b1a9c2703b92e0091310f37eb5f88"
+    },
+    {
+      "command": "python scripts/formal/rl_composition_check.py",
+      "exitCode": 0,
+      "detail": "Nine composition SMT queries, two admission lemmas, reachable43-state107-edge bounded lifecycle and eight Haskell ledger witnesses",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-composition-final.log",
+      "logSha256": "d722799769806bc6a429dfcc408be3ed588cd7e7fb9f1179b7b30e8e196f8251"
+    },
+    {
+      "command": "node scripts/verify-formal-specs.mjs",
+      "exitCode": 0,
+      "detail": "40 specs,353 features,553 clauses,701 implementation files,259 evidence links,34 risks",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-spec-coverage.log",
+      "logSha256": "e9f5d4f6a4a1d441088f68290b436947d30862213301910ab00445619583d346"
+    },
+    {
+      "command": "python scripts/research/run_rl_penalty_v6.py --run-registered-penalty-v6 --panel .tmp/research/historical-funding-campaign-v1/registered-development-panel.csv --settlements .tmp/research/historical-funding-campaign-v1/registered-development-settlements.csv --output .tmp/research/rl-proposal-penalty-v6-20261013",
+      "exitCode": 0,
+      "detail": "10 fresh PPO fits,378 replays,388 trial IDs; zero failed fits/replays;309.453s campaign timer",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-campaign.log",
+      "logSha256": "e57442ae10691686cf155b9815f21047cda4d356795905c9e148307d88041a15"
+    },
+    {
+      "command": "python scripts/research/summarize_rl_penalty_v6.py --source .tmp/research/rl-proposal-penalty-v6-20261013 --parent .tmp/research/rl-matched-horizon-v5-20261013 --output research-notes/rl-exposure-2026-10-10/penalty-v6-results --expected-index-sha256 60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+      "exitCode": 0,
+      "detail": "Complete archive/roster identity;168 identical controls;40960 training and24192 evaluation rows audited without detected violations within1e-12",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-export.log",
+      "logSha256": "ddc493f7fd8586206b3901844e0600dab743041cc9b3a078e08b26d78411794c"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 1,
+      "detail": "Canonical formal statement drift: specification still listed seven lemmas after ledger grew to nine. Corrected statement/source hash without weakening checks.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-formal-record.log",
+      "logSha256": "354381011009de17c00a553c0e6958ec1d79d03b7a3dc24cb9dbc4dab8696ece"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 1,
+      "detail": "Existing compiled inference ignore_term fault fixture exceeded unchanged3s subprocess timeout; preserved failure. No deadline/assertion changed.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-formal-record-fixed.log",
+      "logSha256": "bc541309d190e7dcd31be93ca173aa34e985620a5c216e54f288cb0db9c0e49d"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "detail": "Unmodified retry passed in380.408s;20 scoped closures,18 open/partial;missionComplete false. Timeout root cause not established.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-formal-record-retry.log",
+      "logSha256": "83f4d82dd75aeb530210bff9b439a30ab8b19c6eecf28cdac09e38ef1346bde6"
+    },
+    {
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "detail": "343 formal regressions232.427s;7 archive;4 diagnostic;33 RL/accounting6.845s; certificate reproduction232.889s; Haskell build/fourmolu/hlint/smoke/one Cabal suite; web typecheck241 tests/build;185 automation19.269s; no skipped target",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/logs/penalty-full.log",
+      "logSha256": "9feccb4bd1f4cfe38d00748f6a20bc402f9b31aef423aaf0de0517ee4014e253"
+    }
+  ],
+  "skippedRequiredTargets": [],
+  "timedOutAttempts": [
+    "penalty-formal-record-fixed.log: inference ignore_term fixture,3s"
+  ],
+  "unavailableRequiredChecks": [],
+  "fullVerification": "passed",
+  "openMissionObligations": [
+    {
+      "number": 1,
+      "claim": "No-lookahead",
+      "status": "partially_verified"
+    },
+    {
+      "number": 4,
+      "claim": "Revision timing",
+      "status": "partially_verified"
+    },
+    {
+      "number": 6,
+      "claim": "Finite outputs",
+      "status": "partially_verified"
+    },
+    {
+      "number": 10,
+      "claim": "Overflow and underflow",
+      "status": "open"
+    },
+    {
+      "number": 13,
+      "claim": "Live-authority isolation",
+      "status": "partially_verified"
+    },
+    {
+      "number": 17,
+      "claim": "Observation causality",
+      "status": "partially_verified"
+    },
+    {
+      "number": 18,
+      "claim": "Valid transitions",
+      "status": "partially_verified"
+    },
+    {
+      "number": 19,
+      "claim": "Terminal accounting",
+      "status": "partially_verified"
+    },
+    {
+      "number": 20,
+      "claim": "Action safety",
+      "status": "partially_verified"
+    },
+    {
+      "number": 21,
+      "claim": "Invalid output fallback",
+      "status": "partially_verified"
+    },
+    {
+      "number": 22,
+      "claim": "Replay determinism",
+      "status": "partially_verified"
+    },
+    {
+      "number": 27,
+      "claim": "Rollback",
+      "status": "partially_verified"
+    },
+    {
+      "number": 32,
+      "claim": "Configuration bounds",
+      "status": "partially_verified"
+    },
+    {
+      "number": 33,
+      "claim": "Atomicity",
+      "status": "partially_verified"
+    },
+    {
+      "number": 34,
+      "claim": "Race freedom",
+      "status": "partially_verified"
+    },
+    {
+      "number": 36,
+      "claim": "Shutdown termination",
+      "status": "partially_verified"
+    },
+    {
+      "number": 37,
+      "claim": "Recovery",
+      "status": "partially_verified"
+    },
+    {
+      "number": 38,
+      "claim": "No permanent lockout",
+      "status": "partially_verified"
+    }
+  ],
+  "integrationEligible": false,
+  "liveAuthorization": false,
+  "holdoutOpened": false,
+  "publication": "local only: scheduled all-state PR autoloop can push main and trigger deployment",
+  "limitations": "Development-only adaptive reward ablation. No champion replay, authentic first-seen data, untouched confirmation, real OPE, full operational assurance or independent v6 retraining. Earlier process-test timeout remains a disclosed reliability observation; successful retry does not establish hard real-time bounds."
+}
