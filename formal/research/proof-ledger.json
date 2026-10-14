@@ -683,7 +683,8 @@
     "formal/research/fixtures/inference-process-decimal-v3.hs",
     "formal/research/rl-bridge-diagnostic-source.json",
     "scripts/research/run_rl_horizon_v5.py",
-    "scripts/research/summarize_rl_horizon_v5.py"
+    "scripts/research/summarize_rl_horizon_v5.py",
+    "scripts/research/run_rl_penalty_v6.py"
   ],
   "entries": [
     {
@@ -8122,14 +8123,15 @@
         "scripts/research/run_rl_offline_data_v4.py",
         "scripts/research/summarize_rl_offline_data_v4.py",
         "scripts/research/run_rl_horizon_v5.py",
-        "scripts/research/summarize_rl_horizon_v5.py"
+        "scripts/research/summarize_rl_horizon_v5.py",
+        "scripts/research/run_rl_penalty_v6.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
         "formal/research/ReplayAccountingV2.hs"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "result": "Must reproduce source locks, nine SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
       "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
       "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. Budget-v3 changes only registered orchestration, comparator injection and fixed-data identity checks. Its source identity is included; no new theorem or broad obligation closure is inferred. Offline-data-v4 adds subset/prefix identity checks, a forbidden offline interaction factory and parent comparison auditing. No new theorem or closure of open obligations. Horizon-v5 changes finite training length only; new factory conformance and generalized maturity lemma cover horizons 1..128. Sample distribution and reset frequency change; no additional broad obligation closure.",
       "counterexample": null,
@@ -8137,8 +8139,8 @@
     },
     {
       "requirementId": "F-RL-COMPOSE-ARITH",
-      "claim": "Seven nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, and projected action mass. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
-      "formalStatement": "Seven nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, and projected action mass. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
+      "claim": "Nine nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, projected action mass, training reward decomposition and nonpositive shaping. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
+      "formalStatement": "Nine nonvacuous SMT queries over exact reals/integers/booleans check target projection, net reward, telescoping equity, next-close order, matured training stops, single-slot admission, projected action mass, training reward decomposition and nonpositive shaping. All valid domain values quantified; no probability lower-bound or market-risk theorem.",
       "criticality": "critical",
       "assumptions": [
         "A-RL-COMPOSITION",
@@ -8159,9 +8161,9 @@
         "formal/research/ReplayAccountingV2.hs"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
-      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units. Training maturity uses integer horizon 1..128, start>=96, start<cutoff-horizon, stop=start+horizon+1.",
-      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
+      "result": "Must reproduce source locks, nine SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units. Training maturity uses integer horizon 1..128, start>=96, start<cutoff-horizon, stop=start+horizon+1. Penalty1/50 in real-number reward units times a Boolean intervention; economic ledger unchanged.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. The penalty changes the training objective; no policy-invariance, CPO or economic-improvement theorem. Binary64 subtraction correspondence is conformance within1e-12, not a universal floating-point proof.",
       "counterexample": null,
       "status": "smt_verified"
     },
@@ -8189,7 +8191,7 @@
         "formal/research/ReplayAccountingV2.hs"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "result": "Must reproduce source locks, nine SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
       "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
       "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
       "counterexample": null,
@@ -8220,7 +8222,7 @@
         "formal/research/ReplayAccountingV2.hs"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
-      "result": "Must reproduce source locks, seven SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
+      "result": "Must reproduce source locks, nine SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
       "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
       "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation.",
       "counterexample": null,

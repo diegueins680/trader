@@ -58,6 +58,11 @@ def prove():
     # A deterministic projection's action mass is the sum over its preimage.
     p0,p1,p2=z.Reals('p0 p1 p2')
     lemma(z.And(p0>=0,p1>=0,p2>=0,p0+p1+p2==1),z.If(supported,p1,p0+p1+p2)==z.If(supported,p1,1))
+    economic,shaped,charge=z.Reals('economic shaped charge')
+    changed=z.Bool('changed')
+    relation=z.And(charge==z.If(changed,z.RealVal(1)/50,0),shaped==economic-charge)
+    lemma(relation,shaped+charge==economic)
+    lemma(relation,shaped<=economic)
     return {'F-RL-COMPOSE-ARITH':'unsat'}
 
 

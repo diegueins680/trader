@@ -497,4 +497,53 @@ class HorizonTests(unittest.TestCase):
         self.assertIn('disabled:',result.stderr)
 
 
+class PenaltyTests(unittest.TestCase):
+    def test_wrapper_preserves_ledger_actions_and_observations(self):
+        import rl_admission_v2 as v2
+        from run_rl_penalty_v6 import TrainingEpisode, PENALTY
+        bars,events=fixture(); raw=v2.Episode(bars,events,96,161,enabled=True)
+        underlying=v2.Episode(bars,events,96,161,enabled=True)
+        rows=[]; wrapped=TrainingEpisode(underlying,rows,1)
+        for i in range(64):
+            np.testing.assert_array_equal(raw.observation(),wrapped.observation())
+            x,economic,done=raw.step(2 if i%3 else 0)
+            y,shaped,other_done=wrapped.step(2 if i%3 else 0)
+            np.testing.assert_array_equal(x,y)
+            self.assertEqual(done,other_done)
+            self.assertEqual(raw.session,underlying.session)
+            self.assertEqual(raw.rows,underlying.rows)
+            self.assertAlmostEqual(shaped,economic-PENALTY*raw.rows[-1]['actionChanged'],places=12)
+        self.assertTrue(wrapped.done)
+        self.assertEqual(len(rows),64)
+        self.assertGreater(sum(r['actionChanged'] for r in rows),0)
+        self.assertNotIn('trainingReward',underlying.rows[0])
+
+    def test_actual_ppo_trains_with_separate_reward_trace(self):
+        import rl_admission_v2 as v2
+        import run_rl_penalty_v6 as v6
+        bars,events=fixture()
+        factory=lambda _:v2.Episode(bars,events,96,161,enabled=True)
+        fit=v6.train('ppo',factory,11,128,None,enabled=True)
+        audit=fit.metadata['trainingRewardAudit'];rows=fit.metadata['trainingRewardRows']
+        self.assertEqual(fit.actor.step,4)
+        self.assertEqual(len(rows),128)
+        self.assertEqual(audit['episodes'],2)
+        self.assertAlmostEqual(audit['economicRewardSum']-audit['penaltySum'],audit['trainingRewardSum'],places=11)
+        self.assertEqual(fit.metadata['trainingRewardVersion'],v6.REWARD_VERSION)
+        with self.assertRaises(ValueError):v6.train('ppo',factory,11,128,None)
+        with self.assertRaises(ValueError):v6.train('cql',factory,11,128,None,enabled=True)
+
+    def test_reward_registration_and_disabled_cli(self):
+        import json,subprocess
+        import run_rl_penalty_v6 as v6
+        reg=json.loads(v6.REG.read_bytes())
+        self.assertEqual(v6.configuration(reg)['algorithms'],('ppo',))
+        reg['environment']['trainingPenaltyPerChangedProposal']=.01
+        with self.assertRaises(ValueError):v6.configuration(reg)
+        result=subprocess.run([sys.executable,str(v6.ROOT/'scripts/research/run_rl_penalty_v6.py'),
+            '--panel','absent','--settlements','absent','--output','absent'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,2)
+        self.assertIn('disabled:',result.stderr)
+
+
 if __name__=='__main__': unittest.main()

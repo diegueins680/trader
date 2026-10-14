@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Research: register a five-seed PPO intervention-penalty reward ablation against
+  frozen unshaped PPO. Preserve economic evaluation, shield and legacy artifacts;
+  archive separate training reward traces, explicit reward version and coefficient.
+  Add scoped reward-decomposition lemmas and wrapper conformance tests.
+
 - Research: preregister a 64-step matched-training-horizon sensitivity for PPO,
   simulator Double DQN and frozen-data CQL, with five seeds and matched controls.
   Preserve 32-step defaults; check prefix maturity, terminal costs and offline

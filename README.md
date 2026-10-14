@@ -13,6 +13,14 @@ transport with the existing bounded bit decoder, preserving legacy external
 interfaces and the cleanup-inclusive deadline. These commands reproduce the
 registered engineering comparison; they cannot enable a trading policy.
 
+The [PPO reward-ablation registration](research-notes/registrations/rl-proposal-penalty-v6.json)
+tests a fixed training-only penalty for shield-changed proposals against frozen
+unshaped PPO. Run `python scripts/research/run_rl_penalty_v6.py
+--run-registered-penalty-v6 --panel <registered-development-panel.csv>
+--settlements <registered-development-settlements.csv> --output <fresh-directory>`.
+Economic evaluation retains the original ledger; every fresh training transition
+records economic and shaped rewards separately. This is disabled research only.
+
 The [matched-horizon registration](research-notes/registrations/rl-matched-horizon-v5.json)
 tests 64-step training against the frozen 32-step research reference, retaining
 all three RL learners, five seeds, costs, observations and evaluation windows.

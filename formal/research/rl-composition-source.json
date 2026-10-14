@@ -1,10 +1,10 @@
 {
-  "review": "Economic kernels and default learners unchanged. V4 explicitly selects offline families, checks both registered original buffer prefixes before any fit, refuses new offline training interactions, and verifies unchanged baselines. Prefix and full hashes bind different objects explicitly. No new safety theorem; source identity and conformance are not semantic proof. Horizon-v5 adds opt-in 64-transition training with unchanged 32 default, fixed interaction/update budgets and offline interaction guard. Pure maturity query generalized to integers 1..128; actual factory and terminal-cost conformance; no production or action change.",
+  "review": "Economic kernels and default learners unchanged. V4 explicitly selects offline families, checks both registered original buffer prefixes before any fit, refuses new offline training interactions, and verifies unchanged baselines. Prefix and full hashes bind different objects explicitly. No new safety theorem; source identity and conformance are not semantic proof. Horizon-v5 adds opt-in 64-transition training with unchanged 32 default, fixed interaction/update budgets and offline interaction guard. Pure maturity query generalized to integers 1..128; actual factory and terminal-cost conformance; no production or action change. V6 PPO wrapper returns shaped training reward but preserves underlying economic rows, observations, actions and state. Archive every training transition separately. Two extra real-number reward lemmas do not prove policy invariance or binary64 refinement.",
   "sha256": {
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
-    "scripts/research/run_rl_composition.py": "3a01e0514057cf914d8258a1e5678ed1a867be629d21f104187104b4681bd7ae",
-    "scripts/formal/rl_composition_check.py": "c964e139e484df5985ed98d9595869c06019819186dda93f983ec05b2997ba6c",
-    "test/rl_composition_test.py": "4292490219ee83c8e52b743486994d8b4ff975fe8ec0127937f8967603e032ed",
+    "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
+    "scripts/formal/rl_composition_check.py": "9b0f8e7281adcafd5449265ef3c4eb394335d08a668413bad456464f1e6d322c",
+    "test/rl_composition_test.py": "7ee8492fd481fa944e6a92080cdd19e1a2607c7293b422dcdaf4807a9c6cfb3a",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
@@ -21,6 +21,7 @@
     "scripts/research/run_rl_offline_data_v4.py": "fe98c2d24bc604883f0865cdc5941df7d32d04d8fbb1a8d12d1eff5c3033f2b4",
     "scripts/research/summarize_rl_offline_data_v4.py": "048a3b889b9d81751c5b3e990b1ebf63a96e4cce9736f3fbdb325646f6350f89",
     "scripts/research/run_rl_horizon_v5.py": "ce983ec60808668b5c65eb44c3c9537ff719027f1763b829885e37c7158d21a0",
-    "scripts/research/summarize_rl_horizon_v5.py": "909477e24e21b00d7000862424f059b5b7c7918b926bd0156682da6ecabc628e"
+    "scripts/research/summarize_rl_horizon_v5.py": "909477e24e21b00d7000862424f059b5b7c7918b926bd0156682da6ecabc628e",
+    "scripts/research/run_rl_penalty_v6.py": "97b6bf02b31c4a703e45f635fe878a1b043d836912fba92a9ab31d9ba651b047"
   }
 }

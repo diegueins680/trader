@@ -264,11 +264,19 @@ def run(panel: Path, settlements: Path, output: Path, *, registration=REG,
                                 'parametersLittleEndianHex':[p.hex() for p in fit.actor.p],
                                 'updates':fit.actor.step, 'performanceEvidence':'summary.json',
                                 'assuranceLedgerSha256':manifest['proofLedgerSha256']}
+                            for key in ('trainingRewardVersion', 'trainingPenaltyPerChangedProposal'):
+                                if key in fit.metadata: artifact[key] = fit.metadata[key]
                             ap = output/'policies'/f'{fi}-{alg}-{seed}.json'; write(ap, artifact)
+                            training_metadata = dict(fit.metadata)
+                            training_rows = training_metadata.pop('trainingRewardRows', None)
+                            if training_rows is not None:
+                                trace_path = output/f'training-{fi}-{alg}-{seed}.json'
+                                write(trace_path, training_rows)
+                                training_metadata['trainingRewardTraceSha256'] = sha(trace_path.read_bytes())
                             timing = benchmark(fit, frozen['s'][0])
                             row = {'id':trial,'status':'complete','fold':fi,'algorithm':alg,'seed':seed,
                                 'seconds':time.perf_counter()-began, 'artifactSha256':sha(ap.read_bytes()),
-                                'artifactBytes':ap.stat().st_size, 'inference':timing, **fit.metadata}
+                                'artifactBytes':ap.stat().st_size, 'inference':timing, **training_metadata}
                         except (ValueError, ArithmeticError, MemoryError) as exc:
                             failure = str(exc)
                             row = {'id':trial,'status':'failed','fold':fi,'algorithm':alg,'seed':seed,
