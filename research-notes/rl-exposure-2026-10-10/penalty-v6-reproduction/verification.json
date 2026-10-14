@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-14",
+  "baseMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "mainRechecked": true,
+  "mainVerification": "https://github.com/diegueins680/trader/actions/runs/38313512581",
+  "registrationAndTrainingCommit": "e0ca94459d4e9676ae1df6685a457f0cf80e8225",
+  "comparatorCommit": "0779413b",
+  "verificationSourceCommit": "3844bbc1a4f2fc479fb18437229c45f2f5e3b756",
+  "formalResultSha256": "a534a8ceac945a32ef9df1f27d4fdea1c20b3dba02732bc1a7dac197f788de3b",
+  "studyIndexSha256": "521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513",
+  "environment": {
+    "cleanViaEnvI": true,
+    "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+    "TRADER_ENV_FILE": "",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3-solver": "4.15.4.0",
+    "ghc": "9.4.8",
+    "node": "20.19.0"
+  },
+  "checks": [
+    {
+      "command": "python test/rl_replication_test.py",
+      "exitCode": 0,
+      "detail": "11 regressions passed; malformed policies, reward/action corruption, numerical tolerance, source/roster validation and exclusion boundaries",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261014/logs/replication-tests.log",
+      "logSha256": "85ca96fb207a9acf727b042ed3fd6fdb6890b8cc0d45810393b27db424a95d19"
+    },
+    {
+      "command": "python scripts/research/run_rl_penalty_v6.py --run-registered-penalty-v6 --panel .tmp/research/historical-funding-campaign-v1/registered-development-panel.csv --settlements .tmp/research/historical-funding-campaign-v1/registered-development-settlements.csv --output .tmp/research/rl-penalty-reproduction-20261014",
+      "exitCode": 0,
+      "detail": "Ten fresh PPO fits,378 replays,388 IDs; zero failed fits/replays;192.381s",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261014/logs/campaign.log",
+      "logSha256": "190446dda9ccdd42e5f7c3defa2f433520f3cf66fba14ca52176248e4006a9c4"
+    },
+    {
+      "command": "python scripts/research/compare_rl_penalty_replication.py --parent .tmp/research/rl-proposal-penalty-v6-20261013 --replica .tmp/research/rl-penalty-reproduction-20261014 --parent-sha256 60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b --replica-sha256 521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513 --output research-notes/rl-exposure-2026-10-10/penalty-v6-reproduction/replication.json",
+      "exitCode": 0,
+      "detail": "2590 parameters,40960 training rows,24192 evaluation rows within1e-12; both archives independently audited; no detected scoped violations",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261014/logs/archive-comparison.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "detail": "Passed195.671s; nine existing composition SMT queries,two admission lemmas,43-state107-edge bounded model,eight Haskell witnesses; new reviewed comparator bindings. No new theorem or broad closure.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261014/logs/formal-record.log",
+      "logSha256": "1a8952249610686760cb42df4671c1c80e9ad6fb3e8b776adbce862e5c75a64b"
+    },
+    {
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "detail": "Formal, archive, diagnostic and RL suites [('343', '169.760'), ('11', '0.015'), ('4', '0.001'), ('33', '5.827')]; certificate seconds ['189.299']; Haskell build/format/lint/smoke/one suite; web typecheck241 tests/build;185 automation tests. No skipped target.",
+      "log": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261014/logs/full.log",
+      "logSha256": "c99d3b08825ab8ed85610e70a1e7575dba44e1f16797eb42d5945398d4cfe7a8"
+    }
+  ],
+  "fullVerification": "passed",
+  "failedChecks": [],
+  "skippedRequiredTargets": [],
+  "timedOutAttempts": [],
+  "unavailableRequiredChecks": [],
+  "priorAttemptHistory": "../penalty-v6-results/verification.json retains the original October13 test-fixture, canonical-statement and process-timeout failures. No deadline/assertion change in this continuation.",
+  "openMissionObligations": [
+    {
+      "number": 1,
+      "claim": "No-lookahead",
+      "status": "partially_verified"
+    },
+    {
+      "number": 4,
+      "claim": "Revision timing",
+      "status": "partially_verified"
+    },
+    {
+      "number": 6,
+      "claim": "Finite outputs",
+      "status": "partially_verified"
+    },
+    {
+      "number": 10,
+      "claim": "Overflow and underflow",
+      "status": "open"
+    },
+    {
+      "number": 13,
+      "claim": "Live-authority isolation",
+      "status": "partially_verified"
+    },
+    {
+      "number": 17,
+      "claim": "Observation causality",
+      "status": "partially_verified"
+    },
+    {
+      "number": 18,
+      "claim": "Valid transitions",
+      "status": "partially_verified"
+    },
+    {
+      "number": 19,
+      "claim": "Terminal accounting",
+      "status": "partially_verified"
+    },
+    {
+      "number": 20,
+      "claim": "Action safety",
+      "status": "partially_verified"
+    },
+    {
+      "number": 21,
+      "claim": "Invalid output fallback",
+      "status": "partially_verified"
+    },
+    {
+      "number": 22,
+      "claim": "Replay determinism",
+      "status": "partially_verified"
+    },
+    {
+      "number": 27,
+      "claim": "Rollback",
+      "status": "partially_verified"
+    },
+    {
+      "number": 32,
+      "claim": "Configuration bounds",
+      "status": "partially_verified"
+    },
+    {
+      "number": 33,
+      "claim": "Atomicity",
+      "status": "partially_verified"
+    },
+    {
+      "number": 34,
+      "claim": "Race freedom",
+      "status": "partially_verified"
+    },
+    {
+      "number": 36,
+      "claim": "Shutdown termination",
+      "status": "partially_verified"
+    },
+    {
+      "number": 37,
+      "claim": "Recovery",
+      "status": "partially_verified"
+    },
+    {
+      "number": 38,
+      "claim": "No permanent lockout",
+      "status": "partially_verified"
+    }
+  ],
+  "integrationEligible": false,
+  "liveAuthorization": false,
+  "holdoutOpened": false,
+  "newIndependentMarketSamples": 0,
+  "newSelectionTrials": 0,
+  "publication": "Local only: scheduled all-state PR autoloop can push default branch and trigger deployment.",
+  "limitations": "Numerical repetition on the same pinned runtime/platform; not independent implementation, cross-hardware determinism or new financial evidence. Missing matched champion, authentic availability, untouched confirmation, real OPE and production integration remain blockers."
+}

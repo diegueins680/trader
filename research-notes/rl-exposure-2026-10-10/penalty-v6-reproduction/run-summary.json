@@ -3,7 +3,7 @@
   "archive": ".tmp/research/rl-penalty-reproduction-20261014",
   "indexSha256": "521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513",
   "trainingSourceCommit": "e0ca94459d4e9676ae1df6685a457f0cf80e8225",
-  "trialRegistry": "events.jsonl (388 entries in authenticated archive)",
+  "trialRegistry": "events.jsonl (388 entries in hash-verified archive)",
   "elapsedSeconds": 192.38142094999785,
   "elapsedScope": "Campaign excludes initial data loading/hash validation and final summary/index construction; not process CPU time.",
   "fitArtifactTraceBenchmarkSeconds": 122.34681096399436,

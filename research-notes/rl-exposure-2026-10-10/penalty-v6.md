@@ -311,7 +311,7 @@ exclude operational load/latency/concurrency guarantees. The
 [run summary](penalty-v6-reproduction/run-summary.json) retains every fit's
 seed, timing, loss endpoints, training failures, audit sums and artifact hashes.
 The complete 388-event registry and newly executed economic records are in
-the authenticated archive, outside Git.
+the hash-verified archive, outside Git.
 
 Archive: `.tmp/research/rl-penalty-reproduction-20261014`; index SHA-256
 `521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513`.
@@ -340,3 +340,33 @@ rejected: champion vintages, authentic availability, untouched confirmation,
 real-log OPE and production safety/inference integration remain absent. The
 18 broad formal obligations are unchanged; no new theorem or live authority
 follows from equality of observed traces.
+
+October 14 verification completed: `python scripts/formal/verify.py --record`
+passed in 195.671s; `bash scripts/verify.sh full` exited 0 on code revision
+`3844bbc1a4f2fc479fb18437229c45f2f5e3b756`. The wrapper passed 343 formal
+regressions (169.760s), 11 archive regressions, 4 inference diagnostics, 33
+RL/accounting tests (5.827s), certificate reproduction (189.299s), Haskell
+build/fourmolu/hlint/smoke/one Cabal suite, web typecheck/241 tests/build and
+185 automation tests (25.832s). No check failed, timed out or was skipped or
+unavailable in this continuation. No deadlines/assertions were relaxed. The
+[receipt](penalty-v6-reproduction/verification.json) records exact commands,
+clean environment, source revision and log hashes, and links the prior
+October 13 failure history rather than erasing it. Only report/receipt packaging
+follows that code check.
+
+Local delivery: `.tmp/research/rl-reproduction-delivery-20261014` contains the
+cumulative patch, commit list, unsubmitted draft PR body, copied logs and a
+hashed manifest. The patch is checked against the final committed tree.
+The branch remains `research/rl-causal-campaign-2026-10-13`; no push or PR is
+performed because the reviewed all-state PR autoloop can mutate the default
+branch and trigger deployment. Verified main is unchanged. Production code,
+authorization configuration, workflows and the user's `.playwright-mcp/`
+directory remain untouched.
+
+RL research: this registered replication is complete; the broader mission
+remains partially completed. RL adoption: reject the v6 package; no result was
+reclassified as confirmation. Formal assurance: existing scoped nine composition
+SMT queries, two admission lemmas, bounded lifecycle and Haskell conformance
+reproduce; new comparator source bindings/regressions pass, with 18 broad
+obligations still open/partial. Financial execution: no real orders, live
+exploration or new live authorization introduced; existing production preserved.
