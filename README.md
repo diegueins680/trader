@@ -1,5 +1,14 @@
 # Trader
 
+The [registered v6 replication](research-notes/registrations/rl-penalty-reproduction-2026-10-14.json)
+repeats the unchanged ten PPO fits in a fresh process. Compare its complete
+archives with `python scripts/research/compare_rl_penalty_replication.py
+--parent <frozen-v6-directory> --replica <replica-directory>
+--parent-sha256 <registered-index-hash> --replica-sha256 <replica-index-hash>
+--output <new-report.json>`. This command checks every trained parameter and
+training/evaluation trace; it cannot train, promote or authorize a policy.
+Reruns are not new selection trials or independent financial evidence.
+
 The research-only inference timing diagnostic runs with
 `python scripts/research/diagnose_rl_bridge.py --run-registered --output /path/to/new-directory`.
 It compares the frozen decimal-transport control with a temporary phase-instrumented copy

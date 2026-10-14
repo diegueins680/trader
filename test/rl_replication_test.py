@@ -10,6 +10,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/research'))
 import compare_rl_replication as r
+import compare_rl_penalty_replication as penalty
 
 
 class ReplicationTests(unittest.TestCase):
@@ -89,6 +90,77 @@ class ReplicationTests(unittest.TestCase):
                     'fits': [], 'records': []}).encode(), 'planned.json': b'[]'}
         with self.assertRaisesRegex(ValueError, 'roster'):
             r.reconcile(data)
+
+
+class PenaltyReplicationTests(unittest.TestCase):
+    def policy(self):
+        return {'mode': 'research_only', 'algorithm': 'ppo', 'sourceCommit': 'old',
+                'assuranceLedgerSha256': 'old', 'trainingEpisodeTransitions': 64,
+                'trainingRewardVersion': penalty.REWARD_VERSION,
+                'trainingPenaltyPerChangedProposal': .02,
+                'parametersLittleEndianHex': [np.zeros(n, dtype='<f8').tobytes().hex()
+                                              for n in (192, 16, 48, 3)]}
+
+    def test_v6_parameters_and_reward_identity(self):
+        p = self.policy()
+        self.assertEqual(penalty.parameters(p, {**p, 'sourceCommit': 'new'}), 259)
+        for key, value in [('trainingEpisodeTransitions', 32), ('trainingEpisodeTransitions', 64.),
+                           ('trainingRewardVersion', 'other'), ('mode', 'live'),
+                           ('trainingPenaltyPerChangedProposal', 0.), ('algorithm', 'cql')]:
+            with self.assertRaises(ValueError): penalty.parameters(p, {**p, key: value})
+        for value in (1., float('nan'), float('inf')):
+            q = self.policy()
+            q['parametersLittleEndianHex'][3] = np.full(3, value, dtype='<f8').tobytes().hex()
+            with self.assertRaises(ValueError): penalty.parameters(p, q)
+
+    def test_training_and_economic_trace_fields_not_excluded(self):
+        row = {'reward': 1., 'trainingReward': .98, 'trainingPenalty': .02,
+               'actionChanged': True, 'proposal': 2, 'terminal': False,
+               'trainingEpisode': 1, 'equity': 1.01}
+        raw = json.dumps([row]).encode()
+        near = json.dumps([{**row, 'trainingReward': .98 + 1e-14}]).encode()
+        self.assertEqual(penalty.compare_trace('training-test.json', raw, near), 1)
+        for key, value in [('reward', 1.1), ('trainingReward', 1.), ('trainingPenalty', 0.),
+                           ('actionChanged', 1), ('proposal', 2.), ('terminal', True),
+                           ('trainingEpisode', 2), ('equity', 1.02)]:
+            for name in ('training-test.json', 'paths/test.json'):
+                with self.assertRaises(ValueError):
+                    penalty.compare_trace(name, raw, json.dumps([{**row, key: value}]).encode())
+        with self.assertRaises(ValueError): penalty.compare_trace('training-test.json', raw, b'[]')
+        with self.assertRaises(ValueError): penalty.compare_trace('training-test.json', b'{}', b'{}')
+
+    def test_only_registered_summary_fields_can_differ(self):
+        base = {'elapsedSeconds': 1., 'maxRss': 1, 'rssUnit': 'bytes', 'promotionAllowed': False,
+                'fits': [{'id': '0/ppo/11/training', 'seconds': 1., 'inference': {},
+                          'artifactSha256': 'a', 'artifactBytes': 1, 'trainingRewardTraceSha256': 'a',
+                          'lossLast': .2, 'trainingRewardAudit': {'economicRewardSum': 2.}}],
+                'records': [{'netReturn': .01}]}
+        from copy import deepcopy
+        timing = deepcopy(base)
+        timing.update(elapsedSeconds=9., maxRss=9)
+        timing['fits'][0].update(seconds=9., artifactSha256='b', trainingRewardTraceSha256='b')
+        r.same(penalty.normalized_summary(base), penalty.normalized_summary(timing))
+        for key, value in [('lossLast', .3), ('trainingRewardAudit', {'economicRewardSum': 3.})]:
+            changed = deepcopy(base); changed['fits'][0][key] = value
+            with self.assertRaises(ValueError):
+                r.same(penalty.normalized_summary(base), penalty.normalized_summary(changed))
+        changed = deepcopy(base); changed['records'][0]['netReturn'] = .02
+        with self.assertRaises(ValueError):
+            r.same(penalty.normalized_summary(base), penalty.normalized_summary(changed))
+
+    def test_v6_incomplete_roster_and_changed_sources_reject(self):
+        reg = r.decode(penalty.REGISTRATION.read_bytes())
+        manifest = {'campaign': 'rl-proposal-penalty-v6', 'algorithms': ['ppo'],
+                    'trainingEpisodeTransitions': 64, 'promotionAllowed': False, 'holdoutOpened': False,
+                    'registrationSha256': penalty.digest(penalty.REG.read_bytes()),
+                    'sourceHashes': reg['requiredSourceHashes'], 'python': '3.13.3', 'numpy': '2.3.5'}
+        summary = {'promotionAllowed': False, 'holdoutOpened': False, 'fits': [], 'records': []}
+        def data():
+            return {'manifest.json': json.dumps(manifest).encode(),
+                    'summary.json': json.dumps(summary).encode(), 'planned.json': b'[]'}
+        with self.assertRaisesRegex(ValueError, 'roster'): penalty.reconcile(data(), reg)
+        manifest['sourceHashes'] = {**manifest['sourceHashes'], 'unreviewed': '0'*64}
+        with self.assertRaisesRegex(ValueError, 'sources'): penalty.reconcile(data(), reg)
 
 
 if __name__ == '__main__':

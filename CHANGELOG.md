@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Research: preregister fresh-process numerical replication of all ten v6 PPO
+  fits. Add a strict versioned comparator for both economic and shaped training
+  traces, learned parameters, metadata and full trial rosters. Reject corrupted
+  rewards, altered actions, omitted episodes and unreviewed experiment sources.
+  Keep the older 32-step comparator and all trading/learning semantics unchanged.
+
 - Research: register a five-seed PPO intervention-penalty reward ablation against
   frozen unshaped PPO. Preserve economic evaluation, shield and legacy artifacts;
   archive separate training reward traces, explicit reward version and coefficient.

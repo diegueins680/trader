@@ -1,5 +1,5 @@
 {
-  "review": "Economic kernels and default learners unchanged. V4 explicitly selects offline families, checks both registered original buffer prefixes before any fit, refuses new offline training interactions, and verifies unchanged baselines. Prefix and full hashes bind different objects explicitly. No new safety theorem; source identity and conformance are not semantic proof. Horizon-v5 adds opt-in 64-transition training with unchanged 32 default, fixed interaction/update budgets and offline interaction guard. Pure maturity query generalized to integers 1..128; actual factory and terminal-cost conformance; no production or action change. V6 PPO wrapper returns shaped training reward but preserves underlying economic rows, observations, actions and state. Archive every training transition separately. Two extra real-number reward lemmas do not prove policy invariance or binary64 refinement.",
+  "review": "Economic kernels and default learners unchanged. V4 explicitly selects offline families, checks both registered original buffer prefixes before any fit, refuses new offline training interactions, and verifies unchanged baselines. Prefix and full hashes bind different objects explicitly. No new safety theorem; source identity and conformance are not semantic proof. Horizon-v5 adds opt-in 64-transition training with unchanged 32 default, fixed interaction/update budgets and offline interaction guard. Pure maturity query generalized to integers 1..128; actual factory and terminal-cost conformance; no production or action change. V6 PPO wrapper returns shaped training reward but preserves underlying economic rows, observations, actions and state. Archive every training transition separately. Two extra real-number reward lemmas do not prove policy invariance or binary64 refinement. October14 replication comparator: hashes authenticated within each archive before cross-run exclusions; all training/evaluation rows and decoded parameters compared; frozen source map must match exactly. No changed learner, data, policy or economic rule. Only separate fresh report file writable; filesystem/runtime semantics trusted.",
   "sha256": {
     "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
     "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
@@ -23,6 +23,9 @@
     "scripts/research/run_rl_horizon_v5.py": "ce983ec60808668b5c65eb44c3c9537ff719027f1763b829885e37c7158d21a0",
     "scripts/research/summarize_rl_horizon_v5.py": "909477e24e21b00d7000862424f059b5b7c7918b926bd0156682da6ecabc628e",
     "scripts/research/run_rl_penalty_v6.py": "97b6bf02b31c4a703e45f635fe878a1b043d836912fba92a9ab31d9ba651b047",
-    "scripts/research/summarize_rl_penalty_v6.py": "df2eb2daa27e9655e50942d783be95fcf7a71d68922127718d740c20a2837ce9"
+    "scripts/research/summarize_rl_penalty_v6.py": "df2eb2daa27e9655e50942d783be95fcf7a71d68922127718d740c20a2837ce9",
+    "scripts/research/compare_rl_penalty_replication.py": "a663245a6118c63571e8ffb2262730f52f9f51e64a926ba43167d3c34b6e182a",
+    "scripts/research/compare_rl_replication.py": "4d0afa5d092e9648b018f41427100351629f73a058621d31f7c79e6d966b6728",
+    "test/rl_replication_test.py": "b040f343b0a93c230a4b8f874a3a004a4ab818acc566889ba7ce7424521545c8"
   }
 }
