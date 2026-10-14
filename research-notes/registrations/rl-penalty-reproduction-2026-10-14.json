@@ -1,0 +1,131 @@
+{
+  "id": "rl-penalty-reproduction-2026-10-14",
+  "registeredOn": "2026-10-14",
+  "kind": "same_runtime_engineering_replication_not_new_financial_trial",
+  "verifiedMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "mainVerification": "https://github.com/diegueins680/trader/actions/runs/38313512581",
+  "branchBase": "e93c4e40616eeeb35ec6d83dee964719912fa53b",
+  "hypothesis": "The v6 PPO reward intervention finding and separate economic/training ledger traces reproduce under a fresh process and identical pinned settings. This closes an explicitly reported missing numerical retraining check, not a financial gate.",
+  "parentRegistration": "research-notes/registrations/rl-proposal-penalty-v6.json",
+  "parentIndexSha256": "60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+  "parentTrainingCommit": "045129705d266ae510e9f064ccc376512472f2d5",
+  "requiredSourceHashes": {
+    "research-notes/registrations/rl-proposal-penalty-v6.json": "e6574a5d6b2d4eb54735eb7646ffc3b961da23814fa2cd698431de7c7038d508",
+    "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+    "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+    "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+    "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+    "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+    "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+    "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+    "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+    "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
+    "scripts/research/run_rl_penalty_v6.py": "97b6bf02b31c4a703e45f635fe878a1b043d836912fba92a9ab31d9ba651b047",
+    "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+    "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+    "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+    "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+  },
+  "protocol": "Run unchanged v6 CLI once, all five seeds across both folds, all seven stresses and four rule controls. Ten fresh PPO fits,40960 fresh on-policy simulator transitions,378 evaluations,388 IDs. Preserve every failure. Do not modify learners, penalty, action extraction, shield, risk gates, data, checkpoints or seeds. Compare all training transitions and economic paths; no replacement fits or outcome-based stopping.",
+  "seeds": [
+    11,
+    23,
+    47,
+    71,
+    101
+  ],
+  "fits": 10,
+  "evaluationReplays": 378,
+  "newSelectionTrials": 0,
+  "newIndependentMarketSamples": 0,
+  "tolerance": {
+    "absolute": 1e-12,
+    "relative": 1e-12
+  },
+  "comparison": "Admit each full archive by explicit index trust anchor; strict campaign/roster/events/policy and training-trace identities; independently audit both training ledgers and both evaluation ledgers. Compare259 parameters per fit,40960 training rows and24192 evaluation rows. Integer actions, booleans, statuses and fields exact; only binary64 values use the registered tolerance. Frozen simulated buffers exact. No rerun results may replace the parent.",
+  "excludedComparisons": {
+    "manifest": [
+      "commit",
+      "proofLedgerSha256",
+      "platform"
+    ],
+    "fit": [
+      "seconds",
+      "inference",
+      "artifactSha256",
+      "artifactBytes",
+      "trainingRewardTraceSha256"
+    ],
+    "summary": [
+      "elapsedSeconds",
+      "maxRss",
+      "rssUnit"
+    ],
+    "policy": [
+      "sourceCommit",
+      "assuranceLedgerSha256",
+      "parametersLittleEndianHex"
+    ]
+  },
+  "exclusionConstraints": "Report both source/proof/platform identities; sourceHashes must equal the frozen reviewed parent map exactly. Verify policy and trace hashes within each archive before excluding them across archives. Decode parameters and compare all values; training traces compared separately. Metadata identity exclusions do not confer authenticity. Independent comparator is versioned; older v3/32-step comparator remains unchanged.",
+  "data": {
+    "availability": "ASSUMED closeTime+1ms; no historical first-seen witness; promotion blocked",
+    "contamination": "All rows are already exposed development data: earlier 45 adaptive trials and the September sequential screen. New methods are adaptive successors, not independent confirmation.",
+    "holdout": "No final holdout read or allocation. Existing 1227 returns and carry outcomes through 2027-01-20 remain protected. No raw full snapshots or collectors.",
+    "intervalMs": 28800000,
+    "license": "Binance provider terms; do not redistribute raw data",
+    "panelSha256": "09a09f0e1065733be623625fa0d67e6a67dad92c53cd8fa92b6d9caa1040674a",
+    "parentRegistration": "sequential-control-screen-v1.json",
+    "settlementsSha256": "2ccba74489f96b9ce0e58842594a524b7c306012086443cbea7305d4011ee899",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ]
+  },
+  "budget": {
+    "campaignWallMinutes": 15,
+    "fits": 10,
+    "paidCompute": false,
+    "persistentProcesses": false
+  },
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "TRADER_ENV_FILE": "",
+    "inheritedEnvironment": "env -i with explicit tool PATH only"
+  },
+  "decision": "Replication cannot overturn v6 rejection or fill missing champion, authentic publication times, untouched confirmation, real OPE or production assurance. Failure blocks reproducibility claim and is investigated without quietly increasing tolerance.",
+  "literatureRefresh": {
+    "date": "2026-10-14",
+    "queries": [
+      "site.aaai.org Deep Reinforcement Learning that Matters Henderson 2018 reproducibility",
+      "site.proceedings.neurips.cc Deep Reinforcement Learning at the Edge of the Statistical Precipice 2021 Agarwal"
+    ],
+    "scope": "Primary proceedings metadata/abstract refresh supporting repeatability protocol, not new full deep reviews or financial efficacy evidence. No paper PDFs or external code copied.",
+    "sources": [
+      {
+        "citation": "Henderson et al., Deep Reinforcement Learning That Matters, AAAI32(1),2018",
+        "url": "https://ojs.aaai.org/index.php/AAAI/article/view/11694",
+        "version": "published proceedings",
+        "status": "peer-reviewed",
+        "license": "No external code imported; paper redistribution rights not assumed",
+        "fit": "Separate numerical repeatability and random-seed variation; never count same-seed reruns as new market evidence."
+      },
+      {
+        "citation": "Agarwal et al., Deep Reinforcement Learning at the Edge of the Statistical Precipice, NeurIPS34,2021",
+        "url": "https://proceedings.neurips.cc/paper/2021/hash/f514cec81cb148559cf475e7426eed5e-Abstract.html",
+        "version": "published proceedings",
+        "status": "peer-reviewed",
+        "license": "No implementation imported; rliable license not newly audited",
+        "fit": "Few-run uncertainty cautions. Do not transplant independent-task intervals onto dependent market windows or equate reproducibility with significance."
+      }
+    ]
+  },
+  "enabledByDefault": false,
+  "promotionAllowed": false,
+  "liveAuthorization": false,
+  "publication": "Local only; scheduled all-state PR autoloop can push default branch and trigger deployment. No new PR, push or production changes."
+}
