@@ -4,6 +4,10 @@
   frozen unshaped PPO. Preserve economic evaluation, shield and legacy artifacts;
   archive separate training reward traces, explicit reward version and coefficient.
   Add scoped reward-decomposition lemmas and wrapper conformance tests.
+  Complete ten fits and 378 replays; independently reconcile 40,960 training
+  and 24,192 evaluation rows. Lower interventions still fail the 20% gate and
+  net returns trail matched momentum; reject integration. Retain all seeds,
+  frozen controls, corrupted-trace regressions and formal/source bindings.
 
 - Research: preregister a 64-step matched-training-horizon sensitivity for PPO,
   simulator Double DQN and frozen-data CQL, with five seeds and matched controls.

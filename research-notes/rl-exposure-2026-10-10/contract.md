@@ -72,3 +72,15 @@ not universal Python refinement. The same bounded lifecycle and accounting
 certificates apply; no unrelated mission obligation is closed. Remaining-time
 fraction and terminal liquidation define a finite-objective task, not a proof
 that this horizon is appropriate for continuing production operation.
+
+The separately registered `rl-proposal-penalty-v6` training wrapper returns
+`economic_reward - 0.02 * actionChanged` to PPO and copies both rewards to a
+separate trace. It never mutates the underlying economic rows, observations or
+state for a fixed action sequence. Evaluation uses the original unshaped
+Episode. The additional two exact-real SMT lemmas prove only decomposition
+and nonpositive shaping under a Boolean intervention, not policy invariance,
+floating-point refinement, economic improvement or constrained-RL guarantees.
+A source-bound independent auditor checks every recorded training transition,
+chronological maturity and terminal reset at tolerance1e-12. The
+[executed ablation](penalty-v6.md) meets its descriptive intervention-reduction
+target but fails unchanged economic/usability gates; it is not integrated.

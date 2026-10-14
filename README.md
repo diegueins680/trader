@@ -20,6 +20,10 @@ unshaped PPO. Run `python scripts/research/run_rl_penalty_v6.py
 --settlements <registered-development-settlements.csv> --output <fresh-directory>`.
 Economic evaluation retains the original ledger; every fresh training transition
 records economic and shaped rewards separately. This is disabled research only.
+The [executed reward-ablation report](research-notes/rl-exposure-2026-10-10/penalty-v6.md)
+retains ten fits and 378 replays. Mean PPO net return is +0.515% versus frozen
+unshaped PPO +0.437% and matched momentum +1.487%; interventions decrease
+47.135% to 35.052% but fail the unchanged 20% gate. Integration is rejected.
 
 The [matched-horizon registration](research-notes/registrations/rl-matched-horizon-v5.json)
 tests 64-step training against the frozen 32-step research reference, retaining

@@ -368,3 +368,7 @@ passes with 18 broad obligations open/partial. Financial execution: no real
 orders, live exploration or new live authorization; existing production
 activity is preserved.
 
+
+A separately registered [PPO reward ablation](penalty-v6.md) reuses these frozen
+results and all 168 controls. It does not change this archive or retroactively
+turn its development evidence into confirmation. The successor trains only PPO.
