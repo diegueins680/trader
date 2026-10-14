@@ -498,6 +498,24 @@ class HorizonTests(unittest.TestCase):
 
 
 class PenaltyTests(unittest.TestCase):
+    def test_independent_training_audit_rejects_reward_and_reset_corruption(self):
+        from copy import deepcopy
+        import rl_admission_v2 as v2
+        from run_rl_penalty_v6 import TrainingEpisode
+        from summarize_rl_penalty_v6 import training_audit
+        bars,events=fixture();rows=[]
+        for number in (1,2):
+            ep=TrainingEpisode(v2.Episode(bars,events,96,161,enabled=True),rows,number)
+            while not ep.done:ep.step(2 if len(ep.episode.rows)%3 else 0)
+        result=training_audit(rows,128,180)
+        self.assertEqual(result['episodes'],2)
+        changed=next(i for i,r in enumerate(rows) if r['actionChanged'])
+        for key,value in (('trainingReward',rows[changed]['reward']),('gross',999.),('trainingStop',181)):
+            corrupt=deepcopy(rows);corrupt[changed][key]=value
+            with self.assertRaises(ValueError):training_audit(corrupt,128,180)
+        corrupt=deepcopy(rows);corrupt[63]['terminal']=False
+        with self.assertRaisesRegex(ValueError,'free training reset'):training_audit(corrupt,128,180)
+
     def test_wrapper_preserves_ledger_actions_and_observations(self):
         import rl_admission_v2 as v2
         from run_rl_penalty_v6 import TrainingEpisode, PENALTY

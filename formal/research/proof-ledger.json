@@ -684,7 +684,8 @@
     "formal/research/rl-bridge-diagnostic-source.json",
     "scripts/research/run_rl_horizon_v5.py",
     "scripts/research/summarize_rl_horizon_v5.py",
-    "scripts/research/run_rl_penalty_v6.py"
+    "scripts/research/run_rl_penalty_v6.py",
+    "scripts/research/summarize_rl_penalty_v6.py"
   ],
   "entries": [
     {
@@ -8124,7 +8125,8 @@
         "scripts/research/summarize_rl_offline_data_v4.py",
         "scripts/research/run_rl_horizon_v5.py",
         "scripts/research/summarize_rl_horizon_v5.py",
-        "scripts/research/run_rl_penalty_v6.py"
+        "scripts/research/run_rl_penalty_v6.py",
+        "scripts/research/summarize_rl_penalty_v6.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
