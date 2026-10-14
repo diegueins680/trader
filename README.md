@@ -8,6 +8,9 @@ archives with `python scripts/research/compare_rl_penalty_replication.py
 --output <new-report.json>`. This command checks every trained parameter and
 training/evaluation trace; it cannot train, promote or authorize a policy.
 Reruns are not new selection trials or independent financial evidence.
+The [executed replication](research-notes/rl-exposure-2026-10-10/penalty-v6.md#fresh-process-replication-2026-10-14)
+reproduces 2,590 parameters, 40,960 training rows and 24,192 evaluation rows
+within1e-12. The economic/intervention rejection remains unchanged.
 
 The research-only inference timing diagnostic runs with
 `python scripts/research/diagnose_rl_bridge.py --run-registered --output /path/to/new-directory`.

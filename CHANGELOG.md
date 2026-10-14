@@ -5,6 +5,8 @@
   traces, learned parameters, metadata and full trial rosters. Reject corrupted
   rewards, altered actions, omitted episodes and unreviewed experiment sources.
   Keep the older 32-step comparator and all trading/learning semantics unchanged.
+  Complete ten fresh fits/378 replays; all parameters and full training/evaluation
+  traces reproduce within1e-12. No new financial sample or adoption claim.
 
 - Research: register a five-seed PPO intervention-penalty reward ablation against
   frozen unshaped PPO. Preserve economic evaluation, shield and legacy artifacts;

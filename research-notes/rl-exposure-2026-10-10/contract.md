@@ -84,3 +84,13 @@ A source-bound independent auditor checks every recorded training transition,
 chronological maturity and terminal reset at tolerance1e-12. The
 [executed ablation](penalty-v6.md) meets its descriptive intervention-reduction
 target but fails unchanged economic/usability gates; it is not integrated.
+
+The October14 v6 replication checker admits both complete byte snapshots by
+explicit index trust anchors, verifies policy/trace hashes and full rosters,
+audits both ledgers, then compares all parameters and training/evaluation rows
+under fixed1e-12 tolerances. Only registered timing/provenance metadata may
+differ, and excluded identities are separately bound and reported. Reviewed
+source hashes must equal the frozen experiment map. It is a read-only archive
+consumer plus an exclusive new report writer; it has no training or order
+interface. These are source-binding/conformance claims, not new SMT theorems
+or authenticity, universal runtime or financial guarantees.

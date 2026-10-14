@@ -210,8 +210,9 @@ bash scripts/verify.sh full
 Use pinned Python 3.13.3/NumPy 2.3.5/Z3-solver 4.15.4.0/GHC 9.4.8/Node 20.19.0,
 clean `env -i`, explicit tool PATH, empty `TRADER_ENV_FILE` to prevent local
 credential-file discovery, and `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1`.
-No second independent v6 training replication has been performed; deterministic
-fixtures and archive reconciliation are distinct from numerical retraining.
+At the original October 13 delivery, no second independent v6 training
+replication had been performed. The October 14 continuation below now records
+fresh-process numerical retraining; deterministic fixtures alone did not do so.
 
 The current champion and historical vintages are unavailable. The user authorized
 continuation without that export; adoption remains blocked. No trading credentials
@@ -268,3 +269,74 @@ against the final committed tree. No branch push or PR is performed because of
 the documented automation side effects. The pre-existing `.playwright-mcp/`
 directory, production application, workflows, deployment and authorization
 configuration remain unchanged.
+
+## Fresh-process replication, 2026-10-14
+
+The [preregistered repeatability check](../registrations/rl-penalty-reproduction-2026-10-14.json)
+completed all ten fresh PPO fits and 378 replays without a failed fit or path.
+No learner, coefficient, data, execution assumption, shield, checkpoint rule or
+seed changed. All 15 experiment source hashes equal the frozen parent; remote
+main and its latest successful CI were rechecked and still identify
+`0b76f2b879f75f5c669fe944a14ea6700d446240`. Registration was committed as
+`e0ca94459d4e9676ae1df6685a457f0cf80e8225` before the rerun.
+
+The [complete comparison](penalty-v6-reproduction/replication.json) passes for
+2,590 trained parameters, 40,960 training transitions across 643 episodes and
+24,192 evaluation rows across 378 paths. Each archive independently passes
+roster/event reconciliation, policy/trace hash binding, training chronology and
+reward/economic ledger audits before comparison. Integer actions, Boolean
+flags, fields, episode boundaries and statuses match exactly; floating values
+use absolute/relative tolerance 1e-12. Both simulated buffers match exactly.
+Zero violations were detected in the scoped audits; terminal combined
+fill/liquidation and universal runtime-refinement limitations remain as above.
+The comparator rejects the same archive path and requires the registered parent
+index. Hashes establish identity under supplied trust anchors, not authenticity
+or proof that an arbitrary third party executed training. Our fresh execution
+is separately recorded in the campaign log.
+
+The unchanged mean net return is +0.515%, with seed means
++0.159/+1.647/+0.052/-0.748/+1.464% in seed order 11/23/47/71/101.
+Mean intervention 35.052% still fails the 20% gate; frozen momentum remains
++1.487%. Severe costs still produce -0.056%. Previous dependence-aware
+intervals and all other economic results reproduce; no new hypothesis test,
+market sample or selection trial is claimed. This is numerical reproducibility
+on the same pinned software/platform, not independent implementation,
+cross-hardware bitwise determinism, new statistical power or confirmation.
+No CQL/DDQN retraining occurred in this continuation.
+
+The campaign timer was 192.381s; fit/artifact/trace-write/warm-benchmark time
+totaled 122.347s, not process CPU time. Peak RSS was 104,247,296 bytes;
+largest policy 5,034 bytes; worst warm Python p99 was 0.1314ms. These figures
+exclude operational load/latency/concurrency guarantees. The
+[run summary](penalty-v6-reproduction/run-summary.json) retains every fit's
+seed, timing, loss endpoints, training failures, audit sums and artifact hashes.
+The complete 388-event registry and newly executed economic records are in
+the authenticated archive, outside Git.
+
+Archive: `.tmp/research/rl-penalty-reproduction-20261014`; index SHA-256
+`521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513`.
+Run the same v6 training command above into a fresh directory. Compare it using
+`python scripts/research/compare_rl_penalty_replication.py --parent <frozen-v6>
+--replica <new-v6> --parent-sha256 <registered-parent-index>
+--replica-sha256 <new-index> --output <new-report.json>`. Unlike the legacy
+32-step comparator, this explicitly requires the 64-step penalty schema and
+compares every shaped/economic training row. It writes one new report outside
+both archives and cannot train, infer, promote or access an exchange. Eleven
+archive regressions exercise malformed policies, parameter values, reward/action
+corruption, missing rows, source drift and exclusion boundaries.
+
+An October 14 primary-proceedings metadata/abstract refresh rechecked
+[Henderson et al. (AAAI 2018)](https://ojs.aaai.org/index.php/AAAI/article/view/11694)
+on RL reproducibility and
+[Agarwal et al. (NeurIPS 2021)](https://proceedings.neurips.cc/paper/2021/hash/f514cec81cb148559cf475e7426eed5e-Abstract.html)
+on few-run evaluation uncertainty. Neither establishes financial efficacy.
+Their role here is to separate numerical repetition, seed variability and market
+uncertainty; no independent-task bootstrap was transplanted to dependent markets.
+Queries, versions, disposition and redistribution/code-license limitations are
+recorded in the registration. No PDFs or external implementations were imported.
+
+The repeatability gap is closed for this exact numerical package. Adoption stays
+rejected: champion vintages, authentic availability, untouched confirmation,
+real-log OPE and production safety/inference integration remain absent. The
+18 broad formal obligations are unchanged; no new theorem or live authority
+follows from equality of observed traces.

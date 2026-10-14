@@ -3482,7 +3482,7 @@
       "F-RL-COMPOSE-ARITH": "unsat"
     },
     "source": {
-      "files": 23,
+      "files": 26,
       "scope": "reviewed complete source digests and direct effect names; trusted transitive NumPy/kernel/runtime, not OS capability security",
       "status": "exhaustively_checked"
     }
@@ -4142,7 +4142,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "a096f1a0aec1019e996539271ef0dd85eb5d5d198f35c8401168a7a83228bf14",
+    "formal/research/proof-ledger.json": "a33b0e3cbd7bdf4efc211fded7cf1df605306189555d8b40db118950e91e18a1",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4163,7 +4163,7 @@
     "formal/research/reward-accounting-contract.md": "6c4d37a871d2b957a6417527a68f0454796386b6ee15d2456362fd0076b397ec",
     "formal/research/reward-accounting-fixtures.json": "91a15e487effa7826ea8fbb85ce9ee9df70a050e59fac18c59efc25d9b350cad",
     "formal/research/rl-bridge-diagnostic-source.json": "36594004cd66866cff66ca38ea89f77d8ed0e30b1bb6336d4f0859035cc471e2",
-    "formal/research/rl-composition-source.json": "5d9d50c3f68b283436fa76de8ea1771476310bf02e989c6fef8b93b0d8d6288a",
+    "formal/research/rl-composition-source.json": "ffc4a2b4f7e1a50189167a21ef29ce57b8ed42f063d9207de2abc998e9c0d1cf",
     "formal/research/round-min-cap-counterexample.json": "9d80fd1193755796c09eb86b76a5dda625439f9b2b565f0521f6d3986bdea06a",
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
@@ -4379,6 +4379,7 @@
     "research-notes/registrations/research-data-composition-engineering.json": "b88cedd60593b144b6bc3786615e3846d028b3c1bd40f73a6774bdcf73317de9",
     "research-notes/registrations/reward-accounting-audit-engineering.json": "aa7677a5631e9080487b7ead87f16ca5aa45780abc35f243e874f75835a1e34b",
     "research-notes/registrations/rl-offline-data-v4.json": "1977f18567854066b142067133724ff35e4dc2e2aba813606daee65a248b4ac2",
+    "research-notes/registrations/rl-penalty-reproduction-2026-10-14.json": "3c06c5f219914bd6d7600e0df93f1dac9813b88aca1bd20605246e7051510628",
     "research-notes/registrations/rl-training-budget-v3.json": "940988e8396245d3700bcb6237547b432259eb7ebb3d76c6fb3af4bc216e2d4e",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "research-notes/registrations/shutdown-deadline-engineering.json": "fc3a495df2ee75b347600bdb30b342b90dde8ffab91470e249533f5cb52860f3",
@@ -4463,6 +4464,8 @@
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/compare_rl_observations_v2.py": "75c9f2a86d16d76992c91e4b4751045b89556e9d4cc4347cc46215acfa899ad6",
+    "scripts/research/compare_rl_penalty_replication.py": "a663245a6118c63571e8ffb2262730f52f9f51e64a926ba43167d3c34b6e182a",
+    "scripts/research/compare_rl_replication.py": "4d0afa5d092e9648b018f41427100351629f73a058621d31f7c79e6d966b6728",
     "scripts/research/diagnose_rl_bit_transport.py": "f4a89bb4fef1f7d42889f5e947da6c47f856f9ed13f2cea816c8ed531a71fe65",
     "scripts/research/diagnose_rl_bridge.py": "26f2cf215cb905657b1ec2e153745fe47d31680b9a19f6f407b45255b3cad38c",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
@@ -4499,6 +4502,7 @@
     "scripts/verify.sh": "73540be0c08b7005b7003a5330b2d68656d116d3cf41879b9c3950a0b8892b76",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/rl_composition_test.py": "82314d6b069e0f579bb47dea202cfa60028240275144023625cb0755d5b61df0",
+    "test/rl_replication_test.py": "b040f343b0a93c230a4b8f874a3a004a4ab818acc566889ba7ce7424521545c8",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
   },
   "splitIsolation": {

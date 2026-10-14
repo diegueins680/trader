@@ -1,0 +1,44 @@
+{
+  "absoluteTolerance": 1e-12,
+  "audits": [
+    {
+      "detectedViolations": 0,
+      "evaluationPaths": 378,
+      "evaluationRows": 24192,
+      "fits": 10,
+      "parameters": 2590,
+      "trainingEpisodes": 643,
+      "trainingRows": 40960
+    },
+    {
+      "detectedViolations": 0,
+      "evaluationPaths": 378,
+      "evaluationRows": 24192,
+      "fits": 10,
+      "parameters": 2590,
+      "trainingEpisodes": 643,
+      "trainingRows": 40960
+    }
+  ],
+  "evaluationRowsCompared": 24192,
+  "holdoutOpened": false,
+  "newIndependentMarketSamples": 0,
+  "newSelectionTrials": 0,
+  "parametersCompared": 2590,
+  "parentCommit": "045129705d266ae510e9f064ccc376512472f2d5",
+  "parentIndexSha256": "60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+  "parentPlatform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "parentProofLedgerSha256": "eb26f5a58f172e72b28ed608d3682952f219dce88df1965ad97302605b138de6",
+  "promotionAllowed": false,
+  "registrationSha256": "3c06c5f219914bd6d7600e0df93f1dac9813b88aca1bd20605246e7051510628",
+  "relativeTolerance": 1e-12,
+  "replicaCommit": "e0ca94459d4e9676ae1df6685a457f0cf80e8225",
+  "replicaIndexSha256": "521eb83ef7b09bde69111c26886cd5e12ce630ed1b4c9cb6b87eea900c6e1513",
+  "replicaPlatform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+  "replicaProofLedgerSha256": "a096f1a0aec1019e996539271ef0dd85eb5d5d198f35c8401168a7a83228bf14",
+  "schema": "rl-penalty-replication-v1",
+  "scope": "Same-runtime fresh-process retraining and full-trace numerical comparison; no cross-hardware guarantee, mathematical proof or financial confirmation.",
+  "sourceDifferences": {},
+  "status": "reproduced_within_tolerance",
+  "trainingRowsCompared": 40960
+}
