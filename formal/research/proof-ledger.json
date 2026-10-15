@@ -688,7 +688,9 @@
     "scripts/research/summarize_rl_penalty_v6.py",
     "scripts/research/compare_rl_penalty_replication.py",
     "scripts/research/compare_rl_replication.py",
-    "test/rl_replication_test.py"
+    "test/rl_replication_test.py",
+    "scripts/research/run_rl_extraction_v7.py",
+    "test/rl_extraction_test.py"
   ],
   "entries": [
     {
@@ -8131,17 +8133,19 @@
         "scripts/research/run_rl_penalty_v6.py",
         "scripts/research/summarize_rl_penalty_v6.py",
         "scripts/research/compare_rl_penalty_replication.py",
-        "scripts/research/compare_rl_replication.py"
+        "scripts/research/compare_rl_replication.py",
+        "scripts/research/run_rl_extraction_v7.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",
         "formal/research/ReplayAccountingV2.hs",
-        "test/rl_replication_test.py"
+        "test/rl_replication_test.py",
+        "test/rl_extraction_test.py"
       ],
       "ciCommand": "bash scripts/verify.sh formal",
       "result": "Must reproduce source locks, nine SAT/UNSAT pairs, reachable finite model and eight Haskell exact ledger cases.",
       "bounds": "Three proposal actions; one pending reservation; two abstract caller identities; eight model steps; exact rational kernel max8192 bits; 12 binary64 inputs; 16 hidden units.",
-      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. Budget-v3 changes only registered orchestration, comparator injection and fixed-data identity checks. Its source identity is included; no new theorem or broad obligation closure is inferred. Offline-data-v4 adds subset/prefix identity checks, a forbidden offline interaction factory and parent comparison auditing. No new theorem or closure of open obligations. Horizon-v5 changes finite training length only; new factory conformance and generalized maturity lemma cover horizons 1..128. Sample distribution and reset frequency change; no additional broad obligation closure. The October14 v6 replica comparator validates both archive identities, complete training/economic traces and learned parameters within registered tolerance; identity checks and conformance do not prove financial efficacy or cross-hardware determinism. No new theorem or broad mission closure.",
+      "limitations": "Trusted CPython3.13.3 and NumPy2.3.5, exact bounded Fraction kernel, stable ordinary objects and owned immutable sessions, no hostile reflection/monkeypatching; truthful funding/clock inputs (historical availability is only assumed), sufficient resources. The single-process simulator has one pending slot; no production concurrency claim. Digest binding and conformance do not constitute compiler/runtime refinement. No original38 status is closed by this addition. Pilot artifacts have no Haskell inference admission or actual production reservation. Budget-v3 changes only registered orchestration, comparator injection and fixed-data identity checks. Its source identity is included; no new theorem or broad obligation closure is inferred. Offline-data-v4 adds subset/prefix identity checks, a forbidden offline interaction factory and parent comparison auditing. No new theorem or closure of open obligations. Horizon-v5 changes finite training length only; new factory conformance and generalized maturity lemma cover horizons 1..128. Sample distribution and reset frequency change; no additional broad obligation closure. The October14 v6 replica comparator validates both archive identities, complete training/economic traces and learned parameters within registered tolerance; identity checks and conformance do not prove financial efficacy or cross-hardware determinism. No new theorem or broad mission closure. V7 frozen policy extraction is identity-bound and conformance-tested only; finite RNG, categorical floating-point rounding and runtime correspondence remain trusted. No new SMT theorem or production capability isolation claim.",
       "counterexample": null,
       "status": "exhaustively_checked"
     },

@@ -91,6 +91,7 @@ verify_formal() {
   run_step "formal specification coverage" node "$ROOT_DIR/scripts/verify-formal-specs.mjs"
   run_step "proof ledger and model regression tests" "$formal_python" "$ROOT_DIR/scripts/formal/test_integrity.py"
   run_step "RL archive replication regressions" "$formal_python" "$ROOT_DIR/test/rl_replication_test.py"
+  run_step "RL frozen extraction regressions" "$formal_python" "$ROOT_DIR/test/rl_extraction_test.py"
   run_step "RL inference diagnostic regressions" "$formal_python" "$ROOT_DIR/test/rl_bridge_diagnostic_test.py"
   run_step "causal RL learner and accounting regressions" "$formal_python" "$ROOT_DIR/test/rl_composition_test.py"
   run_step "SMT, state model and Haskell conformance" "$formal_python" "$ROOT_DIR/scripts/formal/verify.py"

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Research: register and add disabled frozen PPO categorical-versus-greedy extraction diagnostic, with all-seed/stress replay, strict artifact identity, proposal probability traces, independent ledger auditing and frozen-control parity. No policy training, promotion, production authorization or holdout access.
+
 - Research: preregister fresh-process numerical replication of all ten v6 PPO
   fits. Add a strict versioned comparator for both economic and shaped training
   traces, learned parameters, metadata and full trial rosters. Reject corrupted

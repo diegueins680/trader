@@ -94,3 +94,19 @@ source hashes must equal the frozen experiment map. It is a read-only archive
 consumer plus an exclusive new report writer; it has no training or order
 interface. These are source-binding/conformance claims, not new SMT theorems
 or authenticity, universal runtime or financial guarantees.
+
+### Frozen extraction diagnostic v7 (2026-10-14)
+
+The registered v5/v6 PPO actors have stochastic training policies and greedy
+historical deployment decoders. Both prior evaluations retain their original
+meaning. V7 adds a separately identified, default-disabled categorical decoder,
+with no parameter updates. It validates length, mass, finiteness and the uniform
+range, then uses normalized probabilities and half-open inverse-CDF intervals.
+The exact numerical algorithm is conformance-tested against NumPy choice and
+analytical boundaries; this is not a binary64 or RNG theorem. Proposal probability
+is not the probability of the many-to-one shielded action. Shield, ledger,
+normalization and execution remain unchanged. Registered greedy/control replay
+parity and independent trace audits must pass. The existing nine composition
+queries, two admission lemmas, finite lifecycle and Haskell rational witnesses
+remain conditional evidence; none establishes profitability or closes the
+18 open/partial broad obligations. No Haskell inference admission of v7 artifacts.
