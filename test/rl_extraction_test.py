@@ -68,6 +68,18 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(sum(r['algorithm'].endswith('_greedy') for r in rows),420)
         with self.assertRaises(ValueError):v7.roster({**reg,'actionSeeds':[19,19,59,83,109]})
 
+    def test_exact_registered_snapshot_consumer_only(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/formal'))
+        from shield_consumers import research_importers
+        path='scripts/research/run_rl_extraction_v7.py'
+        source=(v7.ROOT/path).read_text()
+        self.assertEqual(research_importers({path:source}),
+                         [[path,'from optimizer_snapshot_v2 import Snapshot']])
+        for name,text in ((path,source+'\n'),('scripts/research/unreviewed.py',source),
+                          (path,source.replace('from optimizer_snapshot_v2 import Snapshot',
+                                               'from optimizer_snapshot_v2 import Snapshot, update_v2'))):
+            with self.assertRaises(ValueError):research_importers({name:text})
+
     def test_continuation_keeps_failed_prefix_and_rejects_replacement(self):
         reg=v7.decode(v7.REG.read_bytes());plan=v7.roster(reg)
         source=v7.subprocess.check_output(['git','rev-parse','9bd904a6'],text=True).strip()

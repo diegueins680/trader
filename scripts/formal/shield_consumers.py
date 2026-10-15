@@ -31,6 +31,7 @@ COMPOSITION_IMPORTS = {
         'from value_objective_v2 import objective_v2',
     },
     'scripts/research/run_rl_composition.py': {'from causal_replay_v3 import Bar'},
+    'scripts/research/run_rl_extraction_v7.py': {'from optimizer_snapshot_v2 import Snapshot'},
 }
 DIAGNOSTIC_IMPORTS = {
     'from ppo_successor_v2 import train_ppo_v2',
