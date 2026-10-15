@@ -1,0 +1,340 @@
+{
+  "schema": "rl-extraction-verification-v1",
+  "date": "2026-10-14",
+  "status": "blocked_global_verification",
+  "verifiedMain": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "checkedCodeCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+  "commands": [
+    {
+      "command": [
+        "python",
+        "scripts/formal/verify.py",
+        "--record"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "8c9a500b138192a6b7f024689ee7b8c4df4c1813",
+      "exitCode": 1,
+      "elapsedSeconds": 3.141655298008118,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/formal-record.log",
+      "logSha256": "ec8dd1efdb1646190c279b3f38768a6d1b0c7690f284c721ff9679ad39cadc8a"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/formal/verify.py",
+        "--record"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "26f098244894463027532066caa244ce94b24a04",
+      "exitCode": 1,
+      "elapsedSeconds": 346.5973208829964,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/formal-record-retry1.log",
+      "logSha256": "75f84a216ee824f01989981cefa7dd5267a5a8695dadd6983cfaac04b78003d4"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/formal/verify.py",
+        "--record"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "26f098244894463027532066caa244ce94b24a04",
+      "exitCode": 1,
+      "elapsedSeconds": 261.3027753030037,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/formal-record-retry2.log",
+      "logSha256": "49d7f26f645e6364ccb73f9e9b8480c096a14880c891add30ed203fa6102eca6"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/verify.sh",
+        "full"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "42251e6c26fec43926e530f57bd3eaa2db49f308",
+      "exitCode": 1,
+      "elapsedSeconds": 603.8079416879918,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/full.log",
+      "logSha256": "dab95b139484c2f11d808f0c5d016597520e4ce6b3e8db4430fd9340903f716a"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/formal/rl_composition_check.py"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "26f098244894463027532066caa244ce94b24a04",
+      "exitCode": 0,
+      "elapsedSeconds": 5.540445097009069,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/scoped-formal.log",
+      "logSha256": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/formal/test_integrity.py",
+        "ShieldConsumerTests.test_source_origin_and_repeated_call_model",
+        "PointInTimeTests.test_full_shield_composition_includes_new_entry"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 18.505415124993306,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/consumer-regressions.log",
+      "logSha256": "86ce27b0753635cbeae03db7370435950c9115f4d84e0191441836cbaf4e1dc0"
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "test",
+        "-p",
+        "rl_*_test.py"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 19.587942591999308,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/research-tests.log",
+      "logSha256": "87288cc0c0264769625517a27dc2436c34137a2f7e2890ee389ed1f0629f1209"
+    },
+    {
+      "command": [
+        "python",
+        "scripts/formal/rl_composition_check.py"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 4.014010279002832,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/scoped-formal-final.log",
+      "logSha256": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/verify.sh",
+        "haskell"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 1096.6952388710051,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/haskell.log",
+      "logSha256": "6d3af79b9d9acd1d91bc6cc085ec7d4eb97d050acd8756953af13da2408d9233"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/verify.sh",
+        "web"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 27.74869847598893,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/web.log",
+      "logSha256": "0687af1b5913dfc59a78da48f6d5d4180f8e68396d3153c96ff6357ea91e493c"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/verify.sh",
+        "automation"
+      ],
+      "cwd": "/Users/diegosaa/GitHub/trader",
+      "sourceCommit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "exitCode": 0,
+      "elapsedSeconds": 123.21090996300336,
+      "environment": {
+        "PATH": "/Users/diegosaa/GitHub/trader/.tmp/rl-reproduction-20261013/node-v20.19.0-darwin-x64/bin:/Users/diegosaa/GitHub/trader/.tmp/rl-20261013-venv/bin:/Users/diegosaa/.ghcup/bin:/Users/diegosaa/.local/bin:/usr/local/bin:/usr/bin:/bin",
+        "TRADER_ENV_FILE": "",
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "log": ".tmp/rl-extraction-20261014/logs/automation.log",
+      "logSha256": "49b02e88f3be0a5ce724d8b1d05745b256c1e8fb2bc9770a38db7a5a24623719"
+    }
+  ],
+  "campaign": {
+    "initialSourceCommit": "9bd904a66e82c5829ddfb7f463e1ece8939a7955",
+    "continuationSourceCommit": "8c9a500b138192a6b7f024689ee7b8c4df4c1813",
+    "initialExitCode": 1,
+    "continuationExitCode": 0,
+    "initialStop": {
+      "reason": "registered_wall_budget",
+      "exitCode": 1,
+      "elapsedSecondsLowerBound": 1200,
+      "observedLogLifetimeSeconds": 1202.044533252716,
+      "clockScope": "OS log creation-to-last-write interval, includes interpreter startup; not process CPU time",
+      "completedIds": 2064,
+      "remainingIds": 624,
+      "logSha256": "b725e4fc125521f2b94c7f67e73c084893763a46a348725c0dd612dddf755bb5"
+    },
+    "continuationSeconds": 432.11707698900136,
+    "planned": 2688,
+    "completed": 2688,
+    "evaluatedTransitions": 172032,
+    "failedPaths": 0,
+    "greedyControlParityPaths": 588,
+    "newTrainingSteps": 0,
+    "independentAuditExitCode": 0,
+    "detectedScopedAuditViolations": 0,
+    "parentIndexSha256": "dae263af91f16585e14686620b810d2cb33be3458ae2de668d515fcd3b044702",
+    "completeIndexSha256": "2f7bf0d9f8c0f987e4438e12af0a69e985243a44e06420a30f17dede3036f58f"
+  },
+  "corrections": [
+    {
+      "failure": "wrapper source pin omission",
+      "commit": "26f098244894463027532066caa244ce94b24a04"
+    },
+    {
+      "failure": "two missing immutable Snapshot consumer-registration errors",
+      "commit": "23c6e314155fe68953cbb453772602f2c5637631",
+      "targetedRegressionsPassed": 2
+    }
+  ],
+  "unresolved": [
+    "startup_hang worker exceeded unchanged3s conformance limit; cleanup then raised Errno66",
+    "default-mode worker exceeded unchanged3s conformance limit on unchanged retry",
+    "full wrapper PPO bad_reply bridge fixture exceeded unchanged3s conformance limit",
+    "global certificate remains stale; no successful full wrapper after consumer fix",
+    "18 broad assurance obligations remain partial/open; no production eligibility",
+    "registered ES95 field is4/64 tail proxy, not exact5% expected shortfall"
+  ],
+  "rootCause": "undetermined; host contention possible but not established",
+  "fullIntegritySuite": {
+    "tests": 343,
+    "errors": 3,
+    "passed": 340,
+    "skipped": 0,
+    "seconds": 590.242
+  },
+  "freshResearchTests": {
+    "total": 57,
+    "learnerAccounting": 33,
+    "archive": 11,
+    "extraction": 9,
+    "bridgeDiagnostic": 4
+  },
+  "scope": {
+    "sourceIdentities": 29,
+    "compositionSMTQueries": 9,
+    "admissionSMTLemmas": 2,
+    "lifecycleStates": 43,
+    "lifecycleTransitions": 107,
+    "lifecycleDepth": 8,
+    "haskellRationalWitnesses": 8
+  },
+  "unreachedWithinFull": [
+    "archive/extraction/bridge/learner regression commands (covered by separate57-test run)",
+    "global certificate comparison (remains blocked)",
+    "Haskell/web/automation wrappers (all run separately)"
+  ],
+  "unavailableTools": [],
+  "deadlinesRelaxed": false,
+  "checksDisabled": false,
+  "globalReceiptRegenerated": false,
+  "fixtureProcessesObservedAfterFailure": false,
+  "signalsSent": false,
+  "promotionAllowed": false,
+  "holdoutOpened": false,
+  "newLiveAuthorization": false,
+  "push": false,
+  "pullRequest": null,
+  "publicationBlocker": "scheduled all-state PR-review autoloop can feed default-branch deployment",
+  "priorHistory": "research-notes/rl-exposure-2026-10-10/penalty-v6-results/verification.json",
+  "logs": {
+    ".tmp/rl-extraction-20261014/logs/archive-audit.log": "401ee5ff2eb8bcddb73764a9d4001564108a5244cd1a254c50a36d94990a585c",
+    ".tmp/rl-extraction-20261014/logs/automation-command.json": "9c4dd74b5da1a516fd54086d76cb2f2833133086bdf28430b6c30a01469e9e5e",
+    ".tmp/rl-extraction-20261014/logs/automation.log": "49b02e88f3be0a5ce724d8b1d05745b256c1e8fb2bc9770a38db7a5a24623719",
+    ".tmp/rl-extraction-20261014/logs/campaign.log": "b725e4fc125521f2b94c7f67e73c084893763a46a348725c0dd612dddf755bb5",
+    ".tmp/rl-extraction-20261014/logs/consumer-regressions-command.json": "52fe6baa9bd1e53e6e1190d2d912302e28bb89816d39d7747940cdd56316d4c9",
+    ".tmp/rl-extraction-20261014/logs/consumer-regressions.log": "86ce27b0753635cbeae03db7370435950c9115f4d84e0191441836cbaf4e1dc0",
+    ".tmp/rl-extraction-20261014/logs/continuation.log": "3ef33d0e237843e10186866d031c8d576fb8da96c7906bf296df5d4c158d433e",
+    ".tmp/rl-extraction-20261014/logs/extraction-tests.log": "186ae6cb06c03e2796436f1b1a8621b15601bafec6254f64de9a33a108dbaa28",
+    ".tmp/rl-extraction-20261014/logs/formal-record-command.json": "7cb1e6943519adc726b23ccb81f3c60df03adaeea2a48362b9dcf0220d479d44",
+    ".tmp/rl-extraction-20261014/logs/formal-record-retry1-command.json": "2c352d1b11392a0be0c9ca6db2da11e5740d25b0743665d24071abc48a961e77",
+    ".tmp/rl-extraction-20261014/logs/formal-record-retry1.log": "75f84a216ee824f01989981cefa7dd5267a5a8695dadd6983cfaac04b78003d4",
+    ".tmp/rl-extraction-20261014/logs/formal-record-retry2-command.json": "65c817d81077ade792cf2c808d8eafa637bdf430e220b0a4f749a6e2aba2044b",
+    ".tmp/rl-extraction-20261014/logs/formal-record-retry2.log": "49d7f26f645e6364ccb73f9e9b8480c096a14880c891add30ed203fa6102eca6",
+    ".tmp/rl-extraction-20261014/logs/formal-record.log": "ec8dd1efdb1646190c279b3f38768a6d1b0c7690f284c721ff9679ad39cadc8a",
+    ".tmp/rl-extraction-20261014/logs/full-command.json": "6c761c9a803d8211b4552c63a018891c929b35cd5e65c3a0d4c33f477f27b7bd",
+    ".tmp/rl-extraction-20261014/logs/full.log": "dab95b139484c2f11d808f0c5d016597520e4ce6b3e8db4430fd9340903f716a",
+    ".tmp/rl-extraction-20261014/logs/haskell-command.json": "60e3da571e8f8c5791f6a86add0e2f540f6c410ff6b41c41ee97df374c165044",
+    ".tmp/rl-extraction-20261014/logs/haskell.log": "6d3af79b9d9acd1d91bc6cc085ec7d4eb97d050acd8756953af13da2408d9233",
+    ".tmp/rl-extraction-20261014/logs/research-tests-command.json": "dd2b4aa34ab4f00689db0118e94fb0576ae239f51dbe03a6b4a97d5dc682ccb0",
+    ".tmp/rl-extraction-20261014/logs/research-tests.log": "87288cc0c0264769625517a27dc2436c34137a2f7e2890ee389ed1f0629f1209",
+    ".tmp/rl-extraction-20261014/logs/scoped-formal-command.json": "c17842eaa23d6c8f1ece7f3747731c8a83ecd6e0075ed6794d10ca7d720734a7",
+    ".tmp/rl-extraction-20261014/logs/scoped-formal-final-command.json": "77bea93a2b6e75520c34b41472634247b066fd2bc0471f3663a44ce617072770",
+    ".tmp/rl-extraction-20261014/logs/scoped-formal-final.log": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28",
+    ".tmp/rl-extraction-20261014/logs/scoped-formal.log": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28",
+    ".tmp/rl-extraction-20261014/logs/startup-hang-incident.json": "722695c79ce6fd281b5cdb5e5a943293096b5458b2bfca757ccd9bf54bb2a2ff",
+    ".tmp/rl-extraction-20261014/logs/startup-hang.pid": "db1947760aa86364feed8c78e6f745a258e8d13cab5c30b10bbcf56f9c786322",
+    ".tmp/rl-extraction-20261014/logs/web-command.json": "b64a6525d0dcf5fdf51b13e7324f25b4164fd2482a1c07666321da5f440edc8a",
+    ".tmp/rl-extraction-20261014/logs/web.log": "0687af1b5913dfc59a78da48f6d5d4180f8e68396d3153c96ff6357ea91e493c"
+  }
+}

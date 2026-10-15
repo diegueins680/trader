@@ -372,3 +372,12 @@ activity is preserved.
 A separately registered [PPO reward ablation](penalty-v6.md) reuses these frozen
 results and all 168 controls. It does not change this archive or retroactively
 turn its development evidence into confirmation. The successor trains only PPO.
+
+
+October14 metric clarification: the inherited `ES95` field in these frozen
+64-transition reports is the unweighted mean of the worst four one-bar returns
+(`ceil(0.05*64)`), a 6.25% tail proxy rather than exact 5% expected shortfall.
+Preserve all saved values and identifiers; do not interpret a value below 2%
+as closing a canonical ES95 risk gate. No adoption decision is reversed.
+See [the extraction diagnostic](extraction-v7.md) for the disclosed limitation;
+a corrected estimator requires a versioned prospective registration.

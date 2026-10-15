@@ -10764,12 +10764,17 @@
       "criteria": "All required research artifacts, literature through execution date, scope-complete formal closure, full verification and reviewable draft delivery with no production authorization.",
       "blockers": [
         "Remaining formal obligations and research coverage gaps are not satisfied by a green scoped wrapper.",
-        "October14 global certificate regeneration blocked by repeated unchanged3s inference-process conformance timeouts (startup_hang then default mode). Source-wrapper pin omission was corrected. Scoped RL checking passes but cannot replace a current full certificate; root cause of timing failures is undetermined."
+        "October14 global certificate regeneration blocked by repeated unchanged3s inference-process conformance timeouts (startup_hang then default mode). Source-wrapper pin omission was corrected. Scoped RL checking passes but cannot replace a current full certificate; root cause of timing failures is undetermined.",
+        "Full verification at42251e6c had343 tests/3 errors: PPO bad_reply3s timeout plus2 missing Snapshot consumer registrations. Commit23c6e314 fixes the exact consumer import; both targeted tests and all57 RL regressions pass. Separate Haskell/web/automation wrappers pass. Full was not rerun after this fix, and the global certificate is not regenerated; integration remains blocked."
       ],
       "evidence": [
         {
           "path": "research-notes/rl-exposure-2026-10-10/extraction-v7-results/scoped-formal.json",
           "sha256": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28"
+        },
+        {
+          "path": "research-notes/rl-exposure-2026-10-10/extraction-v7-results/verification.json",
+          "sha256": "ecb8f254146f67c31a161d55cefd57dacbd8280cfca1fe88d673f3578f6a9a98"
         }
       ]
     }

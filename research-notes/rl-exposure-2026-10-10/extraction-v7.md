@@ -59,7 +59,7 @@ No decoder is selected automatically from this adaptive comparison.
 
 The independent evidence exporter reconstructs the registered uniform streams,
 checks categorical intervals with separate scalar code, reconciles all realized
-ledger rows and checks the complete event/ID roster. Eight decoder regressions
+ledger rows and checks the complete event/ID roster. Nine decoder regressions
 cover zero mass, boundaries, invalid values, analytical frequencies, NumPy
 reference sampling, artifact corruption and composed toy replay. This is
 conformance evidence, not a theorem about binary64, RNG quality or all inputs.
@@ -321,3 +321,67 @@ machine-readable assurance ledger retains both research gates as open and now
 links the negative economic evidence and scoped proof output, with explicit
 process-timing and tail-metric blockers. The required full wrapper and any
 unreached area wrappers are recorded separately below.
+
+
+The required `bash scripts/verify.sh full` ran on `42251e6c` and exited 1 after
+603.808 s. Formal registry coverage passed. The 343-test integrity suite finished
+with three errors (590.242 s): the existing PPO bridge `bad_reply` fixture timed
+out after 3 s, and two consumer-composition tests rejected the new runner's
+unregistered `from optimizer_snapshot_v2 import Snapshot` import.
+
+The consumer omission is corrected in `23c6e314`: only that exact import at the
+already hash-bound runner is admitted. There is no wildcard consumer exemption.
+Both previously failing consumer tests pass (16.820 s test time, 18.505 s wrapper
+wall time), and a new regression rejects changed bytes, extra optimizer imports
+and an unregistered caller. All 57 research tests pass (18.483 s test time,
+19.588 s wrapper time): 33 learner/accounting, 11 archive, 9 extraction and 4 bridge
+diagnostic tests. The scoped RL checker passes again in 4.014 s after the fix,
+with byte-identical scoped evidence. No process matching any of the three failed
+fixture directories was observed afterward; no signals were sent.
+
+The global timed process failures remain unresolved, and the full wrapper was
+not rerun after the narrow consumer fix. It stopped before the smaller RL test
+commands, certificate comparison and Haskell/web/automation area wrappers;
+the smaller tests and area wrappers are run separately, not counted as a green
+full workflow. The existing global receipt remains stale for this revision.
+This package is **not verification-ready** and cannot satisfy the integration
+gate. A real timing/cleanup diagnosis, fresh global certificate and a successful
+full wrapper are still required; the three-second checks were never weakened.
+
+The ledger retains these exact broad obligations as incomplete:
+
+- Open: 10 Overflow and underflow.
+- Partially verified: 1 No-lookahead; 4 Revision timing; 6 Finite outputs; 13 Live-authority isolation; 17 Observation causality; 18 Valid transitions; 19 Terminal accounting; 20 Action safety; 21 Invalid output fallback; 22 Replay determinism; 27 Rollback; 32 Configuration bounds; 33 Atomicity; 34 Race freedom; 36 Shutdown termination; 37 Recovery; 38 No permanent lockout.
+
+
+Final area checks on code `23c6e314` passed separately:
+
+- `bash scripts/verify.sh haskell`: exit 0, 1,096.695 s; build, fourmolu,
+  HLint, smoke checks and one Cabal test suite passed.
+- `bash scripts/verify.sh web`: exit 0, 27.749 s; typecheck, 241 tests and build
+  passed. Existing bundle-size warning retained; no skipped tests.
+- `bash scripts/verify.sh automation`: exit 0, 123.211 s; 185 tests passed,
+  no skipped/cancelled tests.
+
+The [verification receipt](extraction-v7-results/verification.json) records all 11
+command invocations, source revisions, clean environments, exit codes, measured
+wall times, 28 log hashes, the campaign budget stop, corrected registration
+mistakes and unresolved timing failures. All required tools were available.
+Passing area checks do not convert the failed full wrapper into a pass. No
+post-fix full rerun or new global receipt is claimed. Only documentation,
+receipts and open-gate evidence references follow the checked code revision.
+
+Local delivery is `.tmp/research/rl-extraction-v7-delivery-20261014`: cumulative
+patch, incremental Git bundle, commit list, unsubmitted draft PR body, frozen
+prefix helper, logs and a SHA256 manifest. The patch is reverse-apply checked
+against the committed tree; the bundle is verified against the recorded main
+prerequisite. Remote main was rechecked unchanged at
+`0b76f2b879f75f5c669fe944a14ea6700d446240`. No push, PR, merge or deployment is
+performed; the scheduled all-state PR-review/deployment chain remains the
+publication blocker. The unrelated `.playwright-mcp/` directory is preserved.
+
+Final decisions: RL research is partially completed overall (this diagnostic
+complete); reject both sampled challengers; scoped formal/conformance checks
+pass but 18 broad obligations and global verification remain unresolved; no real
+orders, live exploration or new financial authorization. Existing production
+is preserved.

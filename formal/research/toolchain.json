@@ -111,7 +111,7 @@
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "research-notes/registrations/sequential-control-screen-v1.json": "4b81ed3a998204c0af39ed7a505bd57b4c581d56d2a260f24444cf16b4304bcb",
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
-    "formal/research/proof-ledger.json": "033d0cf53d5b1e0f8a1cb64bb9268b2ca725756b110a64f6fd855c612812f779",
+    "formal/research/proof-ledger.json": "01c1941bd85a50b59ede981a5c499b0e9038e80706549438c7e119766d726d8c",
     "formal/research/counterexamples.json": "3c66df602da49d7ddcde19b24349d68ef4ab6f915effdb8c342995db236c03f4",
     ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",

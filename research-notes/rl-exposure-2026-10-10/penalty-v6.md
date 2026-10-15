@@ -370,3 +370,12 @@ SMT queries, two admission lemmas, bounded lifecycle and Haskell conformance
 reproduce; new comparator source bindings/regressions pass, with 18 broad
 obligations still open/partial. Financial execution: no real orders, live
 exploration or new live authorization introduced; existing production preserved.
+
+
+October14 metric clarification: the inherited `ES95` field in these frozen
+64-transition reports is the unweighted mean of the worst four one-bar returns
+(`ceil(0.05*64)`), a 6.25% tail proxy rather than exact 5% expected shortfall.
+Preserve all saved values and identifiers; do not interpret a value below 2%
+as closing a canonical ES95 risk gate. No adoption decision is reversed.
+See [the extraction diagnostic](extraction-v7.md) for the disclosed limitation;
+a corrected estimator requires a versioned prospective registration.
