@@ -561,7 +561,7 @@
     "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
     "scripts/formal/rl_composition_check.py": "9b0f8e7281adcafd5449265ef3c4eb394335d08a668413bad456464f1e6d322c",
     "test/rl_composition_test.py": "82314d6b069e0f579bb47dea202cfa60028240275144023625cb0755d5b61df0",
-    "formal/research/rl-composition-source.json": "ce89d2bc5fabf356888369d9a2c3b9a2a11805f159c452540cafc2917ce94e5c",
+    "formal/research/rl-composition-source.json": "bd8083e43f812cc88712069ae2fc22454b70f95b5c806465fc2287b8692f6a23",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
@@ -585,7 +585,7 @@
     "test/rl_replication_test.py": "b040f343b0a93c230a4b8f874a3a004a4ab818acc566889ba7ce7424521545c8",
     "research-notes/registrations/rl-penalty-reproduction-2026-10-14.json": "3c06c5f219914bd6d7600e0df93f1dac9813b88aca1bd20605246e7051510628",
     "scripts/research/run_rl_extraction_v7.py": "c1ef9eee41191ee9d924840fb00feba853b5a2a4085e099011b519c0c1a80615",
-    "test/rl_extraction_test.py": "2a03084474295363775e41b805c2d9e15c67d78893e80aa4eb05172b0534a9b3",
+    "test/rl_extraction_test.py": "98a194af8bcb8c1b7a9beb3daf2a0be8edcb9e7cfc06b825ffae407bbb2108c1",
     "research-notes/registrations/rl-policy-extraction-v7.json": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
     "scripts/research/summarize_rl_extraction_v7.py": "4ae57611749a186f717d41ef3189f807215656ed4642691511a882310b602349",
     "research-notes/registrations/rl-policy-extraction-v7-continuation.json": "47bed86d3e684aa4a9f2d8ef4761ca39240f5f7b7aa4335b81711eecaeb5484c"

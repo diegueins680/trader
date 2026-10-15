@@ -87,7 +87,14 @@ class ExtractionTests(unittest.TestCase):
             data['events.jsonl']=json.dumps(event).encode()
             data['orphan']=b'{}'
             with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
-            del data['orphan'];data['budget-stop.json']=b'{"reason":"unknown","exitCode":1,"elapsedSecondsLowerBound":1200}'
+            del data['orphan']
+            data['events.jsonl']=(json.dumps(event)+'\n'+json.dumps(event)).encode()
+            with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
+            data['events.jsonl']=json.dumps(event).encode()
+            data['manifest.json']=json.dumps({**manifest,'continuation':{}}).encode()
+            with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
+            data['manifest.json']=json.dumps(manifest).encode()
+            data['budget-stop.json']=b'{"reason":"unknown","exitCode":1,"elapsedSecondsLowerBound":1200}'
             with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
 
     def test_seeded_composed_replay_matches_reference_sampler(self):
