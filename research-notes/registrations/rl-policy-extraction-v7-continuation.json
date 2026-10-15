@@ -1,0 +1,16 @@
+{
+  "id": "rl-policy-extraction-v7-resource-continuation",
+  "registeredOn": "2026-10-14",
+  "parentRegistration": "rl-policy-extraction-v7.json",
+  "initialSourceCommit": "9bd904a6",
+  "reason": "Before economic outcome inspection, progress-only monitoring showed672/2688 completed after7m52s. Exact rational replay is slower than the initial20-minute estimate. Preserve the original20-minute stop and permit one additional20-minute process for remaining IDs only if needed.",
+  "selectionChanges": 0,
+  "additionalTrainingSteps": 0,
+  "additionalSeeds": 0,
+  "maximumTotalCampaignWallMinutes": 40,
+  "maximumContinuationProcesses": 1,
+  "protocol": "After the initial process exits at its per-path wall-budget check, freeze its entire partial archive with a separate SHA256 index. Strictly verify that snapshot and the original registration, source revision, policy identities and exact registered roster prefix. Copy every existing event and trace unchanged, including failures. Infer no missing partial trajectory; the wall check occurs only after flushing a terminal event/path. Restore increments from each archived trace for statistics. Execute only the remaining registered full independent episodes. Any non-prefix/missing-path/identity mismatch rejects continuation. A completed2688-path archive cannot be resumed. No changed market data, reward, policy, RNG schedule, episode length, costs, constraints, metrics or selection. Retain both phase source manifests and hashes; report both wall times and resource budget failure. If the second budget is exhausted, retain incomplete evidence and report insufficient evidence.",
+  "interpretation": "Engineering resource amendment disclosed before financial inspection, not an outcome-driven retry or new policy trial. Paired economic evidence remains adaptive development, never confirmation. Failure paths cannot be replaced or relabeled complete.",
+  "promotionAllowed": false,
+  "liveAuthorization": false
+}
