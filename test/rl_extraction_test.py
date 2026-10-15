@@ -68,6 +68,28 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(sum(r['algorithm'].endswith('_greedy') for r in rows),420)
         with self.assertRaises(ValueError):v7.roster({**reg,'actionSeeds':[19,19,59,83,109]})
 
+    def test_continuation_keeps_failed_prefix_and_rejects_replacement(self):
+        reg=v7.decode(v7.REG.read_bytes());plan=v7.roster(reg)
+        source=v7.subprocess.check_output(['git','rev-parse','9bd904a6'],text=True).strip()
+        manifest=dict(campaign=reg['id'],registrationSha256=v7.sha(v7.REG.read_bytes()),commit=source,
+                      promotionAllowed=False,holdoutOpened=False,policyHashes={})
+        event={**plan[0], 'status':'failed','failure':'preserved','observations':0}
+        data={'manifest.json':json.dumps(manifest).encode(),'planned.json':json.dumps(plan).encode(),
+              'events.jsonl':json.dumps(event).encode(),
+              'budget-stop.json':json.dumps(dict(reason='registered_wall_budget',exitCode=1,elapsedSecondsLowerBound=1200.)).encode(),
+              'paths/'+event['id'].replace('/','-')+'.json':b'[]'}
+        with patch.object(v7,'snapshot',return_value=data):
+            restored=v7.continuation(Path('unused'),'unused',reg,{})[2]
+            self.assertEqual(restored[0]['status'],'failed')
+            self.assertEqual(restored[0]['failure'],'preserved')
+            data['events.jsonl']=json.dumps({**event,'id':plan[1]['id']}).encode()
+            with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
+            data['events.jsonl']=json.dumps(event).encode()
+            data['orphan']=b'{}'
+            with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
+            del data['orphan'];data['budget-stop.json']=b'{"reason":"unknown","exitCode":1,"elapsedSecondsLowerBound":1200}'
+            with self.assertRaises(ValueError):v7.continuation(Path('unused'),'unused',reg,{})
+
     def test_seeded_composed_replay_matches_reference_sampler(self):
         from fractions import Fraction as F
         from causal_replay_v3 import Bar

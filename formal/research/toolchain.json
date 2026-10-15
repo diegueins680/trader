@@ -561,7 +561,7 @@
     "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
     "scripts/formal/rl_composition_check.py": "9b0f8e7281adcafd5449265ef3c4eb394335d08a668413bad456464f1e6d322c",
     "test/rl_composition_test.py": "82314d6b069e0f579bb47dea202cfa60028240275144023625cb0755d5b61df0",
-    "formal/research/rl-composition-source.json": "b3daa86b519ee421f0645005b7ce7de8180696e2560cd24ef38bd4c79252bf75",
+    "formal/research/rl-composition-source.json": "ce89d2bc5fabf356888369d9a2c3b9a2a11805f159c452540cafc2917ce94e5c",
     "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
     "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
     "scripts/research/run_rl_admission_v2.py": "3e8fa40912c7d7bcc11ece6947ca5e4bcfed0d9f93b553af97dcac822dad6953",
@@ -584,10 +584,11 @@
     "scripts/research/compare_rl_replication.py": "4d0afa5d092e9648b018f41427100351629f73a058621d31f7c79e6d966b6728",
     "test/rl_replication_test.py": "b040f343b0a93c230a4b8f874a3a004a4ab818acc566889ba7ce7424521545c8",
     "research-notes/registrations/rl-penalty-reproduction-2026-10-14.json": "3c06c5f219914bd6d7600e0df93f1dac9813b88aca1bd20605246e7051510628",
-    "scripts/research/run_rl_extraction_v7.py": "032cbc518d97a88ea3269f955d89351357edcbd7d62e0b3908f6807bc827a1cd",
-    "test/rl_extraction_test.py": "8abbe5a148a840bada43be781fd4bb084902ce4da4e8ba73697233efad155602",
+    "scripts/research/run_rl_extraction_v7.py": "c1ef9eee41191ee9d924840fb00feba853b5a2a4085e099011b519c0c1a80615",
+    "test/rl_extraction_test.py": "2a03084474295363775e41b805c2d9e15c67d78893e80aa4eb05172b0534a9b3",
     "research-notes/registrations/rl-policy-extraction-v7.json": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
-    "scripts/research/summarize_rl_extraction_v7.py": "4ae57611749a186f717d41ef3189f807215656ed4642691511a882310b602349"
+    "scripts/research/summarize_rl_extraction_v7.py": "4ae57611749a186f717d41ef3189f807215656ed4642691511a882310b602349",
+    "research-notes/registrations/rl-policy-extraction-v7-continuation.json": "47bed86d3e684aa4a9f2d8ef4761ca39240f5f7b7aa4335b81711eecaeb5484c"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

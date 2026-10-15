@@ -59,7 +59,7 @@ No decoder is selected automatically from this adaptive comparison.
 
 The independent evidence exporter reconstructs the registered uniform streams,
 checks categorical intervals with separate scalar code, reconciles all realized
-ledger rows and checks the complete event/ID roster. Seven decoder regressions
+ledger rows and checks the complete event/ID roster. Eight decoder regressions
 cover zero mass, boundaries, invalid values, analytical frequencies, NumPy
 reference sampling, artifact corruption and composed toy replay. This is
 conformance evidence, not a theorem about binary64, RNG quality or all inputs.
@@ -104,3 +104,14 @@ repairs can reach `.github/workflows/deploy-hetzner.yml` after successful CI.
 A draft flag does not isolate that chain. Preserve local commits/patch instead.
 No workflow, production authorization, order permission, risk limit, adopted
 strategy, credential or production process is modified.
+
+Resource amendment (before outcome inspection): progress-only monitoring at
+672/2,688 paths after7m52s justified one extra20-minute process under the
+[registered continuation protocol](../registrations/rl-policy-extraction-v7-continuation.json),
+commit `3e971ac2`. The initial20-minute stop remains enforced. A continuation
+must admit the hash-frozen exact event/trace prefix, retain failures and copy
+completed paths unchanged; it executes only missing IDs. No additional model,
+seed, scenario, training step or selected checkpoint is introduced. Tests reject
+reordered prefixes, orphans, unrecognized stops and duplicate/second continuations.
+This resource amendment is disclosed rather than treating the study as one
+uninterrupted run within its original estimate.

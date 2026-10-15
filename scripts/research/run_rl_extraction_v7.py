@@ -113,7 +113,37 @@ def checked_path(rows, sampled):
     return audit
 
 
-def run(panel, settlements, output):
+def continuation(root, digest, reg, identities):
+    data=snapshot(root,digest)
+    manifest=decode(data['manifest.json'])
+    require(manifest['campaign']==reg['id'] and
+            manifest['registrationSha256']==sha(REG.read_bytes()) and
+            manifest['commit']=='9bd904a66e82c5829ddfb7f463e1ece8939a7955' and
+            manifest['promotionAllowed'] is False and manifest['holdoutOpened'] is False and
+            manifest['policyHashes']==identities and 'continuation' not in manifest,
+            'continuation identity or phase mismatch')
+    plan=roster(reg);same(decode(data['planned.json']),plan,'continuation roster')
+    stop=decode(data['budget-stop.json'])
+    require(stop['reason']=='registered_wall_budget' and stop['exitCode']==1 and
+            stop['elapsedSecondsLowerBound']>=1200 and 'summary.json' not in data, 'unregistered continuation stop')
+    rows=[decode(line) for line in data['events.jsonl'].splitlines()]
+    require(0<len(rows)<len(plan) and [r['id'] for r in rows]==[r['id'] for r in plan[:len(rows)]],
+            'continuation must be a strict registered prefix')
+    require(set(data)=={'manifest.json','planned.json','events.jsonl','budget-stop.json'} |
+            {'paths/'+r['id'].replace('/','-')+'.json' for r in rows}, 'orphan or unexpected prefix file')
+    restored=[]
+    for row in rows:
+        path=decode(data['paths/'+row['id'].replace('/','-')+'.json'])
+        require(row['status'] in ('complete','failed') and len(path)==row['observations'],
+                'continuation event/path mismatch')
+        checked_path(path,row['algorithm'].endswith('_sampled'))
+        if row['status']=='complete':
+            require(len(path)==64 and path[-1]['terminal'],'incomplete successful parent path')
+        restored.append({**row,'increments':[p['increment'] for p in path]})
+    return data,manifest,restored
+
+
+def run(panel, settlements, output, resume=None, resume_sha=None):
     began = time.perf_counter(); raw_reg = REG.read_bytes(); reg = decode(raw_reg)
     require(platform.python_version() == '3.13.3' and np.__version__ == '2.3.5', 'unregistered runtime')
     require(reg['id'] == 'rl-policy-extraction-v7' and reg['promotionAllowed'] is False and
@@ -124,6 +154,8 @@ def run(panel, settlements, output):
     require(ROOT / '.tmp' in output.parents, 'output must be in isolated repository .tmp')
     sources = {f'scripts/research/{n}': (ROOT/'scripts/research'/n).read_bytes() for n in (*SOURCES,*EXTRA)}
     sources[str(REG.relative_to(ROOT))] = raw_reg
+    amendment=ROOT/'research-notes/registrations/rl-policy-extraction-v7-continuation.json'
+    sources[str(amendment.relative_to(ROOT))]=amendment.read_bytes()
     commit = subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip()
     for name, raw in sources.items():
         require(subprocess.check_output(['git','show',f'{commit}:{name}'], cwd=ROOT) == raw,
@@ -146,16 +178,32 @@ def run(panel, settlements, output):
                 identities[f'{package}/{fold}/{seed}'] = digest
     bars, funding = load(panel, settlements, reg)
     plan = roster(reg)
+    previous,previous_manifest,restored = continuation(resume,resume_sha,reg,identities) if resume else ({},None,[])
+    require(resume is None or (output!=resume.resolve() and resume.resolve() not in output.parents), 'output overlaps partial archive')
     output.mkdir(parents=True, exist_ok=False); (output/'paths').mkdir()
     write(output/'planned.json', plan)
     write(output/'manifest.json', dict(campaign=reg['id'], commit=commit,
         registrationSha256=sha(raw_reg), sourceHashes={k:sha(v) for k,v in sources.items()},
         policyHashes=identities, parentArchives=reg['packages'], python=platform.python_version(),
         numpy=np.__version__, platform=platform.platform(), promotionAllowed=False, holdoutOpened=False,
-        proofLedgerSha256=sha((ROOT/'formal/research/proof-ledger.json').read_bytes())))
+        proofLedgerSha256=sha((ROOT/'formal/research/proof-ledger.json').read_bytes()),
+        **(dict(continuation=dict(parentIndexSha256=resume_sha,parentManifest=previous_manifest,
+                                 reusedPaths=len(restored),amendmentSha256=sha(amendment.read_bytes()))) if resume else {})))
     records=[]; audits=0; economic_rows=0; parity=0; timing=[]
     with (output/'events.jsonl').open('x') as events:
         for number, spec in enumerate(plan):
+            if number<len(restored):
+                row=restored[number]; path_name='paths/'+row['id'].replace('/','-')+'.json'
+                (output/path_name).write_bytes(previous[path_name])
+                records.append(row); audits+=1;economic_rows+=len(row['increments'])
+                if not row['algorithm'].endswith('_sampled'):
+                    learned=row['algorithm'].endswith('_greedy');pkg=row['algorithm'].split('_')[0] if learned else 'v5'
+                    old_alg='ppo' if learned else row['algorithm']
+                    old_name=f"paths/{row['fold']}-{old_alg}-{row['seed']}-{row['stress']}-{row['symbol']}.json"
+                    same(decode(previous[path_name]),decode(archives[pkg][old_name]),'continued frozen parity')
+                    parity+=1
+                events.write(json.dumps({k:v for k,v in row.items() if k!='increments'},sort_keys=True,allow_nan=False)+'\n');events.flush()
+                continue
             row=dict(spec); fold=reg['folds'][row['fold']]; symbol=row['symbol']
             sampled=row['algorithm'].endswith('_sampled')
             ep=Episode(bars[symbol][:fold['evaluationStop']],funding[symbol][:fold['evaluationStop']],
@@ -203,7 +251,7 @@ def run(panel, settlements, output):
                            failedPaths=sum(r['status']!='complete' for r in records)),
                 inference=dict(samples=len(timing),p99Ms=float(np.quantile(timing,.99)),
                                scope='Python observation+numeric decoding, includes first call; no hard latency/Haskell guarantee'),
-                elapsedSeconds=time.perf_counter()-began,maxRss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                elapsedSeconds=time.perf_counter()-began,continuedPaths=len(restored),maxRss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                 rssUnit='bytes' if platform.system()=='Darwin' else 'KiB',promotionAllowed=False,holdoutOpened=False,
                 DSR='insufficient_evidence',PBO='insufficient_evidence',realOPE='unsupported')
     write(output/'summary.json',result)
@@ -215,6 +263,9 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-registered-extraction-v7',action='store_true')
     for name in ('panel','settlements','output'): parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--resume-prefix',type=Path)
+    parser.add_argument('--resume-sha256')
     args=parser.parse_args()
     if not args.run_registered_extraction_v7: parser.error('disabled: registered extraction opt-in required')
-    run(args.panel,args.settlements,args.output)
+    if bool(args.resume_prefix)!=bool(args.resume_sha256):parser.error('both resume prefix and digest required')
+    run(args.panel,args.settlements,args.output,args.resume_prefix,args.resume_sha256)
