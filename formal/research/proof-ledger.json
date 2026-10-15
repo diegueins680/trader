@@ -10748,18 +10748,30 @@
       "criteria": "Preregistered untouched real historical confirmation, identical champion/adopted-combo baselines, realistic costs and delay, all seeds, DSR>=0.95, PBO<=0.20, valid OPE/support, acceptable drawdown/tails and complete ablations or a completed rigorous rejection campaign.",
       "blockers": [
         "Current evidence is contaminated-development rejection; no matched champion or independent final confirmation.",
-        "All 108 OPE estimates were invalid; no candidate may be promoted."
+        "All 108 OPE estimates were invalid; no candidate may be promoted.",
+        "October14 frozen extraction: v5/v6 sampled PPO net-0.627%/-0.644%, interventions43.677%/43.479%; both rejected. Existing ES95 field is a4/64 tail proxy, not exact5% expected shortfall."
       ],
-      "evidence": []
+      "evidence": [
+        {
+          "path": "research-notes/rl-exposure-2026-10-10/extraction-v7-results/evidence.json",
+          "sha256": "3da0530a4fe40d693fc488418755cb95b81fd63267f2e3c566878b44837fdf45"
+        }
+      ]
     },
     {
       "id": "reproducible_delivery",
       "status": "open",
       "criteria": "All required research artifacts, literature through execution date, scope-complete formal closure, full verification and reviewable draft delivery with no production authorization.",
       "blockers": [
-        "Remaining formal obligations and research coverage gaps are not satisfied by a green scoped wrapper."
+        "Remaining formal obligations and research coverage gaps are not satisfied by a green scoped wrapper.",
+        "October14 global certificate regeneration blocked by repeated unchanged3s inference-process conformance timeouts (startup_hang then default mode). Source-wrapper pin omission was corrected. Scoped RL checking passes but cannot replace a current full certificate; root cause of timing failures is undetermined."
       ],
-      "evidence": []
+      "evidence": [
+        {
+          "path": "research-notes/rl-exposure-2026-10-10/extraction-v7-results/scoped-formal.json",
+          "sha256": "1ab2fadf350e0acece3d82f9e1574e29cee03b1992d79d2fd7f5269bded44d28"
+        }
+      ]
     }
   ]
 }

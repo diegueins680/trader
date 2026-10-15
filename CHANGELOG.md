@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Research: register and add disabled frozen PPO categorical-versus-greedy extraction diagnostic, with all-seed/stress replay, strict artifact identity, proposal probability traces, independent ledger auditing and frozen-control parity. No policy training, promotion, production authorization or holdout access.
+- Research: complete 2,688 frozen PPO extraction/control replays with 172,032 audited transitions and 588 matching parent paths. Sampled unshaped/penalized policies lose 0.627%/0.644% per development window and fail the intervention gate; reject both. Retain the initial 20-minute budget stop and preregistered one-process continuation. Add strict artifact/decoder conformance and full trace evidence; no new training, promotion, production authorization or holdout access.
 
 - Research: preregister fresh-process numerical replication of all ten v6 PPO
   fits. Add a strict versioned comparator for both economic and shaped training

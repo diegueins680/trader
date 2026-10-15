@@ -1,6 +1,6 @@
 # Trader
 
-Research-only PPO extraction diagnostic: [registered protocol](research-notes/registrations/rl-policy-extraction-v7.json). `scripts/research/run_rl_extraction_v7.py --run-registered-extraction-v7` replays frozen v5/v6 actors with categorical versus greedy decoding on registered development exports. It requires explicit `--panel`, `--settlements` and fresh `.tmp` `--output` paths, never trains or authorizes orders, and is disabled by default. `bash scripts/verify.sh formal` includes its artifact and decoder regressions.
+Research-only PPO extraction diagnostic: [registered protocol](research-notes/registrations/rl-policy-extraction-v7.json). `scripts/research/run_rl_extraction_v7.py --run-registered-extraction-v7` replays frozen v5/v6 actors with categorical versus greedy decoding on registered development exports. It requires explicit `--panel`, `--settlements` and fresh `.tmp` `--output` paths, never trains or authorizes orders, and is disabled by default. `bash scripts/verify.sh formal` includes its artifact and decoder regressions. The [completed study](research-notes/rl-exposure-2026-10-10/extraction-v7.md) rejects both sampled packages: mean net −0.627%/−0.644%, with about 43.5% shield interventions. All 2,688 paths are retained; these are consumed development windows, with no champion or confirmation claim.
 
 The [registered v6 replication](research-notes/registrations/rl-penalty-reproduction-2026-10-14.json)
 repeats the unchanged ten PPO fits in a fresh process. Compare its complete

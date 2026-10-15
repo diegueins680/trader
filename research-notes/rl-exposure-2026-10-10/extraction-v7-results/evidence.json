@@ -1,0 +1,2878 @@
+{
+  "DSR": "insufficient_evidence",
+  "PBO": "insufficient_evidence",
+  "aggregates": [
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0
+      },
+      "algorithm": "cash",
+      "byFold": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0,
+        "ETHUSDT": 0.0,
+        "SOLUSDT": 0.0
+      },
+      "meanAbsExposure": 0.0,
+      "meanCosts": 0.0,
+      "meanFillCount": 0,
+      "meanFunding": 0.0,
+      "meanGross": 0.0,
+      "meanIntervention": 0.0,
+      "meanNetReturn": 0.0,
+      "meanTurnover": 0.0,
+      "seedMeanReturns": {
+        "0": 0.0
+      },
+      "seedMeanSampleSD": null,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0
+      },
+      "worstDrawdown": 0.0,
+      "worstDrawdownDurationBars": 0,
+      "worstES95": -0.0
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.009974636822958571
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.024457238551694866,
+        "1": -0.004507964905777724
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.02045405719900517,
+        "ETHUSDT": 0.00802779177163182,
+        "SOLUSDT": 0.0014420614982387225
+      },
+      "meanAbsExposure": 0.09831128461926542,
+      "meanCosts": 0.0019916151877032344,
+      "meanFillCount": 29,
+      "meanFunding": -0.0004512054907242621,
+      "meanGross": 0.012417457501386066,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.009974636822958571,
+      "meanTurnover": 1.9916151877032346,
+      "seedMeanReturns": {
+        "0": 0.009974636822958571
+      },
+      "seedMeanSampleSD": null,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.009974636822958571
+      },
+      "worstDrawdown": 0.044798175434087484,
+      "worstDrawdownDurationBars": 34,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.008975652905659437
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02357871784872323,
+        "1": -0.005627412037404356
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.01979315194732678,
+        "ETHUSDT": 0.006998351500827671,
+        "SOLUSDT": 0.0001354552688238586
+      },
+      "meanAbsExposure": 0.09831328205660866,
+      "meanCosts": 0.0029859960431375663,
+      "meanFillCount": 29,
+      "meanFunding": -0.00045093545137115217,
+      "meanGross": 0.012412584400168148,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.008975652905659437,
+      "meanTurnover": 1.9906640287583774,
+      "seedMeanReturns": {
+        "0": 0.008975652905659437
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.008975652905659437
+      },
+      "worstDrawdown": 0.04483022511644619,
+      "worstDrawdownDurationBars": 34,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.007977618760869498
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.022701017933231944,
+        "1": -0.006745780411492948
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.01913268075905117,
+        "ETHUSDT": 0.005969834231204563,
+        "SOLUSDT": -0.0011696587076472365
+      },
+      "meanAbsExposure": 0.09831528013498872,
+      "meanCosts": 0.0039794268004684314,
+      "meanFillCount": 29,
+      "meanFunding": -0.0004506655728576531,
+      "meanGross": 0.012407711134195584,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.007977618760869498,
+      "meanTurnover": 1.9897134002342158,
+      "seedMeanReturns": {
+        "0": 0.007977618760869498
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.007977618760869498
+      },
+      "worstDrawdown": 0.04486227364843243,
+      "worstDrawdownDurationBars": 34,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.008380188152786627
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02437003278006474,
+        "1": -0.0076096564744914845
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.017025886812404467,
+        "ETHUSDT": 0.005838032955221284,
+        "SOLUSDT": 0.002276644690734131
+      },
+      "meanAbsExposure": 0.08342675479850677,
+      "meanCosts": 0.0013772745093371568,
+      "meanFillCount": 13.333333333333334,
+      "meanFunding": -0.0004007614108882198,
+      "meanGross": 0.010158224073012019,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.008380188152786627,
+      "meanTurnover": 1.3772745093371568,
+      "seedMeanReturns": {
+        "0": 0.008380188152786627
+      },
+      "seedMeanSampleSD": null,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.008380188152786627
+      },
+      "worstDrawdown": 0.04718117779412978,
+      "worstDrawdownDurationBars": 32,
+      "worstES95": 0.015593573738992046
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.009525245638023186
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.024053089821820972,
+        "1": -0.005002598545774599
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.02012857539385937,
+        "ETHUSDT": 0.007592183334004798,
+        "SOLUSDT": 0.0008549781862053907
+      },
+      "meanAbsExposure": 0.0983112846402791,
+      "meanCosts": 0.001991274558882075,
+      "meanFillCount": 29,
+      "meanFunding": -0.00090218524641131,
+      "meanGross": 0.012418705443316575,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.009525245638023186,
+      "meanTurnover": 1.991274558882075,
+      "seedMeanReturns": {
+        "0": 0.009525245638023186
+      },
+      "seedMeanSampleSD": null,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.009525245638023186
+      },
+      "worstDrawdown": 0.04520923802263577,
+      "worstDrawdownDurationBars": 34,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.011736448552210269
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.02968017342477114,
+        "1": -0.0062072763203506005
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.017184540267176973,
+        "ETHUSDT": 0.0073276543456309295,
+        "SOLUSDT": 0.010697151043822906
+      },
+      "meanAbsExposure": 0.09764914040889458,
+      "meanCosts": 0.001425249329672173,
+      "meanFillCount": 63.166666666666664,
+      "meanFunding": -0.0004583337572348784,
+      "meanGross": 0.013620031639117324,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.011736448552210269,
+      "meanTurnover": 1.425249329672173,
+      "seedMeanReturns": {
+        "0": 0.011736448552210269
+      },
+      "seedMeanSampleSD": null,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.011736448552210269
+      },
+      "worstDrawdown": 0.04410615863552314,
+      "worstDrawdownDurationBars": 41,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0020093147409388687
+      },
+      "algorithm": "constant_long",
+      "byFold": {
+        "0": 0.017452015017588602,
+        "1": -0.013433385535710865
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.015178953579958687,
+        "ETHUSDT": -0.00018192496410784909,
+        "SOLUSDT": -0.008969084393034232
+      },
+      "meanAbsExposure": 0.09832728208138702,
+      "meanCosts": 0.009920103767348955,
+      "meanFillCount": 29,
+      "meanFunding": -0.0004490496748573196,
+      "meanGross": 0.012378468183145183,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.0020093147409388687,
+      "meanTurnover": 1.9840207534697911,
+      "seedMeanReturns": {
+        "0": 0.0020093147409388687
+      },
+      "seedMeanSampleSD": null,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.0020093147409388687
+      },
+      "worstDrawdown": 0.04505454064645942,
+      "worstDrawdownDurationBars": 34,
+      "worstES95": 0.015634619542369853
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.01487415131277503
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.010721746119509786,
+        "1": 0.019026556506040276
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.016058543002332115,
+        "ETHUSDT": 0.024756378967754955,
+        "SOLUSDT": 0.0038075319682380204
+      },
+      "meanAbsExposure": 0.08659898122174815,
+      "meanCosts": 0.004373686594463575,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": -0.00015742505092653525,
+      "meanGross": 0.01940526295816514,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.01487415131277503,
+      "meanTurnover": 4.3736865944635746,
+      "seedMeanReturns": {
+        "0": 0.01487415131277503
+      },
+      "seedMeanSampleSD": null,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.01487415131277503
+      },
+      "worstDrawdown": 0.026550304801149838,
+      "worstDrawdownDurationBars": 57,
+      "worstES95": 0.011615743501717428
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.012691637596951707
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.00876670077645425,
+        "1": 0.016616574417449164
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.014395584906775616,
+        "ETHUSDT": 0.022431025065735355,
+        "SOLUSDT": 0.0012483028183441491
+      },
+      "meanAbsExposure": 0.08660420393010643,
+      "meanCosts": 0.00655333471510636,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": -0.0001572267307358502,
+      "meanGross": 0.019402199042793885,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.012691637596951707,
+      "meanTurnover": 4.368889810070906,
+      "seedMeanReturns": {
+        "0": 0.012691637596951707
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.012691637596951707
+      },
+      "worstDrawdown": 0.02765528749048085,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.011681454886729756
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.010513892551909931
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.00681506912410416,
+        "1": 0.014212715979715703
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.012735396250635467,
+        "ETHUSDT": 0.020111004640835817,
+        "SOLUSDT": -0.0013047232357414895
+      },
+      "meanAbsExposure": 0.08660942859378976,
+      "meanCosts": 0.008728199985074766,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": -0.00015702865076715693,
+      "meanGross": 0.01939912118775187,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.010513892551909931,
+      "meanTurnover": 4.3640999925373825,
+      "seedMeanReturns": {
+        "0": 0.010513892551909931
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.010513892551909931
+      },
+      "worstDrawdown": 0.028759337982610322,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.011747167068883643
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.006694208231547649
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.01073989339322797,
+        "1": 0.0026485230698673292
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.011319447960244866,
+        "ETHUSDT": 0.01645676574961985,
+        "SOLUSDT": -0.007693589015221769
+      },
+      "meanAbsExposure": 0.06510445634343685,
+      "meanCosts": 0.002709391932203768,
+      "meanFillCount": 12.666666666666666,
+      "meanFunding": -8.371931555408577e-05,
+      "meanGross": 0.009487319479305539,
+      "meanIntervention": 0.6380208333333334,
+      "meanNetReturn": 0.006694208231547649,
+      "meanTurnover": 2.709391932203768,
+      "seedMeanReturns": {
+        "0": 0.006694208231547649
+      },
+      "seedMeanSampleSD": null,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.006694208231547649
+      },
+      "worstDrawdown": 0.06488494800555544,
+      "worstDrawdownDurationBars": 45,
+      "worstES95": 0.012233095039268106
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.01471724683956821
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.01048254587240686,
+        "1": 0.01895194780672956
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.015881069469868336,
+        "ETHUSDT": 0.024628079678115644,
+        "SOLUSDT": 0.003642591370720649
+      },
+      "meanAbsExposure": 0.08659898129341706,
+      "meanCosts": 0.0043734149468181455,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": -0.000314819064167181,
+      "meanGross": 0.01940548085055354,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": 0.01471724683956821,
+      "meanTurnover": 4.373414946818145,
+      "seedMeanReturns": {
+        "0": 0.01471724683956821
+      },
+      "seedMeanSampleSD": null,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.01471724683956821
+      },
+      "worstDrawdown": 0.026550338464268575,
+      "worstDrawdownDurationBars": 57,
+      "worstES95": 0.011632582733486895
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.013183701066179443
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": 0.009865928426407655,
+        "1": 0.01650147370595123
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.009899339424125742,
+        "ETHUSDT": 0.017190223259439974,
+        "SOLUSDT": 0.012461540514972613
+      },
+      "meanAbsExposure": 0.06740788120867139,
+      "meanCosts": 0.0029970684239612752,
+      "meanFillCount": 63.166666666666664,
+      "meanFunding": -0.00014526824442048992,
+      "meanGross": 0.01632603773456119,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": 0.013183701066179443,
+      "meanTurnover": 2.997068423961275,
+      "seedMeanReturns": {
+        "0": 0.013183701066179443
+      },
+      "seedMeanSampleSD": null,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": 0.013183701066179443
+      },
+      "worstDrawdown": 0.018627030335802375,
+      "worstDrawdownDurationBars": 57,
+      "worstES95": 0.009467992897384508
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.0024530468705356765
+      },
+      "algorithm": "normalized_momentum3",
+      "byFold": {
+        "0": -0.00482334534878918,
+        "1": -8.274839228217257e-05
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0028321677647091814,
+        "ETHUSDT": 0.006302135955256083,
+        "SOLUSDT": -0.016493444331572293
+      },
+      "meanAbsExposure": 0.08664081782257392,
+      "meanCosts": 0.02167756587344966,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": -0.0001558451951687494,
+      "meanGross": 0.019380364198082752,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.0024530468705356765,
+      "meanTurnover": 4.335513174689932,
+      "seedMeanReturns": {
+        "0": -0.0024530468705356765
+      },
+      "seedMeanSampleSD": null,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.0024530468705356765
+      },
+      "worstDrawdown": 0.045680490421270536,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.012141456916139307
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.023759674217641358
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.018604735531943306,
+        "1": -0.02891461290333941
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.022553078643795077,
+        "ETHUSDT": -0.03343830798321107,
+        "SOLUSDT": -0.015287636025917928
+      },
+      "meanAbsExposure": 0.08659901682517034,
+      "meanCosts": 0.004245542150208591,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": 0.00015298383288225642,
+      "meanGross": -0.01966711590031503,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.023759674217641358,
+      "meanTurnover": 4.245542150208592,
+      "seedMeanReturns": {
+        "0": -0.023759674217641358
+      },
+      "seedMeanSampleSD": null,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.023759674217641358
+      },
+      "worstDrawdown": 0.04952260897937866,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01713471856307206
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.02587197589865618
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.020522760847538974,
+        "1": -0.03122119094977338
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.024178927988823984,
+        "ETHUSDT": -0.03563711416121196,
+        "SOLUSDT": -0.017799885545932592
+      },
+      "meanAbsExposure": 0.08660425734269804,
+      "meanCosts": 0.006361370295547717,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": 0.00015278913360662077,
+      "meanGross": -0.01966339473671509,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.02587197589865618,
+      "meanTurnover": 4.240913530365145,
+      "seedMeanReturns": {
+        "0": -0.02587197589865618
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.02587197589865618
+      },
+      "worstDrawdown": 0.05125767957501759,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017143753528091832
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.02797964978823257
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.022437402428930886,
+        "1": -0.03352189714753425
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.025802024326146034,
+        "ETHUSDT": -0.037830879345329305,
+        "SOLUSDT": -0.020306045693222363
+      },
+      "meanAbsExposure": 0.08660949982057058,
+      "meanCosts": 0.00847258323678388,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": 0.00015259467036314706,
+      "meanGross": -0.019659661221811807,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.02797964978823257,
+      "meanTurnover": 4.236291618391939,
+      "seedMeanReturns": {
+        "0": -0.02797964978823257
+      },
+      "seedMeanSampleSD": null,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.02797964978823257
+      },
+      "worstDrawdown": 0.05305895895394508,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017152797153737707
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.012131387133389182
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.01533009393566509,
+        "1": -0.008932680331113274
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01587449051846812,
+        "ETHUSDT": -0.022464514971180405,
+        "SOLUSDT": 0.0019448440894809793
+      },
+      "meanAbsExposure": 0.06524992825080755,
+      "meanCosts": 0.0026783718148726413,
+      "meanFillCount": 12.666666666666666,
+      "meanFunding": 8.106192403607918e-05,
+      "meanGross": -0.009534077242552598,
+      "meanIntervention": 0.6380208333333334,
+      "meanNetReturn": -0.012131387133389182,
+      "meanTurnover": 2.6783718148726416,
+      "seedMeanReturns": {
+        "0": -0.012131387133389182
+      },
+      "seedMeanSampleSD": null,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.012131387133389182
+      },
+      "worstDrawdown": 0.03603474631600112,
+      "worstDrawdownDurationBars": 63,
+      "worstES95": 0.010521146611419122
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.023606761693395595
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.018371769019117228,
+        "1": -0.02884175436767396
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.022378051685078337,
+        "ETHUSDT": -0.03331636338503097,
+        "SOLUSDT": -0.01512587001007748
+      },
+      "meanAbsExposure": 0.08659901675900998,
+      "meanCosts": 0.004245809269796281,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": 0.0003059981515186828,
+      "meanGross": -0.019666950575117987,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.023606761693395595,
+      "meanTurnover": 4.245809269796282,
+      "seedMeanReturns": {
+        "0": -0.023606761693395595
+      },
+      "seedMeanSampleSD": null,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.023606761693395595
+      },
+      "worstDrawdown": 0.0495263744229032,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01714102849731839
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.019212496810460184
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.015286976866370558,
+        "1": -0.023138016754549812
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.014581287657312536,
+        "ETHUSDT": -0.023193798681057032,
+        "SOLUSDT": -0.019862404093010988
+      },
+      "meanAbsExposure": 0.06754179290107823,
+      "meanCosts": 0.0029194835855404036,
+      "meanFillCount": 63.166666666666664,
+      "meanFunding": 0.00014141811720292334,
+      "meanGross": -0.01643443134212269,
+      "meanIntervention": 0.6015625,
+      "meanNetReturn": -0.019212496810460184,
+      "meanTurnover": 2.9194835855404033,
+      "seedMeanReturns": {
+        "0": -0.019212496810460184
+      },
+      "seedMeanSampleSD": null,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.019212496810460184
+      },
+      "worstDrawdown": 0.038033563368990886,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.012111335109560554
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.040529077762373265
+      },
+      "algorithm": "normalized_reversal3",
+      "byFold": {
+        "0": -0.03385449024153875,
+        "1": -0.047203665283207775
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.035483046377989935,
+        "ETHUSDT": -0.05088825033708455,
+        "SOLUSDT": -0.0352159365720453
+      },
+      "meanAbsExposure": 0.0866409959395282,
+      "meanCosts": 0.02104350736323495,
+      "meanFillCount": 28.666666666666668,
+      "meanFunding": 0.00015143282914114432,
+      "meanGross": -0.01963700322827947,
+      "meanIntervention": 0.6484375,
+      "meanNetReturn": -0.040529077762373265,
+      "meanTurnover": 4.20870147264699,
+      "seedMeanReturns": {
+        "0": -0.040529077762373265
+      },
+      "seedMeanSampleSD": null,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "0/0": -0.040529077762373265
+      },
+      "worstDrawdown": 0.06578903775853595,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017207241497704126
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0043660434511117304
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.00951746512203017,
+        "1": -0.0007853782198067094
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.007369334953265328,
+        "ETHUSDT": 0.004686659717837027,
+        "SOLUSDT": 0.0010421356822328364
+      },
+      "meanAbsExposure": 0.07773855239035729,
+      "meanCosts": 0.002036199015038599,
+      "meanFillCount": 23.733333333333334,
+      "meanFunding": -0.00012055981178677472,
+      "meanGross": 0.006522802277937113,
+      "meanIntervention": 0.4713541666666667,
+      "meanNetReturn": 0.0043660434511117304,
+      "meanTurnover": 2.036199015038599,
+      "seedMeanReturns": {
+        "101": 0.009841169061115448,
+        "11": 0.00011234477478464881,
+        "23": 0.008882088836355736,
+        "47": 0.011531371087752077,
+        "71": -0.008536756504449258
+      },
+      "seedMeanSampleSD": 0.008460050023928871,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.009841169061115448,
+        "11/0": 0.00011234477478464881,
+        "23/0": 0.008882088836355736,
+        "47/0": 0.011531371087752077,
+        "71/0": -0.008536756504449258
+      },
+      "worstDrawdown": 0.051787163891874544,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0033461289451589917
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.008620435763649733,
+        "1": -0.001928177873331749
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.00669177095780551,
+        "ETHUSDT": 0.0036367049932682248,
+        "SOLUSDT": -0.0002900891155967589
+      },
+      "meanAbsExposure": 0.07774064209221002,
+      "meanCosts": 0.003052745850261064,
+      "meanFillCount": 23.733333333333334,
+      "meanFunding": -0.00012050986060058076,
+      "meanGross": 0.006519384656020638,
+      "meanIntervention": 0.4713541666666667,
+      "meanNetReturn": 0.0033461289451589917,
+      "meanTurnover": 2.035163900174043,
+      "seedMeanReturns": {
+        "101": 0.008667695624149744,
+        "11": -0.0007185749320284448,
+        "23": 0.007844607918646366,
+        "47": 0.010489663269301175,
+        "71": -0.00955274715427388
+      },
+      "seedMeanSampleSD": 0.008403693977528473,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.008667695624149744,
+        "11/0": -0.0007185749320284448,
+        "23/0": 0.007844607918646366,
+        "47/0": 0.010489663269301175,
+        "71/0": -0.00955274715427388
+      },
+      "worstDrawdown": 0.052322458020251816,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.002327250225440158
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.007724272658860391,
+        "1": -0.0030697722079800743
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.006014615110206856,
+        "ETHUSDT": 0.00258771721341724,
+        "SOLUSDT": -0.0016205816473036205
+      },
+      "meanAbsExposure": 0.07774273246556808,
+      "meanCosts": 0.004068258939729502,
+      "meanFillCount": 23.733333333333334,
+      "meanFunding": -0.00012045993401264619,
+      "meanGross": 0.006515969099182282,
+      "meanIntervention": 0.4713541666666667,
+      "meanNetReturn": 0.002327250225440158,
+      "meanTurnover": 2.0341294698647507,
+      "seedMeanReturns": {
+        "101": 0.007495652487787645,
+        "11": -0.0015487834897243702,
+        "23": 0.006808187091938959,
+        "47": 0.009449021098974756,
+        "71": -0.010567826061776198
+      },
+      "seedMeanSampleSD": 0.00834891351219328,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.007495652487787645,
+        "11/0": -0.0015487834897243702,
+        "23/0": 0.006808187091938959,
+        "47/0": 0.009449021098974756,
+        "71/0": -0.010567826061776198
+      },
+      "worstDrawdown": 0.052857582002804215,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.005422380283216455
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.011683942476183177,
+        "1": -0.0008391819097502677
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.010525324674922199,
+        "ETHUSDT": 0.005131269175806541,
+        "SOLUSDT": 0.0006105469989206247
+      },
+      "meanAbsExposure": 0.06625002588070503,
+      "meanCosts": 0.0013224720841565067,
+      "meanFillCount": 11.033333333333333,
+      "meanFunding": -0.00010706081723738494,
+      "meanGross": 0.0068519131846103455,
+      "meanIntervention": 0.471875,
+      "meanNetReturn": 0.005422380283216455,
+      "meanTurnover": 1.3224720841565067,
+      "seedMeanReturns": {
+        "101": 0.009912179007399083,
+        "11": 0.004802225704274392,
+        "23": 0.008380188152786627,
+        "47": 0.010736319571142164,
+        "71": -0.006719011019519994
+      },
+      "seedMeanSampleSD": 0.007157912495984264,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.009912179007399083,
+        "11/0": 0.004802225704274392,
+        "23/0": 0.008380188152786627,
+        "47/0": 0.010736319571142164,
+        "71/0": -0.006719011019519994
+      },
+      "worstDrawdown": 0.05416512009972785,
+      "worstDrawdownDurationBars": 63,
+      "worstES95": 0.015593573738992046
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.004246427541777657
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.00934391318831908,
+        "1": -0.0008510581047637652
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.007198434004635412,
+        "ETHUSDT": 0.004584227907912774,
+        "SOLUSDT": 0.0009566207127847837
+      },
+      "meanAbsExposure": 0.07773855240629882,
+      "meanCosts": 0.002036128180278884,
+      "meanFillCount": 23.733333333333334,
+      "meanFunding": -0.00024098838965876625,
+      "meanGross": 0.006523544111715297,
+      "meanIntervention": 0.4713541666666667,
+      "meanNetReturn": 0.004246427541777656,
+      "meanTurnover": 2.036128180278884,
+      "seedMeanReturns": {
+        "101": 0.009800076166979421,
+        "11": 0.0003167727761464086,
+        "23": 0.008441507479570601,
+        "47": 0.011125949916599745,
+        "71": -0.008452168630407894
+      },
+      "seedMeanSampleSD": 0.008253273110767175,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.009800076166979421,
+        "11/0": 0.0003167727761464086,
+        "23/0": 0.008441507479570601,
+        "47/0": 0.011125949916599745,
+        "71/0": -0.008452168630407894
+      },
+      "worstDrawdown": 0.051463970499324385,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.005930084251045453
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.01288284819636425,
+        "1": -0.0010226796942733429
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.008477882288651928,
+        "ETHUSDT": 0.0060014428860107995,
+        "SOLUSDT": 0.0033109275784736327
+      },
+      "meanAbsExposure": 0.07636563504102171,
+      "meanCosts": 0.001397675798817647,
+      "meanFillCount": 63.1,
+      "meanFunding": -0.00012831067624547587,
+      "meanGross": 0.007456070726108582,
+      "meanIntervention": 0.4703125,
+      "meanNetReturn": 0.005930084251045453,
+      "meanTurnover": 1.397675798817647,
+      "seedMeanReturns": {
+        "101": 0.010292393528632038,
+        "11": 0.004367146704955638,
+        "23": 0.011173410756476357,
+        "47": 0.013832457717713723,
+        "71": -0.010014987452550491
+      },
+      "seedMeanSampleSD": 0.00956109050904195,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.010292393528632038,
+        "11/0": 0.004367146704955638,
+        "23/0": 0.011173410756476357,
+        "47/0": 0.013832457717713723,
+        "71/0": -0.010014987452550491
+      },
+      "worstDrawdown": 0.04986546719115681,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.0037643294262835266
+      },
+      "algorithm": "v5_greedy",
+      "byFold": {
+        "0": 0.0023654350994692487,
+        "1": -0.009894093952036302
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.001960238372464307,
+        "ETHUSDT": -0.003685948039545017,
+        "SOLUSDT": -0.00956727861176987
+      },
+      "meanAbsExposure": 0.07775528882930068,
+      "meanCosts": 0.010139687563774051,
+      "meanFillCount": 23.733333333333334,
+      "meanFunding": -0.00012016089063239848,
+      "meanGross": 0.006495519028122941,
+      "meanIntervention": 0.4713541666666667,
+      "meanNetReturn": -0.0037643294262835266,
+      "meanTurnover": 2.0279375127548103,
+      "seedMeanReturns": {
+        "101": 0.0004933257724716681,
+        "11": -0.006515132250711597,
+        "23": 0.0006118684101796649,
+        "47": 0.003227490962989743,
+        "71": -0.016639200026347112
+      },
+      "seedMeanSampleSD": 0.008054400921211844,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.0004933257724716681,
+        "11/0": -0.006515132250711597,
+        "23/0": 0.0006118684101796649,
+        "47/0": 0.003227490962989743,
+        "71/0": -0.016639200026347112
+      },
+      "worstDrawdown": 0.05641616651555559,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.015634619542369853
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.009041182559964086,
+        "19": -0.009656899270440222,
+        "37": -0.0017796251859869623,
+        "59": -0.007918333553138998,
+        "83": -0.002933547296124746
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.005007811656944029,
+        "1": -0.007524023489317977
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008454732732179907,
+        "ETHUSDT": -0.006529317514144945,
+        "SOLUSDT": -0.0038137024730681567
+      },
+      "meanAbsExposure": 0.056444567827421036,
+      "meanCosts": 0.005305934144555948,
+      "meanFillCount": 23.126666666666665,
+      "meanFunding": -1.422860034821808e-05,
+      "meanGross": -0.0009457548282268414,
+      "meanIntervention": 0.43677083333333333,
+      "meanNetReturn": -0.006265917573131003,
+      "meanTurnover": 5.305934144555947,
+      "seedMeanReturns": {
+        "101": -0.003997611928222481,
+        "11": -0.012264670006721734,
+        "23": -0.00333466768107659,
+        "47": -0.01422211774314699,
+        "71": 0.0024894794935127807
+      },
+      "seedMeanSampleSD": 0.0068862283967325065,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.006108060989533352,
+        "101/19": -0.004525106383741355,
+        "101/37": 0.002477125902487757,
+        "101/59": -0.010063208290872686,
+        "101/83": -0.0017688098794527707,
+        "11/109": -0.005381741031713812,
+        "11/19": -0.0242818283805963,
+        "11/37": -0.013237810312952939,
+        "11/59": -0.01879199271707162,
+        "11/83": 0.0003700224087260044,
+        "23/109": -0.0033281502612451663,
+        "23/19": -0.001919335801050322,
+        "23/37": -0.004601587203289311,
+        "23/59": -0.004937441683939818,
+        "23/83": -0.001886823455858333,
+        "47/109": -0.037390020706604944,
+        "47/19": -0.02157720711430187,
+        "47/37": 0.0041439767621008206,
+        "47/59": -0.008365763054186515,
+        "47/83": -0.007921574602742435,
+        "71/109": 0.007002060189276849,
+        "71/19": 0.004018981327488735,
+        "71/37": 0.0023201689217188606,
+        "71/59": 0.002566737980375655,
+        "71/83": -0.0034605509512961965
+      },
+      "worstDrawdown": 0.10017358821483491,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017540609713768297
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.011673959732053844,
+        "19": -0.012293123355464123,
+        "37": -0.004373359698734014,
+        "59": -0.010572322672359868,
+        "83": -0.00554190360662488
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.007419134008754386,
+        "1": -0.010362733617340306
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.01059385062342285,
+        "ETHUSDT": -0.009010867757396328,
+        "SOLUSDT": -0.007068083058322861
+      },
+      "meanAbsExposure": 0.05642464806767194,
+      "meanCosts": 0.007942199037422713,
+      "meanFillCount": 23.12,
+      "meanFunding": -1.4371716557484247e-05,
+      "meanGross": -0.0009343630590671537,
+      "meanIntervention": 0.436875,
+      "meanNetReturn": -0.008890933813047347,
+      "meanTurnover": 5.294799358281808,
+      "seedMeanReturns": {
+        "101": -0.00680308879053434,
+        "11": -0.014775784060531505,
+        "23": -0.005911582295523044,
+        "47": -0.01678197250842039,
+        "71": -0.00018224141022745352
+      },
+      "seedMeanSampleSD": 0.00681866757140148,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.008804338323533426,
+        "101/19": -0.007189161968597646,
+        "101/37": -0.0005711705744751994,
+        "101/59": -0.012831505459572068,
+        "101/83": -0.004619267626493358,
+        "11/109": -0.008121631584320407,
+        "11/19": -0.026647811928989535,
+        "11/37": -0.015659410104625016,
+        "11/59": -0.021440759489531207,
+        "11/83": -0.00200930719519136,
+        "23/109": -0.00594186790616293,
+        "23/19": -0.004625960515107386,
+        "23/37": -0.0069779728022657155,
+        "23/59": -0.007416440273053253,
+        "23/83": -0.004595669981025933,
+        "47/109": -0.039795579612754206,
+        "47/19": -0.024013940401362954,
+        "47/37": 0.0015359799741999636,
+        "47/59": -0.011065921489161171,
+        "47/83": -0.01057040101302357,
+        "71/109": 0.00429361876650175,
+        "71/19": 0.0010112580367369062,
+        "71/37": -0.00019422498650410272,
+        "71/59": -0.00010698665048164413,
+        "71/83": -0.005914872217390177
+      },
+      "worstDrawdown": 0.10279297233196938,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017723111916163232
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.014299024733406012,
+        "19": -0.014921661943711069,
+        "37": -0.007033788385851243,
+        "59": -0.013218541718005735,
+        "83": -0.008142588942540382
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.009854493368383895,
+        "1": -0.013191748921021882
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.012727630145202564,
+        "ETHUSDT": -0.011486534963583048,
+        "SOLUSDT": -0.010355198325323051
+      },
+      "meanAbsExposure": 0.056430785249770486,
+      "meanCosts": 0.010574089538478005,
+      "meanFillCount": 23.12,
+      "meanFunding": -1.4347189037417417e-05,
+      "meanGross": -0.0009346844171874669,
+      "meanIntervention": 0.436875,
+      "meanNetReturn": -0.011523121144702888,
+      "meanTurnover": 5.287044769239003,
+      "seedMeanReturns": {
+        "101": -0.00960012310156324,
+        "11": -0.01727944239383846,
+        "23": -0.008555167938806155,
+        "47": -0.019334798007682584,
+        "71": -0.0028460742816239968
+      },
+      "seedMeanSampleSD": 0.006744541120514443,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.011492956265476214,
+        "101/19": -0.009845940677931486,
+        "101/37": -0.00360970576695846,
+        "101/59": -0.015590921829574408,
+        "101/83": -0.007461090967875635,
+        "11/109": -0.010852120736407067,
+        "11/19": -0.029006842629861324,
+        "11/37": -0.01807443254358367,
+        "11/59": -0.0240819634279905,
+        "11/83": -0.0043818526313497514,
+        "23/109": -0.008547794717398305,
+        "23/19": -0.007324706167373722,
+        "23/37": -0.009718697755997874,
+        "23/59": -0.009888999953686714,
+        "23/83": -0.007295641099574164,
+        "47/109": -0.04219498729221414,
+        "47/19": -0.02644434626954136,
+        "47/37": -0.0010646588607868084,
+        "47/59": -0.013758053914674809,
+        "47/83": -0.013211943701195808,
+        "71/109": 0.0015927353444656716,
+        "71/19": -0.0019864739738474544,
+        "71/37": -0.002701447001929406,
+        "71/59": -0.0027727694641022462,
+        "71/83": -0.008362416312706547
+      },
+      "worstDrawdown": 0.10733144783165594,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017905630017540364
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.003995170175002649,
+        "19": -0.003172206606792823,
+        "37": 0.0010810833511791425,
+        "59": -0.009401589944096978,
+        "83": 0.00015660817564578562
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": 0.0009046384084280179,
+        "1": -0.007037148488055026
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.00022071028452102403,
+        "ETHUSDT": -0.0033830204767588334,
+        "SOLUSDT": -0.005595034358160655
+      },
+      "meanAbsExposure": 0.04887882833358178,
+      "meanCosts": 0.0023516201849806853,
+      "meanFillCount": 10.206666666666667,
+      "meanFunding": -1.7941286879027244e-05,
+      "meanGross": -0.0006966935679537905,
+      "meanIntervention": 0.4146875,
+      "meanNetReturn": -0.003066255039813504,
+      "meanTurnover": 2.3516201849806855,
+      "seedMeanReturns": {
+        "101": -0.0012081220358309348,
+        "11": -0.010082607476037097,
+        "23": -0.0005079179070411074,
+        "47": -0.0074929170286894015,
+        "71": 0.00396028924853102
+      },
+      "seedMeanSampleSD": 0.005661152922650516,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.00459106897625559,
+        "101/19": 0.004653907533976283,
+        "101/37": -0.007935149905711572,
+        "101/59": -0.005301153096089473,
+        "101/83": 0.007132854264925677,
+        "11/109": -0.002319362065407763,
+        "11/19": -0.018049390132849546,
+        "11/37": -0.010589951853309612,
+        "11/59": -0.01254058927121926,
+        "11/83": -0.006913744057399307,
+        "23/109": -0.016409983495372687,
+        "23/19": 0.004490215883888112,
+        "23/37": 0.001318642090005336,
+        "23/59": 0.00023966620871573863,
+        "23/83": 0.007821869777557963,
+        "47/109": -0.010200638961630334,
+        "47/19": -0.011547667469447354,
+        "47/37": 0.01524684353645219,
+        "47/59": -0.013074601919551787,
+        "47/83": -0.017888520329269724,
+        "71/109": 0.013545202623653127,
+        "71/19": 0.0045919011504683875,
+        "71/37": 0.0073650328884593734,
+        "71/59": -0.016331271642340106,
+        "71/83": 0.010630581222414318
+      },
+      "worstDrawdown": 0.08191443975443291,
+      "worstDrawdownDurationBars": 63,
+      "worstES95": 0.01771246413227458
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.009059408973602748,
+        "19": -0.009657314690863688,
+        "37": -0.0018012696829814731,
+        "59": -0.007930061812753849,
+        "83": -0.0029514926027979006
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.005014591847417759,
+        "1": -0.007545227257782104
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008472356046446559,
+        "ETHUSDT": -0.006535222836586097,
+        "SOLUSDT": -0.0038321497747671397
+      },
+      "meanAbsExposure": 0.05644456782533403,
+      "meanCosts": 0.005305886227075939,
+      "meanFillCount": 23.126666666666665,
+      "meanFunding": -2.8455740180429207e-05,
+      "meanGross": -0.0009455675853435578,
+      "meanIntervention": 0.43677083333333333,
+      "meanNetReturn": -0.006279909552599931,
+      "meanTurnover": 5.305886227075939,
+      "seedMeanReturns": {
+        "101": -0.004000314338291041,
+        "11": -0.01226192876369595,
+        "23": -0.0033691398988920742,
+        "47": -0.014231695773179176,
+        "71": 0.002463531011058584
+      },
+      "seedMeanSampleSD": 0.0068762697945178005,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.0060936473112760585,
+        "101/19": -0.004503215938197506,
+        "101/37": 0.002416209788046797,
+        "101/59": -0.010032349829800927,
+        "101/83": -0.0017885684002275082,
+        "11/109": -0.005292024215098741,
+        "11/19": -0.024306806030441757,
+        "11/37": -0.013228902456692634,
+        "11/59": -0.018814483154803257,
+        "11/83": 0.0003325720385566333,
+        "23/109": -0.0033954368843814864,
+        "23/19": -0.0018776979954721977,
+        "23/37": -0.00462450358405712,
+        "23/59": -0.0050143863290099495,
+        "23/83": -0.001933674701539619,
+        "47/109": -0.037442477866433045,
+        "47/19": -0.021544012278195135,
+        "47/37": 0.004110014129244573,
+        "47/59": -0.008398580860666935,
+        "47/83": -0.007883421989845337,
+        "71/109": 0.006926541409175591,
+        "71/19": 0.003945158787988161,
+        "71/37": 0.0023208337085510178,
+        "71/59": 0.0026094911105118226,
+        "71/83": -0.003484369960933672
+      },
+      "worstDrawdown": 0.10053460020859606,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01756387503413717
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.005122235693078111,
+        "19": -0.0063780851069343055,
+        "37": -0.0012579437405591198,
+        "59": -0.004992604313854121,
+        "83": -0.0019197061394474598
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.0024071262647009962,
+        "1": -0.005461103732848251
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.004410723626480068,
+        "ETHUSDT": -0.00450940523608963,
+        "SOLUSDT": -0.0028822161337541717
+      },
+      "meanAbsExposure": 0.04238603645068989,
+      "meanCosts": 0.0027779388615740337,
+      "meanFillCount": 61.93333333333333,
+      "meanFunding": -7.777690402848649e-06,
+      "meanGross": -0.0011483984467977437,
+      "meanIntervention": 0.4021875,
+      "meanNetReturn": -0.003934114998774624,
+      "meanTurnover": 2.7779388615740337,
+      "seedMeanReturns": {
+        "101": -0.002651599227239217,
+        "11": -0.00856093583875281,
+        "23": -0.0013962554950381011,
+        "47": -0.008533538421419903,
+        "71": 0.0014717539885769145
+      },
+      "seedMeanSampleSD": 0.004468533427741882,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.002707920070478672,
+        "101/19": -0.0004693805339050505,
+        "101/37": -0.0006514816396460307,
+        "101/59": -0.010019457240635854,
+        "101/83": 0.0005902433484695213,
+        "11/109": -0.003423051361836793,
+        "11/19": -0.017992964642793152,
+        "11/37": -0.011568782882704928,
+        "11/59": -0.009410507079505137,
+        "11/83": -0.00040937322692404426,
+        "23/109": -0.0012495742811129602,
+        "23/19": -0.001312104963479684,
+        "23/37": -0.002349904555920194,
+        "23/59": -0.0019004676757945482,
+        "23/83": -0.00016922599888311943,
+        "47/109": -0.022901991746732447,
+        "47/19": -0.012943894371983641,
+        "47/37": 0.005149032922155387,
+        "47/59": -0.0031461146446915187,
+        "47/83": -0.008824724265847295,
+        "71/109": 0.004671358994770318,
+        "71/19": 0.0008279189774899979,
+        "71/37": 0.0031314174533201657,
+        "71/59": -0.00048647492864354697,
+        "71/83": -0.0007854505540523619
+      },
+      "worstDrawdown": 0.06302190435584387,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.012742303416507292
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.029656287374933327,
+        "19": -0.030609599198638086,
+        "37": -0.022788982283216807,
+        "59": -0.028815525364372922,
+        "83": -0.023643567299652373
+      },
+      "algorithm": "v5_sampled",
+      "byFold": {
+        "0": -0.024241342458179792,
+        "1": -0.029964242150145617
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.025224663528596012,
+        "ETHUSDT": -0.0262859236433795,
+        "SOLUSDT": -0.029797789740512597
+      },
+      "meanAbsExposure": 0.05623262736897364,
+      "meanCosts": 0.026090070717965062,
+      "meanFillCount": 23.1,
+      "meanFunding": -1.3833575817474532e-05,
+      "meanGross": -0.0009988880103801645,
+      "meanIntervention": 0.4378125,
+      "meanNetReturn": -0.027102792304162703,
+      "meanTurnover": 5.218014143593012,
+      "seedMeanReturns": {
+        "101": -0.026062399030304415,
+        "11": -0.031870419024836366,
+        "23": -0.024378203368069666,
+        "47": -0.03465602620049568,
+        "71": -0.018546913897107387
+      },
+      "seedMeanSampleSD": 0.006353944939792927,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.02733710191042854,
+        "101/19": -0.0256349246744233,
+        "101/37": -0.021637713214290588,
+        "101/59": -0.03137000891939804,
+        "101/83": -0.024332246432981597,
+        "11/109": -0.02600450093278946,
+        "11/19": -0.043016369419480484,
+        "11/37": -0.03221018912527355,
+        "11/59": -0.039771635924171246,
+        "11/83": -0.018349399722467092,
+        "23/109": -0.024021193288298142,
+        "23/19": -0.0233531047207932,
+        "23/37": -0.02598611546088797,
+        "23/59": -0.024590124527689883,
+        "23/83": -0.023940478842679136,
+        "47/109": -0.056463614244021854,
+        "47/19": -0.041868499159146276,
+        "47/37": -0.016515474508807193,
+        "47/59": -0.029743751597339347,
+        "47/83": -0.02868879149316374,
+        "71/109": -0.014455026499128646,
+        "71/19": -0.019175098019347175,
+        "71/37": -0.017595419106824734,
+        "71/59": -0.018602105853266087,
+        "71/83": -0.022906920006970293
+      },
+      "worstDrawdown": 0.13515721529116254,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01900107348804341
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.005149589614599207
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.009544183630580272,
+        "1": 0.000754995598618143
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.007627410121828815,
+        "ETHUSDT": 0.007047484559952877,
+        "SOLUSDT": 0.0007738741620159306
+      },
+      "meanAbsExposure": 0.0539092072207553,
+      "meanCosts": 0.0014305651123522835,
+      "meanFillCount": 16.466666666666665,
+      "meanFunding": -0.00011333361190783677,
+      "meanGross": 0.006693488338859335,
+      "meanIntervention": 0.35052083333333334,
+      "meanNetReturn": 0.005149589614599208,
+      "meanTurnover": 1.4305651123522833,
+      "seedMeanReturns": {
+        "101": 0.01464475263510967,
+        "11": 0.0015875316033675535,
+        "23": 0.0164692819620809,
+        "47": 0.0005232154973076608,
+        "71": -0.007476833624869746
+      },
+      "seedMeanSampleSD": 0.010146572256166504,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.01464475263510967,
+        "11/0": 0.0015875316033675535,
+        "23/0": 0.0164692819620809,
+        "47/0": 0.0005232154973076608,
+        "71/0": -0.007476833624869746
+      },
+      "worstDrawdown": 0.053394120552057056,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.015587952299208976
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0044331455891785405
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.008788824140661119,
+        "1": 7.74670376959626e-05
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.007158622550213889,
+        "ETHUSDT": 0.006403343334788203,
+        "SOLUSDT": -0.0002625291174664701
+      },
+      "meanAbsExposure": 0.05391068653974809,
+      "meanCosts": 0.0021447505152045786,
+      "meanFillCount": 16.466666666666665,
+      "meanFunding": -0.00011327802669138965,
+      "meanGross": 0.0066911741310745005,
+      "meanIntervention": 0.35052083333333334,
+      "meanNetReturn": 0.0044331455891785405,
+      "meanTurnover": 1.4298336768030526,
+      "seedMeanReturns": {
+        "101": 0.014117031814519176,
+        "11": 0.0008397488568894959,
+        "23": 0.01547068760116945,
+        "47": -0.00020626198549394958,
+        "71": -0.008055478341191469
+      },
+      "seedMeanSampleSD": 0.010074811617166484,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.014117031814519176,
+        "11/0": 0.0008397488568894959,
+        "23/0": 0.01547068760116945,
+        "47/0": -0.00020626198549394958,
+        "71/0": -0.008055478341191469
+      },
+      "worstDrawdown": 0.053659048707635604,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.015593786634820833
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.0037174308406056067
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.008034250367767082,
+        "1": -0.0005993886865558684
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0066901004242707505,
+        "ETHUSDT": 0.005759778846131125,
+        "SOLUSDT": -0.0012975867485850556
+      },
+      "meanAbsExposure": 0.053912166339384934,
+      "meanCosts": 0.0028582075338443327,
+      "meanFillCount": 16.466666666666665,
+      "meanFunding": -0.00011322247480553129,
+      "meanGross": 0.00668886084925546,
+      "meanIntervention": 0.35052083333333334,
+      "meanNetReturn": 0.0037174308406056067,
+      "meanTurnover": 1.4291037669221665,
+      "seedMeanReturns": {
+        "101": 0.013589992822316913,
+        "11": 9.265357991359673e-05,
+        "23": 0.014473048589133194,
+        "47": -0.0009351536757790657,
+        "71": -0.008633387112556604
+      },
+      "seedMeanSampleSD": 0.01000598633592735,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.013589992822316913,
+        "11/0": 9.265357991359673e-05,
+        "23/0": 0.014473048589133194,
+        "47/0": -0.0009351536757790657,
+        "71/0": -0.008633387112556604
+      },
+      "worstDrawdown": 0.05392390481207476,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.01559962069923266
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.005054967546762886
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.01064838985751219,
+        "1": -0.0005384547639864179
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.007855436313804953,
+        "ETHUSDT": 0.0063235207892509806,
+        "SOLUSDT": 0.0009859455372327242
+      },
+      "meanAbsExposure": 0.04513496218354159,
+      "meanCosts": 0.0009125417053453638,
+      "meanFillCount": 7.5,
+      "meanFunding": -0.00010548327401565464,
+      "meanGross": 0.006072992526123902,
+      "meanIntervention": 0.3494791666666667,
+      "meanNetReturn": 0.005054967546762886,
+      "meanTurnover": 0.9125417053453637,
+      "seedMeanReturns": {
+        "101": 0.009447299327874322,
+        "11": 0.00440048392736662,
+        "23": 0.01205842415814784,
+        "47": 0.0033389372565643303,
+        "71": -0.003970306936138683
+      },
+      "seedMeanSampleSD": 0.0061880867648968114,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.009447299327874322,
+        "11/0": 0.00440048392736662,
+        "23/0": 0.01205842415814784,
+        "47/0": 0.0033389372565643303,
+        "71/0": -0.003970306936138683
+      },
+      "worstDrawdown": 0.05416512009972785,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.015593573891291757
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.005036973793966019
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.009369853414542832,
+        "1": 0.0007040941733892063
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0075174253997593145,
+        "ETHUSDT": 0.006984603014075841,
+        "SOLUSDT": 0.0006088929680629019
+      },
+      "meanAbsExposure": 0.053909207227192314,
+      "meanCosts": 0.0014304937355003175,
+      "meanFillCount": 16.466666666666665,
+      "meanFunding": -0.0002265781545452435,
+      "meanGross": 0.006694045684011573,
+      "meanIntervention": 0.35052083333333334,
+      "meanNetReturn": 0.005036973793966019,
+      "meanTurnover": 1.4304937355003176,
+      "seedMeanReturns": {
+        "101": 0.014454606734573106,
+        "11": 0.0017557544246655972,
+        "23": 0.016108970657587467,
+        "47": 0.00028619633429853114,
+        "71": -0.007420659181294605
+      },
+      "seedMeanSampleSD": 0.00999762260638884,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.014454606734573106,
+        "11/0": 0.0017557544246655972,
+        "23/0": 0.016108970657587467,
+        "47/0": 0.00028619633429853114,
+        "71/0": -0.007420659181294605
+      },
+      "worstDrawdown": 0.05375436662989652,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.015612943706872705
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": 0.006822948379074434
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.013495127271997531,
+        "1": 0.00015076948615133645
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.0075696348897977385,
+        "ETHUSDT": 0.007204317981957397,
+        "SOLUSDT": 0.005694892265468166
+      },
+      "meanAbsExposure": 0.0527446219823341,
+      "meanCosts": 0.0010010505256578706,
+      "meanFillCount": 44.4,
+      "meanFunding": -0.00011861349691205042,
+      "meanGross": 0.007942612401644346,
+      "meanIntervention": 0.35,
+      "meanNetReturn": 0.006822948379074434,
+      "meanTurnover": 1.0010505256578706,
+      "seedMeanReturns": {
+        "101": 0.015998727525635286,
+        "11": 0.003959422980732079,
+        "23": 0.01687693300301622,
+        "47": 0.0022278217606535957,
+        "71": -0.004948163374665008
+      },
+      "seedMeanSampleSD": 0.009396163685651358,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.015998727525635286,
+        "11/0": 0.003959422980732079,
+        "23/0": 0.01687693300301622,
+        "47/0": 0.0022278217606535957,
+        "71/0": -0.004948163374665008
+      },
+      "worstDrawdown": 0.04986546719115681,
+      "worstDrawdownDurationBars": 58,
+      "worstES95": 0.014071832986040684
+    },
+    {
+      "actionSeedMeanReturns": {
+        "0": -0.0005615632457469173
+      },
+      "algorithm": "v6_greedy",
+      "byFold": {
+        "0": 0.003523300032148861,
+        "1": -0.0046464265236426956
+      },
+      "bySymbol": {
+        "BTCUSDT": 0.003884534169371712,
+        "ETHUSDT": 0.0019104764803058005,
+        "SOLUSDT": -0.0074797003869182645
+      },
+      "meanAbsExposure": 0.053921055159503746,
+      "meanCosts": 0.0071236738863840665,
+      "meanFillCount": 16.466666666666665,
+      "meanFunding": -0.00011288986288640217,
+      "meanGross": 0.0066750005035235635,
+      "meanIntervention": 0.35104166666666664,
+      "meanNetReturn": -0.0005615632457469172,
+      "meanTurnover": 1.4247347772768133,
+      "seedMeanReturns": {
+        "101": 0.010442027251281885,
+        "11": -0.004375519046620868,
+        "23": 0.008507230673441021,
+        "47": -0.005296116886900903,
+        "71": -0.012085438219935721
+      },
+      "seedMeanSampleSD": 0.009657690956275758,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "101/0": 0.010442027251281885,
+        "11/0": -0.004375519046620868,
+        "23/0": 0.008507230673441021,
+        "47/0": -0.005296116886900903,
+        "71/0": -0.012085438219935721
+      },
+      "worstDrawdown": 0.058398353303263595,
+      "worstDrawdownDurationBars": 61,
+      "worstES95": 0.015634619542369853
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.00922981409283474,
+        "19": -0.009702438165405124,
+        "37": -0.0018854116556147882,
+        "59": -0.007946239579725995,
+        "83": -0.0034404903468698805
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.005022665525033128,
+        "1": -0.007859092011147083
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008517572748166278,
+        "ETHUSDT": -0.006801199362249834,
+        "SOLUSDT": -0.0040038641938542055
+      },
+      "meanAbsExposure": 0.05615806372504118,
+      "meanCosts": 0.005288380737161364,
+      "meanFillCount": 23.033333333333335,
+      "meanFunding": -1.4554987346415388e-05,
+      "meanGross": -0.0011379430435823287,
+      "meanIntervention": 0.4347916666666667,
+      "meanNetReturn": -0.006440878768090106,
+      "meanTurnover": 5.288380737161364,
+      "seedMeanReturns": {
+        "101": -0.004093880804118984,
+        "11": -0.012332268696476271,
+        "23": -0.0037604780717871433,
+        "47": -0.014358306891877797,
+        "71": 0.0023405406238096653
+      },
+      "seedMeanSampleSD": 0.006841060174704166,
+      "stress": "base",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.006108060989533352,
+        "101/19": -0.004990105288288267,
+        "101/37": 0.002460780427552156,
+        "101/59": -0.010063208290872686,
+        "101/83": -0.0017688098794527707,
+        "11/109": -0.005719734480486498,
+        "11/19": -0.0242818283805963,
+        "11/37": -0.013237810312952939,
+        "11/59": -0.01879199271707162,
+        "11/83": 0.0003700224087260044,
+        "23/109": -0.0033281502612451663,
+        "23/19": -0.001919335801050322,
+        "23/37": -0.004290532893393613,
+        "23/59": -0.004937441683939818,
+        "23/83": -0.0043269297193067975,
+        "47/109": -0.037390020706604944,
+        "47/19": -0.02133990268457947,
+        "47/37": 0.003320335579001595,
+        "47/59": -0.008365763054186515,
+        "47/83": -0.008016183593019643,
+        "71/109": 0.0063968959736962665,
+        "71/19": 0.004018981327488735,
+        "71/37": 0.0023201689217188606,
+        "71/59": 0.00242720784744066,
+        "71/83": -0.0034605509512961965
+      },
+      "worstDrawdown": 0.10017358821483491,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017540609713768297
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.011845175996883268,
+        "19": -0.012330261704639281,
+        "37": -0.004469946778018319,
+        "59": -0.010600039231845866,
+        "83": -0.006039568769662595
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.007433939108940056,
+        "1": -0.010680057883479676
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.010651649588134117,
+        "ETHUSDT": -0.009272319991520166,
+        "SOLUSDT": -0.007247025908975315
+      },
+      "meanAbsExposure": 0.05613812106855024,
+      "meanCosts": 0.0079159388843534,
+      "meanFillCount": 23.026666666666667,
+      "meanFunding": -1.4697588739822823e-05,
+      "meanGross": -0.001126362023116645,
+      "meanIntervention": 0.4348958333333333,
+      "meanNetReturn": -0.009056998496209867,
+      "meanTurnover": 5.277292589568933,
+      "seedMeanReturns": {
+        "101": -0.006890699672652608,
+        "11": -0.014835102917919445,
+        "23": -0.006328329334792175,
+        "47": -0.016909005178530168,
+        "71": -0.00032185537715493745
+      },
+      "seedMeanSampleSD": 0.0067727710529585415,
+      "stress": "cost1_5x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.008804338323533426,
+        "101/19": -0.007652535458602357,
+        "101/37": -0.0005458514950618295,
+        "101/59": -0.012831505459572068,
+        "101/83": -0.004619267626493358,
+        "11/109": -0.008418225871260102,
+        "11/19": -0.026647811928989535,
+        "11/37": -0.015659410104625016,
+        "11/59": -0.021440759489531207,
+        "11/83": -0.00200930719519136,
+        "23/109": -0.00594186790616293,
+        "23/19": -0.004625960515107386,
+        "23/37": -0.00666778761122087,
+        "23/59": -0.007416440273053253,
+        "23/83": -0.006989590368416436,
+        "47/109": -0.039795579612754206,
+        "47/19": -0.023736258657234038,
+        "47/37": 0.0007175403073202228,
+        "47/59": -0.011065921489161171,
+        "47/83": -0.010664806440821647,
+        "71/109": 0.003734131729294321,
+        "71/19": 0.0010112580367369062,
+        "71/37": -0.00019422498650410272,
+        "71/59": -0.00024556944791163476,
+        "71/83": -0.005914872217390177
+      },
+      "worstDrawdown": 0.10279297233196938,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017723111916163232
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.014452904780739758,
+        "19": -0.01495044377299004,
+        "37": -0.00712125657750791,
+        "59": -0.01324607191126825,
+        "83": -0.008631002676636164
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.009869250653874036,
+        "1": -0.013491421233782813
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.012780397114150143,
+        "ETHUSDT": -0.011737598185371676,
+        "SOLUSDT": -0.010523012531963454
+      },
+      "meanAbsExposure": 0.05614423534575263,
+      "meanCosts": 0.010539168981948002,
+      "meanFillCount": 23.026666666666667,
+      "meanFunding": -1.4672546813570021e-05,
+      "meanGross": -0.0011264944150668527,
+      "meanIntervention": 0.4348958333333333,
+      "meanNetReturn": -0.011680335943828425,
+      "meanTurnover": 5.269584490974001,
+      "seedMeanReturns": {
+        "101": -0.009679152167339378,
+        "11": -0.017330494128359075,
+        "23": -0.008962877583134292,
+        "47": -0.019452723052609734,
+        "71": -0.0029764327876996453
+      },
+      "seedMeanSampleSD": 0.006698535949736078,
+      "stress": "cost2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.011492956265476214,
+        "101/19": -0.0103077040260068,
+        "101/37": -0.0035430877477638325,
+        "101/59": -0.015590921829574408,
+        "101/83": -0.007461090967875635,
+        "11/109": -0.011107379409010132,
+        "11/19": -0.029006842629861324,
+        "11/37": -0.01807443254358367,
+        "11/59": -0.0240819634279905,
+        "11/83": -0.0043818526313497514,
+        "23/109": -0.008547794717398305,
+        "23/19": -0.007324706167373722,
+        "23/37": -0.0094093795226561,
+        "23/59": -0.009888999953686714,
+        "23/83": -0.009643507554556618,
+        "47/109": -0.04219498729221414,
+        "47/19": -0.026126492067860902,
+        "47/37": -0.0018779360716065414,
+        "47/59": -0.013758053914674809,
+        "47/83": -0.013306145916692269,
+        "71/109": 0.0010785937804000019,
+        "71/19": -0.0019864739738474544,
+        "71/37": -0.002701447001929406,
+        "71/59": -0.002910420430414821,
+        "71/83": -0.008362416312706547
+      },
+      "worstDrawdown": 0.10733144783165594,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.017905630017540364
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.003995170175002649,
+        "19": -0.0031746406016378383,
+        "37": 0.0013151239897680965,
+        "59": -0.009401589944096978,
+        "83": 0.00019186964630681184
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": 0.0009036648104900117,
+        "1": -0.006929427644355035
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.0002221706814280333,
+        "ETHUSDT": -0.0033618635943622175,
+        "SOLUSDT": -0.005454609975007283
+      },
+      "meanAbsExposure": 0.048774606089615175,
+      "meanCosts": 0.0023418271062405245,
+      "meanFillCount": 10.173333333333334,
+      "meanFunding": -1.8897724177976587e-05,
+      "meanGross": -0.0006521565865140101,
+      "meanIntervention": 0.41260416666666666,
+      "meanNetReturn": -0.0030128814169325113,
+      "meanTurnover": 2.3418271062405247,
+      "seedMeanReturns": {
+        "101": -0.0009765153920869962,
+        "11": -0.010082607476037097,
+        "23": -0.0005079179070411074,
+        "47": -0.007457655558028376,
+        "71": 0.00396028924853102
+      },
+      "seedMeanSampleSD": 0.005674147108131112,
+      "stress": "delay1bar",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.00459106897625559,
+        "101/19": 0.004641737559751206,
+        "101/37": -0.006764946712766802,
+        "101/59": -0.005301153096089473,
+        "101/83": 0.007132854264925677,
+        "11/109": -0.002319362065407763,
+        "11/19": -0.018049390132849546,
+        "11/37": -0.010589951853309612,
+        "11/59": -0.01254058927121926,
+        "11/83": -0.006913744057399307,
+        "23/109": -0.016409983495372687,
+        "23/19": 0.004490215883888112,
+        "23/37": 0.001318642090005336,
+        "23/59": 0.00023966620871573863,
+        "23/83": 0.007821869777557963,
+        "47/109": -0.010200638961630334,
+        "47/19": -0.011547667469447354,
+        "47/37": 0.01524684353645219,
+        "47/59": -0.013074601919551787,
+        "47/83": -0.017712212975964592,
+        "71/109": 0.013545202623653127,
+        "71/19": 0.0045919011504683875,
+        "71/37": 0.0073650328884593734,
+        "71/59": -0.016331271642340106,
+        "71/83": 0.010630581222414318
+      },
+      "worstDrawdown": 0.08191443975443291,
+      "worstDrawdownDurationBars": 63,
+      "worstES95": 0.01771246413227458
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.009249225975382502,
+        "19": -0.009703637938323961,
+        "37": -0.0019055361727476129,
+        "59": -0.007958802196787426,
+        "83": -0.0034587899116473382
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.005029769385870507,
+        "1": -0.007880627492085028
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.008536113036604003,
+        "ETHUSDT": -0.006806812887297837,
+        "SOLUSDT": -0.004022669393031464
+      },
+      "meanAbsExposure": 0.05615806372262984,
+      "meanCosts": 0.005288332064604354,
+      "meanFillCount": 23.033333333333335,
+      "meanFunding": -2.9108532195174635e-05,
+      "meanGross": -0.0011377578421782346,
+      "meanIntervention": 0.4347916666666667,
+      "meanNetReturn": -0.006455198438977768,
+      "meanTurnover": 5.2883320646043535,
+      "seedMeanReturns": {
+        "101": -0.004096694987592593,
+        "11": -0.012330246567826487,
+        "23": -0.003793649533545969,
+        "47": -0.01436869253529958,
+        "71": 0.002313291429375789
+      },
+      "seedMeanSampleSD": 0.0068314049617635205,
+      "stress": "funding2x",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.0060936473112760585,
+        "101/19": -0.004968032607299573,
+        "101/37": 0.0023991232106411,
+        "101/59": -0.010032349829800927,
+        "101/83": -0.0017885684002275082,
+        "11/109": -0.005633613235751418,
+        "11/19": -0.024306806030441757,
+        "11/37": -0.013228902456692634,
+        "11/59": -0.018814483154803257,
+        "11/83": 0.0003325720385566333,
+        "23/109": -0.0033954368843814864,
+        "23/19": -0.0018776979954721977,
+        "23/37": -0.004309370455765756,
+        "23/59": -0.0050143863290099495,
+        "23/83": -0.004371356003100457,
+        "47/109": -0.037442477866433045,
+        "47/19": -0.02131081184639444,
+        "47/37": 0.0032906351295282077,
+        "47/59": -0.008398580860666935,
+        "47/83": -0.007982227232531688,
+        "71/109": 0.006319045420929499,
+        "71/19": 0.003945158787988161,
+        "71/37": 0.0023208337085510178,
+        "71/59": 0.00246578919034394,
+        "71/83": -0.003484369960933672
+      },
+      "worstDrawdown": 0.10053460020859606,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01756387503413717
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.005156483750614042,
+        "19": -0.0064170484532357075,
+        "37": -0.0013195597964908324,
+        "59": -0.005096323196833733,
+        "83": -0.0021770399653787726
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.0024062417535384087,
+        "1": -0.005660340311482826
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.004429945694257746,
+        "ETHUSDT": -0.004652570811834229,
+        "SOLUSDT": -0.003017356591439877
+      },
+      "meanAbsExposure": 0.04224359028801895,
+      "meanCosts": 0.0027686665290586974,
+      "meanFillCount": 61.93333333333333,
+      "meanFunding": -7.899045200112242e-06,
+      "meanGross": -0.0012567254582518117,
+      "meanIntervention": 0.40041666666666664,
+      "meanNetReturn": -0.004033291032510618,
+      "meanTurnover": 2.7686665290586974,
+      "seedMeanReturns": {
+        "101": -0.0026230900535312704,
+        "11": -0.008595183896288742,
+        "23": -0.0016059078972098795,
+        "47": -0.008710308421120498,
+        "71": 0.001368035105597302
+      },
+      "seedMeanSampleSD": 0.004464877878811847,
+      "stress": "partial50pct",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.002707920070478672,
+        "101/19": -0.0005081370354536041,
+        "101/37": -0.000470179269557743,
+        "101/59": -0.010019457240635854,
+        "101/83": 0.0005902433484695213,
+        "11/109": -0.003594291649516449,
+        "11/19": -0.017992964642793152,
+        "11/37": -0.011568782882704928,
+        "11/59": -0.009410507079505137,
+        "11/83": -0.00040937322692404426,
+        "23/109": -0.0012495742811129602,
+        "23/19": -0.0013699122314590473,
+        "23/37": -0.002050408769762609,
+        "23/59": -0.0019004676757945482,
+        "23/83": -0.0014591765279202324,
+        "47/109": -0.022901991746732447,
+        "47/19": -0.013042147333962731,
+        "47/37": 0.004360154486250952,
+        "47/59": -0.0031461146446915187,
+        "47/83": -0.008821442866466744,
+        "71/109": 0.004671358994770318,
+        "71/19": 0.0008279189774899979,
+        "71/37": 0.0031314174533201657,
+        "71/59": -0.0010050693435416092,
+        "71/83": -0.0007854505540523619
+      },
+      "worstDrawdown": 0.06302190435584387,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.012742303416507292
+    },
+    {
+      "actionSeedMeanReturns": {
+        "109": -0.029658002636049247,
+        "19": -0.030589157477827953,
+        "37": -0.022823399558178928,
+        "59": -0.028842000697635397,
+        "83": -0.02407702537343638
+      },
+      "algorithm": "v6_sampled",
+      "byFold": {
+        "0": -0.024255832478256634,
+        "1": -0.030140001818994528
+      },
+      "bySymbol": {
+        "BTCUSDT": -0.02524742771538083,
+        "ETHUSDT": -0.026475499006555235,
+        "SOLUSDT": -0.02987082472394068
+      },
+      "meanAbsExposure": 0.0559720141234671,
+      "meanCosts": 0.026021318475216396,
+      "meanFillCount": 23.02,
+      "meanFunding": -1.4064172370322315e-05,
+      "meanGross": -0.00116253450103886,
+      "meanIntervention": 0.43583333333333335,
+      "meanNetReturn": -0.027197917148625583,
+      "meanTurnover": 5.204263695043279,
+      "seedMeanReturns": {
+        "101": -0.02609151070196308,
+        "11": -0.031872134285952286,
+        "23": -0.024732231022999034,
+        "47": -0.03472032050184364,
+        "71": -0.018573389230369865
+      },
+      "seedMeanSampleSD": 0.006326947983891619,
+      "stress": "severe50bp",
+      "trainingByActionSeedMeanReturns": {
+        "101/109": -0.02733710191042854,
+        "101/19": -0.026087342404224317,
+        "101/37": -0.0213308538427829,
+        "101/59": -0.03137000891939804,
+        "101/83": -0.024332246432981597,
+        "11/109": -0.02601307723836906,
+        "11/19": -0.043016369419480484,
+        "11/37": -0.03221018912527355,
+        "11/59": -0.039771635924171246,
+        "11/83": -0.018349399722467092,
+        "23/109": -0.024021193288298142,
+        "23/19": -0.0233531047207932,
+        "23/37": -0.025681953640110278,
+        "23/59": -0.024590124527689883,
+        "23/83": -0.026014778938103666,
+        "47/109": -0.056463614244021854,
+        "47/19": -0.041313872825294584,
+        "47/37": -0.01729858207590318,
+        "47/59": -0.029743751597339347,
+        "47/83": -0.02878178176665926,
+        "71/109": -0.014455026499128646,
+        "71/19": -0.019175098019347175,
+        "71/37": -0.017595419106824734,
+        "71/59": -0.01873448251957847,
+        "71/83": -0.022906920006970293
+      },
+      "worstDrawdown": 0.13515721529116254,
+      "worstDrawdownDurationBars": 64,
+      "worstES95": 0.01900107348804341
+    }
+  ],
+  "archiveIndexSha256": "2f7bf0d9f8c0f987e4438e12af0a69e985243a44e06420a30f17dede3036f58f",
+  "campaign": "rl-policy-extraction-v7",
+  "failureCounts": {},
+  "holdoutOpened": false,
+  "independentAudit": {
+    "detectedViolations": 0,
+    "rows": 172032,
+    "scope": "Archived binary64 scalar checks at1e-12; not universal safety proof. Terminal fill/liquidation reconstruction remains partial."
+  },
+  "interventions": {
+    "actionChanged": 73608,
+    "newProposalIgnored": 12288,
+    "schedulingDeferred": 12288,
+    "supportChangedAction": 69804,
+    "turnoverRejected": 3804
+  },
+  "manifest": {
+    "campaign": "rl-policy-extraction-v7",
+    "commit": "8c9a500b138192a6b7f024689ee7b8c4df4c1813",
+    "continuation": {
+      "amendmentSha256": "47bed86d3e684aa4a9f2d8ef4761ca39240f5f7b7aa4335b81711eecaeb5484c",
+      "parentIndexSha256": "dae263af91f16585e14686620b810d2cb33be3458ae2de668d515fcd3b044702",
+      "parentManifest": {
+        "campaign": "rl-policy-extraction-v7",
+        "commit": "9bd904a66e82c5829ddfb7f463e1ece8939a7955",
+        "holdoutOpened": false,
+        "numpy": "2.3.5",
+        "parentArchives": {
+          "v5": {
+            "indexSha256": "6451d127fbdc9a5e8b9e0a285b55c794e75297e5e67653984f55c7152c39c957",
+            "path": ".tmp/research/rl-matched-horizon-v5-20261013"
+          },
+          "v6": {
+            "indexSha256": "60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+            "path": ".tmp/research/rl-proposal-penalty-v6-20261013"
+          }
+        },
+        "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+        "policyHashes": {
+          "v5/0/101": "0c182d86a48977f01cf9c8d06d89f62806402814b8f5763225d10d38c81e54d2",
+          "v5/0/11": "4a99450b6321d33679d4c14f5c50e4be4115638d2be4b601521e53ed48c3f723",
+          "v5/0/23": "187c25349ec79d336628bcf080f0a4cf3f97753633da19a9f07fb883cae42608",
+          "v5/0/47": "26cda4562ca3d2b224ec92f8e4f5e7c067bc9fc29e38554c3e8f65f43320787a",
+          "v5/0/71": "810c387c28278bab4321d57457fc4ae1a10ec5098bae1b0ebf5a00648292c95f",
+          "v5/1/101": "6d7065b947fd1b44ae582224dc4c0cff145df6ce1d1acbe2bd1e817157792d29",
+          "v5/1/11": "0c79cc4bb0bdc9abf8e527193b25235630aa68e7609e27b5cfbc152e8008c80c",
+          "v5/1/23": "eb0656415197415a5bcb62e4f3f7402f5013e9349f1e9d10e72d98cd74448bda",
+          "v5/1/47": "cda9e702e72c9b7614505313016a6c425344e05f3658f292e7024f5a993bf187",
+          "v5/1/71": "ce546452d873c0367ad15e261ac4f846caa00be6bfedc8de528474727bab1d64",
+          "v6/0/101": "c868f5627c53f53814ec9fa704d24a217b24fa76570332136742da706e4deb0f",
+          "v6/0/11": "4aaffbdcad0a362443fe0092e80fded6ec00b6b325b7e86167515ba5528f2034",
+          "v6/0/23": "89629205937ebce7f5bc1eab14aca60729889399fa55d77b47869a8dc3380c49",
+          "v6/0/47": "541800e22f194754e6cd58c4d49df18804582b8d043eb7593a622d120716ad32",
+          "v6/0/71": "21751583892f2a3789fd7e823d57c20bd95f3a6f4b52240a2a03185280910ccf",
+          "v6/1/101": "b79afb982f70632cbbbeb03670353f6fb69ce23047c0fc791a4dc4f4cf90378a",
+          "v6/1/11": "f10b9e95403c8aacf3bd393a90c5659ec3ea770aadecaaee14190d312cdbbba7",
+          "v6/1/23": "b97e11c74e82f3315df0c39d15b5b2add1394f510a7d9aeefa528c0d6c0d86ff",
+          "v6/1/47": "a1b3402bacba14cffe056a196d1e7d715214f1d3bb99a19840e2581762db317a",
+          "v6/1/71": "a773c1c1a22c8116d5e15f098e2af630bc1c8c19923598c4551db0869ddecd3e"
+        },
+        "promotionAllowed": false,
+        "proofLedgerSha256": "4012da55fe00e3c1fcce889e7d9022140ae404b570dad6ca163da641078d2ab9",
+        "python": "3.13.3",
+        "registrationSha256": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
+        "sourceHashes": {
+          "research-notes/registrations/rl-policy-extraction-v7.json": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
+          "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+          "scripts/research/compare_rl_replication.py": "4d0afa5d092e9648b018f41427100351629f73a058621d31f7c79e6d966b6728",
+          "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+          "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+          "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+          "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+          "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+          "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+          "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
+          "scripts/research/run_rl_extraction_v7.py": "032cbc518d97a88ea3269f955d89351357edcbd7d62e0b3908f6807bc827a1cd",
+          "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+          "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+          "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+          "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+        }
+      },
+      "reusedPaths": 2064
+    },
+    "holdoutOpened": false,
+    "numpy": "2.3.5",
+    "parentArchives": {
+      "v5": {
+        "indexSha256": "6451d127fbdc9a5e8b9e0a285b55c794e75297e5e67653984f55c7152c39c957",
+        "path": ".tmp/research/rl-matched-horizon-v5-20261013"
+      },
+      "v6": {
+        "indexSha256": "60e9adfcc1e48c6a6c91e85c90b88544a59b23c5a86c2a9137cf328c6b59655b",
+        "path": ".tmp/research/rl-proposal-penalty-v6-20261013"
+      }
+    },
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "policyHashes": {
+      "v5/0/101": "0c182d86a48977f01cf9c8d06d89f62806402814b8f5763225d10d38c81e54d2",
+      "v5/0/11": "4a99450b6321d33679d4c14f5c50e4be4115638d2be4b601521e53ed48c3f723",
+      "v5/0/23": "187c25349ec79d336628bcf080f0a4cf3f97753633da19a9f07fb883cae42608",
+      "v5/0/47": "26cda4562ca3d2b224ec92f8e4f5e7c067bc9fc29e38554c3e8f65f43320787a",
+      "v5/0/71": "810c387c28278bab4321d57457fc4ae1a10ec5098bae1b0ebf5a00648292c95f",
+      "v5/1/101": "6d7065b947fd1b44ae582224dc4c0cff145df6ce1d1acbe2bd1e817157792d29",
+      "v5/1/11": "0c79cc4bb0bdc9abf8e527193b25235630aa68e7609e27b5cfbc152e8008c80c",
+      "v5/1/23": "eb0656415197415a5bcb62e4f3f7402f5013e9349f1e9d10e72d98cd74448bda",
+      "v5/1/47": "cda9e702e72c9b7614505313016a6c425344e05f3658f292e7024f5a993bf187",
+      "v5/1/71": "ce546452d873c0367ad15e261ac4f846caa00be6bfedc8de528474727bab1d64",
+      "v6/0/101": "c868f5627c53f53814ec9fa704d24a217b24fa76570332136742da706e4deb0f",
+      "v6/0/11": "4aaffbdcad0a362443fe0092e80fded6ec00b6b325b7e86167515ba5528f2034",
+      "v6/0/23": "89629205937ebce7f5bc1eab14aca60729889399fa55d77b47869a8dc3380c49",
+      "v6/0/47": "541800e22f194754e6cd58c4d49df18804582b8d043eb7593a622d120716ad32",
+      "v6/0/71": "21751583892f2a3789fd7e823d57c20bd95f3a6f4b52240a2a03185280910ccf",
+      "v6/1/101": "b79afb982f70632cbbbeb03670353f6fb69ce23047c0fc791a4dc4f4cf90378a",
+      "v6/1/11": "f10b9e95403c8aacf3bd393a90c5659ec3ea770aadecaaee14190d312cdbbba7",
+      "v6/1/23": "b97e11c74e82f3315df0c39d15b5b2add1394f510a7d9aeefa528c0d6c0d86ff",
+      "v6/1/47": "a1b3402bacba14cffe056a196d1e7d715214f1d3bb99a19840e2581762db317a",
+      "v6/1/71": "a773c1c1a22c8116d5e15f098e2af630bc1c8c19923598c4551db0869ddecd3e"
+    },
+    "promotionAllowed": false,
+    "proofLedgerSha256": "f807fd4dadc199c62fbfa22f92998e17ae8adea8441228ce699cc05907ba8e0b",
+    "python": "3.13.3",
+    "registrationSha256": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
+    "sourceHashes": {
+      "research-notes/registrations/rl-policy-extraction-v7-continuation.json": "47bed86d3e684aa4a9f2d8ef4761ca39240f5f7b7aa4335b81711eecaeb5484c",
+      "research-notes/registrations/rl-policy-extraction-v7.json": "0a3deb456bcb857d23b9404c68fa16b992d4942adafd2af9fddc2cd3494b9072",
+      "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+      "scripts/research/compare_rl_replication.py": "4d0afa5d092e9648b018f41427100351629f73a058621d31f7c79e6d966b6728",
+      "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
+      "scripts/research/optimizer_snapshot_v2.py": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+      "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
+      "scripts/research/rl_admission_v2.py": "86e2c4a3f5598f7e27e96fa81f95a04f9dfc7f5853922792e534e2b3a7000642",
+      "scripts/research/rl_composition.py": "fadb8581575635f63d2568d6cf5221896fc85a16638eff33828a64892455b92a",
+      "scripts/research/run_rl_budget_v3.py": "d50ceae7bc58f51d35e6e36233b8767668a31fee13ed413e6d7e6c5cc7f76a1e",
+      "scripts/research/run_rl_composition.py": "f660422c392f2c35af86b351ad15f3c451517ec2ce7e32ba24fd2bb35fcbe03a",
+      "scripts/research/run_rl_extraction_v7.py": "c1ef9eee41191ee9d924840fb00feba853b5a2a4085e099011b519c0c1a80615",
+      "scripts/research/sequential_env.py": "8c0a405bf3bd81102602815224c99c14facafae1f7cab6b609d271c94b190e66",
+      "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
+      "scripts/research/summarize_rl_composition.py": "5d34d87e1328637ceab2158b797ee58efbe7326d75ee674247cdeb77c57cc309",
+      "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c"
+    }
+  },
+  "newIndependentMarketHistories": 0,
+  "paired": [
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "v5_greedy",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.010631961024242744,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.02746661260905685,
+        0.003503877735331512
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "v5_greedy",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.010631961024242744,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.026924768483256686,
+        0.0025201215585858206
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "v5_greedy",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.010631961024242744,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.02482489063558129,
+        0.002221212103861085
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.006265917573131007,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.012727420531481735,
+        -0.0015089982508743123
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.006265917573131007,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.012551497617518042,
+        -0.0018291922802442892
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.006265917573131007,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01120336993290882,
+        -0.0022057387457416412
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.021140068885906034,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.07418918202386932,
+        0.01761423299119823
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.021140068885906034,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.06234946339873085,
+        0.010571615932384471
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v5_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.021140068885906034,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05317606509058445,
+        0.006916912849140663
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "v6_greedy",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.011590468382689323,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.028254120772773127,
+        -0.0001564109534626315
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "v6_greedy",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.011590468382689323,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.027149585316608753,
+        -0.0013166291584542221
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "v6_greedy",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.011590468382689323,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.024459954908483742,
+        -0.0013702126911237728
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "cash",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.006440878768090108,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01325788343766889,
+        -0.00160467123548074
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "cash",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.006440878768090108,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.01295057480800416,
+        -0.001911254857374798
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "cash",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.006440878768090108,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.011592552149004957,
+        -0.0022692243431859977
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 3,
+      "meanPairedNetChange": -0.02131503008086514,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.07450900346316558,
+        0.01753785226528481
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 9,
+      "meanPairedNetChange": -0.02131503008086514,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.06280089525887134,
+        0.01048443930270158
+      ],
+      "status": "descriptive_development_only"
+    },
+    {
+      "algorithm": "v6_sampled",
+      "baseline": "normalized_momentum3",
+      "blockBars": 21,
+      "meanPairedNetChange": -0.02131503008086514,
+      "sampling": "circular blocks within each 64-bar fold; 6 comparisons; short dependent exposed windows, no confirmation",
+      "simultaneous95Interval": [
+        -0.05350332738089265,
+        0.006836729202891824
+      ],
+      "status": "descriptive_development_only"
+    }
+  ],
+  "planned": 2688,
+  "promotionAllowed": false,
+  "realOPE": "unsupported",
+  "runnerAudit": {
+    "failedPaths": 0,
+    "parityPaths": 588,
+    "paths": 2688,
+    "rows": 172032
+  },
+  "runtime": {
+    "elapsedSeconds": 432.11707698900136,
+    "inference": {
+      "p99Ms": 3.16507967,
+      "samples": 10000,
+      "scope": "Python observation+numeric decoding, includes first call; no hard latency/Haskell guarantee"
+    },
+    "maxRss": 225509376,
+    "rssUnit": "bytes"
+  },
+  "sampling": {
+    "v5_sampled": {
+      "actionCounts": [
+        22188,
+        22423,
+        22589
+      ],
+      "greedyActionFraction": 0.34035714285714286,
+      "greedyActions": 22872,
+      "meanEntropyNats": 1.0982323387934645,
+      "meanMaxProbability": 0.342219082646413,
+      "rows": 67200
+    },
+    "v6_sampled": {
+      "actionCounts": [
+        22064,
+        22630,
+        22506
+      ],
+      "greedyActionFraction": 0.3436755952380952,
+      "greedyActions": 23095,
+      "meanEntropyNats": 1.0982404126106882,
+      "meanMaxProbability": 0.34179263347531014,
+      "rows": 67200
+    }
+  },
+  "terminal": 2688,
+  "trainingSteps": 0
+}
