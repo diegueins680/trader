@@ -690,7 +690,8 @@
     "scripts/research/compare_rl_replication.py",
     "test/rl_replication_test.py",
     "scripts/research/run_rl_extraction_v7.py",
-    "test/rl_extraction_test.py"
+    "test/rl_extraction_test.py",
+    "scripts/research/summarize_rl_extraction_v7.py"
   ],
   "entries": [
     {
@@ -8134,7 +8135,8 @@
         "scripts/research/summarize_rl_penalty_v6.py",
         "scripts/research/compare_rl_penalty_replication.py",
         "scripts/research/compare_rl_replication.py",
-        "scripts/research/run_rl_extraction_v7.py"
+        "scripts/research/run_rl_extraction_v7.py",
+        "scripts/research/summarize_rl_extraction_v7.py"
       ],
       "testFiles": [
         "test/rl_composition_test.py",

@@ -68,6 +68,24 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(sum(r['algorithm'].endswith('_greedy') for r in rows),420)
         with self.assertRaises(ValueError):v7.roster({**reg,'actionSeeds':[19,19,59,83,109]})
 
+    def test_seeded_composed_replay_matches_reference_sampler(self):
+        from fractions import Fraction as F
+        from causal_replay_v3 import Bar
+        bars=tuple(Bar('FIXTURE',i*1000,i*1000+1,F(10000+(i%7)*10,100)) for i in range(200))
+        funding=tuple(() for _ in bars)
+        _,value,archive=self.fixture();fit,_=v7.admit(archive(value),'v5',0,11)
+        for stress in ('base','delay1bar','partial50pct'):
+            episodes=[v7.Episode(bars,funding,96,161,stress,enabled=True) for _ in range(2)]
+            rngs=[np.random.default_rng(19),np.random.default_rng(19)]
+            for index,ep in enumerate(episodes):
+                while not ep.done:
+                    p=v7.softmax(v7.forward(fit.actor,ep.observation()[None,:]))[0]
+                    a=v7.categorical(p,float(rngs[index].random()))[0] if index==0 else int(rngs[index].choice(3,p=p))
+                    ep.step(a)
+                self.assertEqual(len(ep.rows),64)
+                self.assertEqual(v7.audit_rows(ep.rows)['violations'],[])
+            v7.same(episodes[0].rows,episodes[1].rows,'sampled composed replay')
+
     def test_proposal_audit_detects_probability_action_mismatch(self):
         row=dict(proposalProbabilities=[.25,.5,.25],uniform=.25,actionIndex=1,
                  proposal=0.,proposalLogProbability=float(np.log(.5)))
