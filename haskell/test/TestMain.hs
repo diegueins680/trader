@@ -506,10 +506,14 @@ import Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
     mergeTopCombosPayloadsWithStatsAndRetention,
+    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
+    topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
+    validateTopCombosReplicaPayload,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -2557,6 +2561,7 @@ testRetainedTopCombos = do
         other = case selectionComboForTest "other" 0.5 (Just 1000) Nothing of
             Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
             value -> value
+        payload :: [Aeson.Value] -> Aeson.Value
         payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int), "combos" .= rows]
         rows value = case value of
             Aeson.Object obj -> case KM.lookup "combos" obj of
@@ -2573,12 +2578,47 @@ testRetainedTopCombos = do
                 , cbuPortfolioEvidence = Nothing
                 }
         policy = defaultComboBacktestRefreshPolicy{cbrpRetainedUuids = retained}
+        unstampedLoss = selectionComboForTest "unstamped-loss" (-0.2) (Just 1000) Nothing
+        infeasible = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) obj)
+            value -> value
+        normalize = normalizeTopCombosPayloadWithRetention retained
     assert
         "retention UUIDs canonicalize and deduplicate"
         (parseRetainedComboUuids " 0BADC0DE-1234-5678-9ABC-DEF012345678,0badc0de-1234-5678-9abc-def012345678" == Right retained)
     assert "invalid retention UUIDs reject" (isLeft (parseRetainedComboUuids "invalid"))
     let oversized = T.intercalate "," [T.justifyRight 8 '0' (T.pack (show n)) <> "-1234-5678-9abc-def012345678" | n <- [1 .. 257 :: Int]]
     assert "retention list rejects more than 256 distinct pins" (isLeft (parseRetainedComboUuids (T.unpack oversized)))
+    forM_ [unstampedLoss, infeasible] $ \adverse -> do
+        let original = payload [adverse]
+            normalized = normalize original
+        assert "ordinary normalization still prunes unretained adverse rows" (null (rows (normalizeTopCombosPayload original)))
+        assert "retention normalization preserves adverse evidence as raw" (map comboProcessingTierForTest (rows normalized) == [Just "raw"])
+        assert "retention normalization is idempotent" (normalize normalized == normalized)
+        assert
+            "replica comparison detects a missing retained adverse row"
+            (not (topCombosPayloadEquivalentWithRetention retained normalized (payload [])))
+        assert
+            "replica comparison ignores generation time while preserving retained evidence"
+            (topCombosPayloadEquivalentWithRetention retained normalized (Aeson.object ["generatedAtMs" .= (9000 :: Int), "combos" .= [adverse]]))
+        forM_ ["local", "db", "s3", "state-sync"] $ \source ->
+            case validateTopCombosReplicaPayload source original of
+                Left err -> ioError (userError err)
+                Right validated -> do
+                    assert "replica validation defers pruning and preserves the original evidence" (validated == original)
+                    let merged = merge [validated, payload [other]]
+                    assert "replica validation and merge preserve the retained adverse UUID" (mapMaybe comboUuidText (rows merged) == [pin])
+                    assert "replica validation and overrides cannot authorize retained adverse evidence" (map comboProcessingTierForTest (rows merged) == [Just "raw"])
+        adverseKey <- maybe (ioError (userError "missing adverse fixture identity")) pure (comboIdentityKey adverse)
+        case applyComboUpdatesWithStats 2000 (HM.singleton adverseKey loss) original of
+            Left err -> ioError (userError err)
+            Right (dropped, _) ->
+                assert "retention respects tombstones for each adverse strategy identity" (null (rows (merge [dropped, original])))
+    assert
+        "infeasible retained threshold carries the rejection reason"
+        (maybe False ("open-threshold-infeasible" `elem`) (listToMaybe (rows (merge [payload [infeasible]])) >>= comboProcessingReasonsForTest))
+    forM_ [Aeson.Null, Aeson.object [], Aeson.object ["combos" .= ("invalid" :: T.Text)]] $ \invalid ->
+        assert "replica validation still rejects an invalid payload shape" (isLeft (validateTopCombosReplicaPayload "local" invalid))
     let quarantined = liveComboForTest "BTCUSDT" 0.4 (Just (liveStatsForTest 0.5 (Just (-0.2)) 100))
     assert
         "retention and deployable overrides preserve live quarantine"

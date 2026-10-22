@@ -617,18 +617,19 @@ import Trader.TopCombosStore (
     liveStatsQuarantined,
     mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
-    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
-    sanitizeTopCombosValue,
+    sanitizeTopCombosValueWithRetention,
     selectCombosForBacktestRefreshWithPolicy,
     setComboLiveStats,
     topCombosGeneratedAtMs,
-    topCombosPayloadEquivalent,
+    topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
+    validateTopCombosReplicaPayload,
     withTopCombosBuildGate,
     withTopCombosLock,
     writeTopCombosValue,
@@ -2351,11 +2352,11 @@ topCombosReplicaFailure name msg =
 topCombosReplicaRepairable :: TopCombosReplicaFetch -> Bool
 topCombosReplicaRepairable fetch = isNothing (tcrfError fetch)
 
-topCombosReplicaNeedsRepair :: Aeson.Value -> TopCombosReplicaFetch -> Bool
-topCombosReplicaNeedsRepair merged fetch =
+topCombosReplicaNeedsRepair :: Set.Set T.Text -> Aeson.Value -> TopCombosReplicaFetch -> Bool
+topCombosReplicaNeedsRepair retained merged fetch =
     topCombosReplicaRepairable fetch
         && case tcrfPayload fetch of
-            Just val -> not (topCombosPayloadEquivalent merged val)
+            Just val -> not (topCombosPayloadEquivalentWithRetention retained merged val)
             Nothing -> True
 
 topCombosSyncErrorIsMissing :: String -> String -> Bool
@@ -2364,13 +2365,6 @@ topCombosSyncErrorIsMissing name msg =
         "local" -> msg == "Top combos JSON not found."
         "db" -> msg == "No persisted combos found in the database."
         _ -> False
-
-validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
-validateTopCombosReplicaPayload name val =
-    let normalized = normalizeTopCombosPayload val
-     in if isTopCombosPayload normalized
-            then Right normalized
-            else Left (name ++ " payload missing combos array.")
 
 {- | File identity (device and inode), size and the full-resolution modification time.
 The store writes the leaderboard through a temp file and rename, so every write lands
@@ -2578,10 +2572,10 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                     let merged = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] syncMaxCombos now candidates)
                                         localNeedsWrite =
                                             case tcrfPayload localFetch of
-                                                Just val -> not (topCombosPayloadEquivalent merged val)
+                                                Just val -> not (topCombosPayloadEquivalentWithRetention retainedUuids merged val)
                                                 Nothing -> True
                                         dbNeedsWrite =
-                                            maybe False (topCombosReplicaNeedsRepair merged) dbFetch
+                                            maybe False (topCombosReplicaNeedsRepair retainedUuids merged) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
                                         remoteTargets =
                                             if localNeedsWrite
@@ -2589,7 +2583,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                 else
                                                     [ tcrfName fetch
                                                     | fetch <- remoteFetches
-                                                    , topCombosReplicaNeedsRepair merged fetch
+                                                    , topCombosReplicaNeedsRepair retainedUuids merged fetch
                                                     ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
@@ -4430,6 +4424,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
         Aeson.Object obj ->
             case KM.lookup (AK.fromString "combos") obj of
                 Just (Aeson.Array combos) -> do
+                    retainedUuids <- retainedComboUuidsFromEnv
                     results <- forM (V.toList combos) (backfillTopComboCloseTiming mOps baseArgs)
                     let failures = mapMaybe tccrFailure results
                         stats =
@@ -4440,7 +4435,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
                                 , tccbFailedCombos = length failures
                                 }
                         combos' = Aeson.Array (V.fromList (map tccrValue results))
-                        updatedVal = normalizeTopCombosPayload (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
+                        updatedVal = normalizeTopCombosPayloadWithRetention retainedUuids (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
                     pure (Right (updatedVal, stats, failures))
                 _ -> pure (Left "Top combos JSON missing combos array.")
         _ -> pure (Left "Top combos JSON root must be an object.")
@@ -21067,8 +21062,9 @@ readTopCombosValueFromDbRaw store = do
             other -> other
 
 readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDb store =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
+readTopCombosValueFromDb store = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback =
@@ -21129,8 +21125,9 @@ readTopCombosValueRaw path = do
                                 Right val -> pure (Right val)
 
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
-readTopCombosValue path =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueRaw path
+readTopCombosValue path = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueRaw path
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -22205,7 +22202,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
     -- a second decode doubles the transient heap of every request.
     topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
     rewrittenRef <- newIORef False
-    let topVal0 = fmap normalizeTopCombosPayload topRaw0
+    let topVal0 = fmap (normalizeTopCombosPayloadWithRetention retainedUuids) topRaw0
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
@@ -22258,7 +22255,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
                                         when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
-    let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
+    let sanitizeVal = fmap (fst . sanitizeTopCombosValueWithRetention retainedUuids)
     tmpResponseVal <-
         if tmpPath /= topJsonPath
             then readTopCombosValueLocal tmpPath
@@ -22291,7 +22288,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
         payloadSources =
             concatMap
                 ( \val ->
-                    let sanitized = fst (sanitizeTopCombosValue val)
+                    let sanitized = fst (sanitizeTopCombosValueWithRetention retainedUuids val)
                      in if null (extractCombos sanitized)
                             then []
                             else maybeToList (extractPayloadSource sanitized)
@@ -22457,13 +22454,14 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                     else withTopCombosLock topCombosStore $ do
                                         localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
                                         minPersist <- topCombosMinPersistFromEnv
+                                        retainedUuids <- retainedComboUuidsFromEnv
                                         let localTopVal =
                                                 case localTopValResult of
                                                     Right val -> Just val
                                                     Left _ -> Nothing
                                             localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
                                             localCount = maybe 0 topCombosComboCount localTopVal
-                                            (incomingSanitized, _) = sanitizeTopCombosValue raw
+                                            (incomingSanitized, _) = sanitizeTopCombosValueWithRetention retainedUuids raw
                                             incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
                                             incomingCount = topCombosComboCount incomingSanitized
                                             needsBackfill = localCount < minPersist && incomingCount > localCount
@@ -22477,7 +22475,6 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                         if shouldReplace
                                             then do
                                                 maxCombos <- topCombosSyncMaxCombosFromEnv
-                                                retainedUuids <- retainedComboUuidsFromEnv
                                                 let mergedVal =
                                                         case localTopVal of
                                                             Just localVal -> fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] maxCombos now [localVal, incomingSanitized])

@@ -52,17 +52,21 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
     normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
+    sanitizeTopCombosValueWithRetention,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
     topCombosPayloadEquivalent,
+    topCombosPayloadEquivalentWithRetention,
     topCombosGeneratedAtMs,
     validateComboBacktestRefreshPolicy,
+    validateTopCombosReplicaPayload,
     withTopCombosLock,
     writeTopCombosValue,
 ) where
@@ -318,7 +322,7 @@ sanitizeTopCombosValueWithRetention retained val =
                             -- stale copy on every union merge.
                             if comboDroppedByTombstones dropTombstones comboVal
                                 || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal) && not (comboIsRetained retained comboVal))
-                                || not (comboOpenThresholdDeployable comboVal)
+                                || (not (comboOpenThresholdDeployable comboVal) && not (comboIsRetained retained comboVal))
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
@@ -334,8 +338,11 @@ comboOpenThresholdDeployable val =
     maybe True signalEntryOpenThresholdFeasible (comboMetricDouble "openThreshold" val)
 
 normalizeTopCombosPayload :: Aeson.Value -> Aeson.Value
-normalizeTopCombosPayload payload =
-    let (sanitized, _) = sanitizeTopCombosValue payload
+normalizeTopCombosPayload = normalizeTopCombosPayloadWithRetention Set.empty
+
+normalizeTopCombosPayloadWithRetention :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+normalizeTopCombosPayloadWithRetention retained payload =
+    let (sanitized, _) = sanitizeTopCombosValueWithRetention retained payload
      in case sanitized of
             Aeson.Object o ->
                 case KM.lookup (AK.fromString "combos") o of
@@ -357,8 +364,11 @@ normalizeTopCombosPayload payload =
     compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
 
 topCombosPayloadEquivalent :: Aeson.Value -> Aeson.Value -> Bool
-topCombosPayloadEquivalent a b =
-    stripEphemeralRootFields (normalizeTopCombosPayload a) == stripEphemeralRootFields (normalizeTopCombosPayload b)
+topCombosPayloadEquivalent = topCombosPayloadEquivalentWithRetention Set.empty
+
+topCombosPayloadEquivalentWithRetention :: Set.Set T.Text -> Aeson.Value -> Aeson.Value -> Bool
+topCombosPayloadEquivalentWithRetention retained a b =
+    stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained a) == stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained b)
   where
     stripEphemeralRootFields val =
         case val of
@@ -384,6 +394,13 @@ isTopCombosPayload val =
                 Just (Aeson.Array _) -> True
                 _ -> False
         _ -> False
+
+-- Validate shape only: pruning must wait until the merge has the retention policy.
+validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
+validateTopCombosReplicaPayload name val =
+    if isTopCombosPayload val
+        then Right val
+        else Left (name ++ " payload missing combos array.")
 
 comboMetricValue :: String -> Aeson.Value -> Maybe Aeson.Value
 comboMetricValue key val =
