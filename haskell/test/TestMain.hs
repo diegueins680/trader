@@ -2571,7 +2571,8 @@ testRetainedTopCombos = do
                 Just (Aeson.Array values) -> V.toList values
                 _ -> []
             _ -> []
-        merge values = fst (mergeTopCombosPayloadsWithStatsAndRetention retained [pin] 1 3000 values)
+        mergeAt capacity values = fst (mergeTopCombosPayloadsWithStatsAndRetention retained [pin] capacity 3000 values)
+        merge = mergeAt 1
         loss =
             ComboBacktestUpdate
                 { cbuMetrics = Aeson.object ["finalEquity" .= (0.8 :: Double), "tradeCount" .= (30 :: Int), "annualizedReturn" .= (-0.2 :: Double)]
@@ -2637,6 +2638,13 @@ testRetainedTopCombos = do
     assert
         "an unretained identity twin cannot replace the retained UUID"
         (mapMaybe comboUuidText (rows (merge [payload [pinnedTwin, pinned]])) == [pin])
+    forM_ [[pinned, pinnedTwin], [pinnedTwin, pinned]] $ \twins ->
+        assert
+            "unretained twins consume no spare capacity regardless of input order"
+            (mapMaybe comboUuidText (rows (mergeAt 10 [payload twins])) == [pin])
+    assert
+        "missing retained UUIDs do not suppress an ordinary identity twin"
+        (mapMaybe comboUuidText (rows (mergeAt 10 [payload [pinnedTwin]])) == [otherUuid])
     assert
         "pins survive even a zero capacity"
         (retainRankedCombos Just retained 0 [otherUuid, pin] == [pin])

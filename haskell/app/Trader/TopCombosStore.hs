@@ -1617,7 +1617,8 @@ mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItem
                 sanitized
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         payloadMetadata = mergePayloadMetadata sanitized
-        mergedMap = foldl' mergeCombo M.empty combos
+        retainedIdentities = Set.fromList (Data.Maybe.mapMaybe comboMergeKey (filter (comboIsRetained retained) combos))
+        mergedMap = foldl' (mergeCombo retainedIdentities) M.empty combos
         mergedValues = M.elems mergedMap
         belowFloorMerged = filter (\combo -> not (comboEquityMeetsMinimum combo) && not (comboIsRetained retained combo)) mergedValues
         eligibleMerged = filter (\combo -> comboEquityMeetsMinimum combo || comboIsRetained retained combo) mergedValues
@@ -1695,9 +1696,10 @@ mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItem
             || key == AK.fromString "combos"
             || key == comboDropTombstonesKey
 
-    mergeCombo acc comboVal =
+    mergeCombo retainedIdentities acc comboVal =
         case comboMergeKey comboVal of
             Nothing -> acc
+            Just identity | not (comboIsRetained retained comboVal) && Set.member identity retainedIdentities -> acc
             Just identity ->
                 let key = case comboUuidText comboVal of
                         Just uuid | Set.member uuid retained -> "retained:" <> TE.encodeUtf8 uuid <> ":" <> identity

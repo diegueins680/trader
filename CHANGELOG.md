@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Retention deduplication: suppress unretained twins of present retained rows even with spare leaderboard capacity, while preserving ordinary rows when the configured UUID is absent.
+
 - Research assurance: register the immutable causal engineering consumers with exact source/import/call inventories, restricted helper capabilities and six strict default guards. Unknown or effectful consumers remain rejected; learner numerical/data/flow certification and original38 statuses remain unchanged.
 
 - Verification: check formal source pins and the Haskell module inventory before solver imports and during automation checks, so missing solver dependencies cannot hide stale source locks. Refresh reviewed retention integration locks while preserving all registered control bodies, proof criteria and obligation statuses.
