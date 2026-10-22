@@ -110,6 +110,7 @@ executable trader-hs
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.TopComboRetention
                      , Trader.TopComboScoring
                      , Trader.PortfolioSelection
                      , Trader.TopCombosStore
@@ -224,8 +225,11 @@ executable merge-top-combos
                      , Trader.Predictors.Types
                      , Trader.SignalGates
                      , Trader.Symbol
+                     , Trader.TopCombosStore
+                     , Trader.TopComboRetention
                      , Trader.TopComboScoring
                      , Trader.Text
+                     , Trader.Formal.CloseTiming
                      , Trader.Duration
   default-language:    Haskell2010
   build-depends:       base >=4.14 && <4.20
@@ -241,6 +245,8 @@ executable merge-top-combos
                      , scientific
                      , text
                      , time
+                     , uuid
+                     , unordered-containers
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
 
@@ -413,6 +419,7 @@ test-suite trader-tests
                      , Trader.Test.OnlineNeural
                      , Trader.Test.Revenue
                      , Trader.ThresholdCalibration
+                     , Trader.TopComboRetention
                      , Trader.TopComboScoring
                      , Trader.PortfolioSelection
                      , Trader.TopCombosStore
@@ -527,6 +534,7 @@ benchmark trader-bench
                      , Trader.RoiScore
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.TopComboRetention
                      , Trader.TopComboScoring
                      , Trader.TopCombosStore
                      , Trader.Text
@@ -556,4 +564,5 @@ benchmark trader-bench
                      , scientific
                      , text
                      , time
+                     , uuid
                      , vector >=0.12

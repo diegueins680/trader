@@ -1694,7 +1694,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
 
   const syncLoop = sourceSection("topCombosSyncLoop ::", 4500);
   assert.match(syncLoop, /syncMaxCombos <- topCombosSyncMaxCombosFromEnv/);
-  assert.match(syncLoop, /mergeTopCombosPayloads syncMaxCombos now candidates/);
+  assert.match(syncLoop, /mergeTopCombosPayloadsWithStatsAndRetention retainedUuids \[\] syncMaxCombos now candidates/);
   assert.doesNotMatch(syncLoop, /optimizerMaxCombosFromEnv/);
 
   const serverStartup = sourceSection("runRestApi ::", 50000);
@@ -1708,7 +1708,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.notEqual(importHandlerStart, -1, "expected Main.hs to contain handleStateSyncImport");
   const topCombosImport = sourceSection("case sspTopCombos payload of", 4500, importHandlerStart);
   assert.match(topCombosImport, /maxCombos <- topCombosSyncMaxCombosFromEnv/);
-  assert.match(topCombosImport, /mergeTopCombosPayloads maxCombos now \[localVal, incomingSanitized\]/);
+  assert.match(topCombosImport, /mergeTopCombosPayloadsWithStatsAndRetention retainedUuids \[\] maxCombos now \[localVal, incomingSanitized\]/);
   assert.doesNotMatch(topCombosImport, /optimizerMaxCombosFromEnv/);
 
   const retentionConfigPaths = [

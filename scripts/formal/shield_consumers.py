@@ -18,6 +18,8 @@ from target_v2 import certify
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'formal/research/shield-consumer-source.json'
+ENGINEERING_REGISTRY = 'formal/research/causal-ppo-v5-consumer-source.json'
+ENGINEERING = {'causal_transition_v4', 'causal_optimizer_v5', 'causal_ppo_v5'}
 MODULES = {'sequential_env', 'sequential_evaluation', 'run_sequential_screen'}
 FIELDS = {'actions','done','equity','failure','fills','horizon','modifications','observation',
           'pending','proposals','rejections','rows','start','step','stop','supported','t','units'}
@@ -51,15 +53,93 @@ def roster(trees):
     return {'receiverUses':sorted(uses), 'constructors':sorted(constructors), 'consumers':sorted(calls)}
 
 
+def engineering_consumers(sources=None, registry=None):
+    """Review helper-only extensions without expanding the mutable Replay model."""
+    from default_paths import check_python
+    from promotion_boundary import inventory
+    sources = {name:(ROOT/('scripts/research/'+name+'.py')).read_text() for name in ENGINEERING} if sources is None else sources
+    registry = json.loads((ROOT/ENGINEERING_REGISTRY).read_text()) if registry is None else registry
+    require(set(sources) == ENGINEERING and registry.get('schemaVersion') == 1 and
+            set(registry.get('modules', {})) == ENGINEERING, 'engineering consumer coverage')
+    helpers = {
+        'causal_replay_v3': {'OBSERVATION', 'Bar', 'Session', 'Observation', 'observe_v3', 'start_v3', 'step_v3'},
+        'replay_accounting_v2': {'Receipt', '_add', '_valid'},
+        'gae_targets_v2': {'batch_v2'},
+        'sequential_learning': {'softmax', 'ppo_gradient'},
+        'causal_transition_v4': {'REWARD', 'Transition', 'transition_v4'},
+        'causal_optimizer_v5': {'Snapshot', 'create_v5', 'forward_v5', 'update_v5'},
+    }
+    external = {'__future__': {'annotations'}, 'dataclasses': {'dataclass'},
+                'fractions': {'Fraction'}, 'math': {'isfinite', 'prod'}}
+    attributes = {'sys': {'float_info'}, 'math': {'isfinite', 'prod'},
+                  'np': {'ndarray', 'any', 'asarray', 'dtype', 'errstate', 'frombuffer',
+                         'isfinite', 'random', 'sqrt', 'sum', 'tanh', 'zeros', 'zeros_like'}}
+    defaults = {'causal_optimizer_v5': ('create_v5', 'forward_v5', 'update_v5'),
+                'causal_ppo_v5': ('encode_v5', 'train_causal_ppo_v5')}
+    entries = 0
+    for name, source in sources.items():
+        require(json.loads(json.dumps(inventory(source))) == registry['modules'][name], 'engineering source/effect drift: '+name)
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            require(not isinstance(node, (ast.AsyncFunctionDef, ast.Await, ast.Global, ast.Nonlocal,
+                                          ast.Yield, ast.YieldFrom)), 'engineering control effect')
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    require((alias.name, alias.asname) in
+                            {('math', None), ('sys', None), ('numpy', 'np'),
+                             ('causal_replay_v3', 'replay'), ('replay_accounting_v2', 'accounting')}, 'engineering import capability')
+            if isinstance(node, ast.ImportFrom):
+                require(node.level == 0 and node.module in external.keys() | helpers.keys(), 'engineering import capability')
+                allowed = helpers.get(node.module, external.get(node.module))
+                require(all(a.name in allowed and (a.asname is None or
+                            node.module == 'fractions' and a.name == 'Fraction' and a.asname == 'F')
+                            for a in node.names), 'engineering helper capability')
+            if isinstance(node, ast.Attribute):
+                require(not node.attr.startswith('__') and isinstance(node.ctx, ast.Load), 'engineering reflection/write')
+                if isinstance(node.value, ast.Name) and node.value.id in attributes:
+                    require(node.attr in attributes[node.value.id], 'engineering external capability')
+                if ast.unparse(node.value) == 'np.random':
+                    require(node.attr in {'default_rng', 'Generator'}, 'engineering random capability')
+                if isinstance(node.value, ast.Name) and node.value.id in ('replay', 'accounting'):
+                    module = 'causal_replay_v3' if node.value.id == 'replay' else 'replay_accounting_v2'
+                    require(node.attr in helpers[module], 'engineering kernel capability')
+            if isinstance(node, ast.Call):
+                callee = ast.unparse(node.func)
+                require(callee not in {'open', 'print', 'eval', 'exec', '__import__', 'compile', 'getattr', 'setattr',
+                                       'globals', 'locals', 'save_policy', 'load_policy', 'Replay', 'Network'} and
+                        not (isinstance(node.func, ast.Attribute) and node.func.attr in
+                             {'open', 'write', 'write_text', 'write_bytes', 'read', 'read_text', 'read_bytes', 'system'}),
+                        'engineering external effect')
+        for entry in defaults.get(name, ()):
+            check_python(source, entry)
+            entries += 1
+        if name == 'causal_transition_v4':
+            fn = definition(tree, 'transition_v4')
+            options = dict(zip((a.arg for a in fn.args.kwonlyargs), fn.args.kw_defaults))
+            require(not fn.decorator_list and ast.unparse(options['enabled']) == 'False' and
+                    isinstance(fn.body[0], ast.If) and isinstance(fn.body[0].test, ast.BoolOp) and
+                    isinstance(fn.body[0].test.op, ast.Or) and
+                    ast.unparse(fn.body[0].test.values[0]) == 'enabled is not True' and
+                    ast.unparse(fn.body[0].body[0]) == 'return None' and not fn.body[0].orelse,
+                    'engineering transition default guard')
+            require(all(ast.unparse(v) in {'False', 'VERSION', 'F(0)', 'F(1)'} for v in fn.args.kw_defaults),
+                    'engineering default capability')
+            entries += 1
+    return {'modules': sorted(ENGINEERING), 'defaultEntries': entries,
+            'scope': 'exact helper-only source/default audit; no learner numerical, data or flow certificate'}
+
+
 def research_importers(sources=None):
     from promotion_boundary import MODULES as delivered
     sources = {str(p.relative_to(ROOT)):p.read_text() for p in sorted((ROOT/'scripts/research').rglob('*.py'))} if sources is None else sources
+    engineering_consumers({name:sources.get('scripts/research/'+name+'.py',
+                          (ROOT/('scripts/research/'+name+'.py')).read_text()) for name in ENGINEERING})
     found=[]
     for path,source in sources.items():
         for n in ast.walk(ast.parse(source)):
             names = [a.name for a in n.names] if isinstance(n,ast.Import) else [n.module] if isinstance(n,ast.ImportFrom) else []
             if any(name in delivered for name in names):
-                require(path in {'scripts/research/'+name+'.py' for name in delivered}, 'unregistered research consumer: '+path)
+                require(path in {'scripts/research/'+name+'.py' for name in delivered | ENGINEERING}, 'unregistered research consumer: '+path)
                 found.append([path,ast.unparse(n)])
     return sorted(found)
 
@@ -161,6 +241,7 @@ else:
     return {'status':'exhaustively_checked', 'constructors':actual['constructors'], 'consumers':actual['consumers'],
             'receiverUses':len(actual['receiverUses']), 'pendingAndEnableWrites':writes, 'tradeGuards':trades,
             'modules':surface['moduleCount'],'callbacks':surface['callbacks'],'actionDomain':domain,'researchImporters':research_importers(),
+            'immutableEngineeringConsumers': sorted(ENGINEERING),
             'scope':'all reviewed consumers, local receiver ownership, actual admission/target dominators; trusted primitive effects'}
 
 

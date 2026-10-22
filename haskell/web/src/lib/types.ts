@@ -689,6 +689,46 @@ export type BotNeuralGovernor = {
 
 export type BotPortfolioSelector = {
   mode: "shadow" | "canary" | "enforce";
+  configuredMode?: "shadow" | "canary" | "enforce";
+  graduation?: {
+    enabled: boolean;
+    startedAtMs: number;
+    earliestReviewAtMs: number;
+    targetMode: "enforce";
+    reviewedUuids: string[];
+    allowlistActive: boolean;
+    configVersion: string;
+    review: {
+      reviewedAtMs: number;
+      reviewedUuids: string[];
+      decision: "pending" | "graduated";
+      reasons: string[];
+      configVersion: string;
+      evidence: {
+        dailyObservationCount: number;
+        netReturn: number;
+        maxDrawdown: number;
+        executionAttempts: number;
+        executionSuccesses: number;
+        executionReliability: number;
+        statusSamples: number;
+        healthyStatusSamples: number;
+        statusReliability: number;
+        latestStatusesHealthy: boolean;
+      };
+    } | null;
+    requirements: {
+      minimumDailyObservations: number;
+      minimumNetReturn: number;
+      maximumDrawdown: number;
+      minimumExecutionAttempts: number;
+      minimumExecutionReliability: number;
+      minimumStatusReliability: number;
+      maximumBaselineAgeMs: number;
+      statusIntervalMs: number;
+      maximumLatestStatusAgeMs: number;
+    };
+  };
   selectionValid: boolean;
   evidenceAgeDays?: number | null;
   selection?: {

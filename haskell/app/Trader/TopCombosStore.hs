@@ -49,6 +49,7 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
     normalizeTopCombosPayload,
     recalculateComboPerformanceFromOperation,
@@ -111,6 +112,7 @@ import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
+import Trader.TopComboRetention (comboUuidText, retainRankedCombos, retainedComboUuidsFromEnv)
 import Trader.TopComboScoring (
     clampLiveAnnualizedReturnWithConfig,
     defaultTopComboScoringConfig,
@@ -249,7 +251,8 @@ readTopCombosValueLocal path = do
 
 writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
 writeTopCombosValue path val = do
-    let (filteredVal, _) = sanitizeTopCombosValue val
+    retained <- retainedComboUuidsFromEnv
+    let (filteredVal, _) = sanitizeTopCombosValueWithRetention retained val
     let dir = takeDirectory path
     dirResult <- trySync (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
     case dirResult of
@@ -295,7 +298,10 @@ compactTopCombosPayloadForSync payload =
             _ -> combo
 
 sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
-sanitizeTopCombosValue val =
+sanitizeTopCombosValue = sanitizeTopCombosValueWithRetention Set.empty
+
+sanitizeTopCombosValueWithRetention :: Set.Set T.Text -> Aeson.Value -> (Aeson.Value, Int)
+sanitizeTopCombosValueWithRetention retained val =
     case val of
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
@@ -311,7 +317,7 @@ sanitizeTopCombosValue val =
                             -- become a tombstone. Dropping it here would resurrect the
                             -- stale copy on every union merge.
                             if comboDroppedByTombstones dropTombstones comboVal
-                                || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal))
+                                || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal) && not (comboIsRetained retained comboVal))
                                 || not (comboOpenThresholdDeployable comboVal)
                                 then (acc, count + 1)
                                 else
@@ -727,6 +733,7 @@ comboBacktestFreshEnoughForMaxAge maxAgeMsRaw now val =
 
 data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
     { cbrpStaleAfterMs :: !Int64
+    , cbrpRetainedUuids :: !(Set.Set T.Text)
     , cbrpPruneFinalEquityFloor :: !Double
     }
     deriving (Eq, Show)
@@ -734,7 +741,8 @@ data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
 defaultComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy
 defaultComboBacktestRefreshPolicy =
     ComboBacktestRefreshPolicy
-        { cbrpStaleAfterMs = 3 * 86400000
+        { cbrpRetainedUuids = Set.empty
+        , cbrpStaleAfterMs = 3 * 86400000
         , cbrpPruneFinalEquityFloor = topComboMinimumFinalEquity
         }
 
@@ -931,6 +939,9 @@ recalculateComboPerformanceFromOperation now mInterval mStoredFinalEq mStoredAnn
                     then fromExponent
                     else fallback
          in max (-1) chosen
+
+comboIsRetained :: Set.Set T.Text -> Aeson.Value -> Bool
+comboIsRetained retained value = maybe False (`Set.member` retained) (comboUuidText value)
 
 comboEquityMeetsMinimum :: Aeson.Value -> Bool
 comboEquityMeetsMinimum val =
@@ -1392,6 +1403,7 @@ comboDrawdownBucket val =
 comboProcessingTier :: Aeson.Value -> String
 comboProcessingTier val
     | comboLiveQuarantined val = "quarantined"
+    | not (comboEquityMeetsMinimum val && comboOpenThresholdDeployable val) = "raw"
     | not tradeCountMeetsFloor = "raw"
     | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
@@ -1418,6 +1430,8 @@ comboProcessingReasons :: Aeson.Value -> [String]
 comboProcessingReasons val =
     concat
         [ ["live-quarantined" | comboLiveQuarantined val]
+        , ["final-equity-below-floor" | not (comboEquityMeetsMinimum val)]
+        , ["open-threshold-infeasible" | not (comboOpenThresholdDeployable val)]
         , case comboTradeCountValue val of
             Nothing -> ["trade-count-missing"]
             Just trades
@@ -1572,9 +1586,13 @@ raw and quarantined rows remain fail-closed. The original failed gates stay in
 @processing.relaxedReasons@ so the exception remains visible and auditable.
 -}
 mergeTopCombosPayloadsWithStatsAndDeployableOverrides :: [T.Text] -> Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
-mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxItems now payloads =
+mergeTopCombosPayloadsWithStatsAndDeployableOverrides = mergeTopCombosPayloadsWithStatsAndRetention Set.empty
+
+-- Retained rows keep their current evidence; existing tombstones still win.
+mergeTopCombosPayloadsWithStatsAndRetention :: Set.Set T.Text -> [T.Text] -> Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
+mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItems now payloads =
     let rawCount = sum (map payloadComboCount payloads)
-        sanitized = map (fst . sanitizeTopCombosValue) payloads
+        sanitized = map (fst . sanitizeTopCombosValueWithRetention retained) payloads
         dropTombstones = mergeComboDropTombstones sanitized
         combos =
             concatMap
@@ -1584,12 +1602,12 @@ mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxIte
         payloadMetadata = mergePayloadMetadata sanitized
         mergedMap = foldl' mergeCombo M.empty combos
         mergedValues = M.elems mergedMap
-        belowFloorMerged = filter (not . comboEquityMeetsMinimum) mergedValues
-        eligibleMerged = filter comboEquityMeetsMinimum mergedValues
+        belowFloorMerged = filter (\combo -> not (comboEquityMeetsMinimum combo) && not (comboIsRetained retained combo)) mergedValues
+        eligibleMerged = filter (\combo -> comboEquityMeetsMinimum combo || comboIsRetained retained combo) mergedValues
         mergedUniqueCount = length eligibleMerged
         belowFloorTombstones = tombstonesForBelowFloorWinners belowFloorMerged
         dropTombstones' = M.unionWith max dropTombstones belowFloorTombstones
-        merged = take (max 0 maxItems) (sortBy compareCombos eligibleMerged)
+        merged = retainRankedCombos comboUuidText retained maxItems (sortBy compareCombos eligibleMerged)
         ranked = zipWith addRank [1 ..] merged
         sourceVal = fromMaybe "top-combos-store" payloadSource
         sanitizedCount = length combos
@@ -1911,7 +1929,7 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                                         mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
                                         -- A zero-trade update is not a verdict; keep the combo as-is.
                                         zeroTradeUpdate = mTrades == Just 0
-                                        keep = not pruneUnprofitable || maybe True (>= cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
+                                        keep = comboIsRetained (cbrpRetainedUuids policy) comboVal || not pruneUnprofitable || maybe True (>= cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
                                      in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys, tKeys)
                                             else case comboIdentityKey comboVal of
