@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations: let the read-only fleet benchmark enforce `--max-memory-bytes` against sampled peaks, report explicit measured/unmeasured memory assessments, and reject unsolicited `304` responses or malformed worker-status evidence.
+
 - CI: install the checksum-verified HLint 3.8 release bundle directly instead of pulling another GHC through the distro package manager. Bound linter and formatter download timeouts and retries in CI and the hosted autoloop.
 
 - Retention deduplication: suppress unretained twins of present retained rows even with spare leaderboard capacity, while preserving ordinary rows when the configured UUID is absent.

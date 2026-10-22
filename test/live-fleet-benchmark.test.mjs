@@ -9,6 +9,10 @@ test("fleet benchmark bounds concurrency and rejects credential-bearing URLs", (
   }
   assert.throws(() => parseArgs(["--base-url", "https://example.com", "--clients", "17"]));
   assert.throws(() => parseArgs(["--base-url", "https://example.com", "--rounds", "0"]));
+  assert.throws(() => parseArgs(["--base-url", "https://example.com", "--max-memory-bytes", "4096"]));
+  for (const limit of ["0", "-1", "1.5", "Infinity", "9007199254740992"]) {
+    assert.throws(() => parseArgs(["--base-url", "https://example.com", "--rss-pid", "1", "--max-memory-bytes", limit]));
+  }
 });
 
 test("fleet benchmark measures concurrent cold requests and conditional cache hits without retaining secrets", async () => {
@@ -44,6 +48,8 @@ test("fleet benchmark measures concurrent cold requests and conditional cache hi
   assert.equal(peakActive, 7);
   assert.equal(result.passed, true);
   assert.equal(result.memory.bytes.max, 4096);
+  assert.equal(result.memory.assessment, "observed");
+  assert.equal(result.memory.maxAllowedBytes, null);
   assert.equal(result.workers.last, 18);
   assert.equal(result.coverage.startupTriggered, false);
   assert.doesNotMatch(JSON.stringify(result), /test-secret|private-tenant/);
@@ -64,6 +70,7 @@ test("fleet benchmark reports outages, worker loss, and measurement failure with
   assert.equal(result.failures, 2);
   assert.equal(result.workers.last, 0);
   assert.equal(result.memory.errors, 1);
+  assert.equal(result.memory.assessment, "measurement-failed");
   assert.doesNotMatch(JSON.stringify(result), /secret|private-memory-path/);
 });
 
@@ -79,6 +86,70 @@ test("fleet benchmark rejects HTML proxy fallbacks and false readiness despite H
   });
   assert.equal(result.passed, false);
   assert.equal(result.failures, 3);
+});
+
+const emptyFleetResponse = async (url) => url.endsWith("/bot/status")
+  ? Response.json({ multi: true, bots: [] }) : Response.json({ ready: true });
+
+test("fleet benchmark distinguishes request success from unmeasured memory", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", fetchImpl: emptyFleetResponse, memorySample: async () => null,
+  });
+  assert.equal(result.passed, true);
+  assert.equal(result.memory.assessment, "unmeasured");
+  assert.equal(result.memory.bytes, null);
+});
+
+test("fleet memory ceiling accepts equality and rejects unavailable or invalid measurements", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0", "--memory-file", "/not-read-by-fixture", "--max-memory-bytes", "4096"]);
+  for (const sample of [4096, null, NaN, Infinity, -1, 0, 1.5]) {
+    const result = await runBenchmark(config, {
+      token: "", tenantKey: "", fetchImpl: emptyFleetResponse, memorySample: async () => sample,
+    });
+    assert.equal(result.passed, sample === 4096);
+    assert.equal(result.memory.assessment, sample === 4096 ? "within-limit" : "measurement-failed");
+    assert.equal(result.memory.maxAllowedBytes, 4096);
+  }
+});
+
+test("fleet memory ceiling retains a transient peak even after memory returns below budget", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0", "--rss-pid", "1", "--max-memory-bytes", "4096"]);
+  let samples = 0;
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => samples++ === 0 ? 4097 : 4096,
+    fetchImpl: async (url) => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return emptyFleetResponse(url);
+    },
+  });
+  assert.equal(result.failures, 0);
+  assert.equal(result.memory.bytes.last, 4096);
+  assert.equal(result.memory.bytes.max, 4097);
+  assert.equal(result.memory.assessment, "limit-exceeded");
+  assert.equal(result.passed, false);
+});
+
+test("fleet benchmark rejects unsolicited 304 responses and malformed empty-fleet evidence", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const invalidResponses = [
+    ["/health", () => new Response(null, { status: 304 })],
+    ["/ready", () => new Response(null, { status: 304 })],
+    ["/optimizer/combos", () => new Response(null, { status: 304 })],
+    ["/bot/status", () => Response.json({})],
+    ["/bot/status", () => Response.json({ multi: true })],
+    ["/bot/status", () => Response.json({ multi: true, bots: [null] })],
+    ["/bot/status", () => Response.json({ multi: true, bots: [{ running: "false" }] })],
+    ["/bot/status", () => new Response('{"running":false}')],
+  ];
+  for (const [path, response] of invalidResponses) {
+    const result = await runBenchmark(config, {
+      token: "", tenantKey: "", memorySample: async () => null,
+      fetchImpl: async (url) => url.endsWith(path) ? response() : emptyFleetResponse(url),
+    });
+    assert.equal(result.passed, false, path);
+    assert.equal(result.failures, 1, path);
+  }
 });
 
 test("research and trading retain the complete pinned fleet independently of eligibility overrides", async () => {

@@ -14,6 +14,7 @@ export function parseArgs(argv) {
     ["--rounds", ["rounds", 1, 10000]], ["--clients", ["clients", 1, 16]],
     ["--interval-ms", ["intervalMs", 0, 3600000]], ["--timeout-ms", ["timeoutMs", 1, 120000]],
     ["--expected-workers", ["expectedWorkers", 0, 256]], ["--rss-pid", ["rssPid", 1, 2147483647]],
+    ["--max-memory-bytes", ["maxMemoryBytes", 1, Number.MAX_SAFE_INTEGER]],
   ]);
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -35,6 +36,9 @@ export function parseArgs(argv) {
   }
   config.baseUrl = url.origin;
   if (config.memoryFile && config.rssPid) throw new Error("Choose --memory-file or --rss-pid");
+  if (config.maxMemoryBytes !== undefined && !config.memoryFile && !config.rssPid) {
+    throw new Error("--max-memory-bytes requires --memory-file or --rss-pid");
+  }
   return config;
 }
 
@@ -76,7 +80,10 @@ export async function runBenchmark(config, {
     while (!stopped) {
       try {
         const bytes = await memorySample();
-        if (bytes !== null) memory.push(bytes);
+        if (bytes !== null || config.memoryFile || config.rssPid) {
+          if (!Number.isSafeInteger(bytes) || bytes <= 0) throw new Error("Memory measurement unavailable");
+          memory.push(bytes);
+        }
       } catch { memoryErrors += 1; }
       if (!stopped) await pause(100);
     }
@@ -88,14 +95,16 @@ export async function runBenchmark(config, {
     let body;
     try {
       const requestHeaders = { ...headers };
-      if (conditional && etag) requestHeaders["If-None-Match"] = etag;
+      const sentEtag = conditional ? etag : undefined;
+      if (sentEtag) requestHeaders["If-None-Match"] = sentEtag;
       const response = await fetchImpl(`${config.baseUrl}${path}`, {
         method: "GET", headers: requestHeaders, redirect: "error", signal: AbortSignal.timeout(config.timeoutMs),
       });
       status = response.status;
-      if (conditional && status === 200 && !response.headers.get("content-type")?.includes("application/json")) {
+      if (status === 304 && !sentEtag) throw new Error("Unexpected conditional response");
+      if (status === 200 && !response.headers.get("content-type")?.includes("application/json")) {
         await response.body?.cancel();
-        throw new Error("Expected leaderboard JSON");
+        throw new Error("Expected API JSON");
       }
       // Consume every body to measure full request cost; do not retain leaderboard JSON.
       const parseBody = !conditional && status === 200;
@@ -114,8 +123,11 @@ export async function runBenchmark(config, {
         throw new Error("Readiness evidence missing or false");
       }
       if (conditional && status === 200) etag = response.headers.get("etag") || undefined;
-      if (body && path === "/bot/status") {
-        const bots = body.multi === true && Array.isArray(body.bots) ? body.bots : [body];
+      if (status === 200 && path === "/bot/status") {
+        const bots = body?.multi === true ? body.bots : [body];
+        if (!Array.isArray(bots) || !bots.every((bot) => bot && typeof bot.running === "boolean")) {
+          throw new Error("Worker status evidence missing");
+        }
         workers.push(bots.filter((bot) => bot.running === true).length);
       }
     } catch {
@@ -137,6 +149,13 @@ export async function runBenchmark(config, {
     await monitor;
   }
   const failures = requests.filter(({ status }) => status !== 200 && status !== 304).length;
+  const memoryBytes = summarize(memory);
+  const memoryFailed = memoryErrors > 0 || ((config.memoryFile || config.rssPid) && memoryBytes === null);
+  const memoryLimit = config.maxMemoryBytes ?? null;
+  const memoryAssessment = memoryFailed ? "measurement-failed"
+    : memoryBytes === null ? "unmeasured"
+    : memoryLimit === null ? "observed"
+    : memoryBytes.max > memoryLimit ? "limit-exceeded" : "within-limit";
   const paths = [...new Set(requests.map(({ path }) => path))];
   const endpoints = Object.fromEntries(paths.map((path) => {
     const matching = requests.filter((request) => request.path === path);
@@ -149,9 +168,13 @@ export async function runBenchmark(config, {
   return {
     schemaVersion: 1, startedAt, finishedAt: new Date().toISOString(),
     rounds: config.rounds, clients: config.clients, expectedWorkers: config.expectedWorkers,
-    passed: failures === 0 && memoryErrors === 0 && workers.length === config.rounds && workers.every((count) => count === config.expectedWorkers),
+    passed: failures === 0 && !memoryFailed && memoryAssessment !== "limit-exceeded"
+      && workers.length === config.rounds && workers.every((count) => count === config.expectedWorkers),
     failures, endpoints, workers: summarize(workers),
-    memory: { source: config.memoryFile ? "cgroup" : config.rssPid ? "rss" : "unmeasured", bytes: summarize(memory), errors: memoryErrors },
+    memory: {
+      source: config.memoryFile ? "cgroup" : config.rssPid ? "rss" : "unmeasured",
+      bytes: memoryBytes, errors: memoryErrors, assessment: memoryAssessment, maxAllowedBytes: memoryLimit,
+    },
     coverage: { syncTriggered: false, startupTriggered: false, note: "Correlate timestamps with server sync/startup logs; GET probes do not establish that those events occurred." },
   };
 }
@@ -160,7 +183,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const config = parseArgs(process.argv.slice(2));
     if (config.help) {
-      console.log("Usage: node scripts/benchmark-live-fleet.mjs --base-url ORIGIN [--rounds 20] [--clients 4] [--interval-ms 1000] [--timeout-ms 30000] [--expected-workers 18] [--rss-pid PID | --memory-file PATH]\nCredentials: TRADER_API_TOKEN and optional TRADER_BENCH_TENANT_KEY. Only GET requests are sent.");
+      console.log("Usage: node scripts/benchmark-live-fleet.mjs --base-url ORIGIN [--rounds 20] [--clients 4] [--interval-ms 1000] [--timeout-ms 30000] [--expected-workers 18] [--rss-pid PID | --memory-file PATH] [--max-memory-bytes BYTES]\nCredentials: TRADER_API_TOKEN and optional TRADER_BENCH_TENANT_KEY. Only GET requests are sent. A memory ceiling requires a local memory source; otherwise the report only observes sampled memory or marks it unmeasured.");
     } else {
       const result = await runBenchmark(config);
       console.log(JSON.stringify(result, null, 2));
