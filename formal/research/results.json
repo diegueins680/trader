@@ -3982,7 +3982,7 @@
     "universalRuntimeRefinement": false
   },
   "sourceHashes": {
-    ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
+    ".github/workflows/ci.yml": "3fb824d95ef147c710962330f3db7a137114f716a46ca2c318985c4e5e8bbfe8",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",

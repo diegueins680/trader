@@ -343,6 +343,8 @@ The checked-in versions are authoritative:
 
 Use `.tool-versions` and `.nvmrc` where possible.
 
+CI and the hosted autoloop install the checksum-verified HLint 3.8 release bundle directly, preserving its data files and avoiding an additional distro GHC installation. Linter and formatter downloads use bounded timeouts and retries.
+
 ## Quick start
 
 Install the pinned toolchain, then from the repository root:

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- CI: install the checksum-verified HLint 3.8 release bundle directly instead of pulling another GHC through the distro package manager. Bound linter and formatter download timeouts and retries in CI and the hosted autoloop.
+
 - Retention deduplication: suppress unretained twins of present retained rows even with spare leaderboard capacity, while preserving ordinary rows when the configured UUID is absent.
 
 - Research assurance: register the immutable causal engineering consumers with exact source/import/call inventories, restricted helper capabilities and six strict default guards. Unknown or effectful consumers remain rejected; learner numerical/data/flow certification and original38 statuses remain unchanged.

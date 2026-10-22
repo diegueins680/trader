@@ -1536,7 +1536,7 @@ test("autoloop workflow requires a dedicated push token and never skips post-pus
   assert.match(workflow, /name:\s+Require dedicated push token/);
   assert.match(workflow, /AUTOLOOP_PUSH_TOKEN is required so autoloop pushes trigger downstream CI and can poll GitHub Actions to repair failures\./);
   assert.match(workflow, /name:\s+Install HLint/);
-  assert.match(workflow, /sudo apt-get update && sudo apt-get install -y hlint/);
+  assert.match(workflow, /hlint-3\.8-x86_64-linux\.tar\.gz/);
   assert.match(workflow, /name:\s+Install fourmolu/);
   assert.match(workflow, /curl --fail --silent --show-error --location/);
   assert.match(workflow, /https:\/\/github\.com\/fourmolu\/fourmolu\/releases\/download\/v0\.15\.0\.0\/fourmolu-0\.15\.0\.0-linux-x86_64/);
@@ -1568,12 +1568,17 @@ test("CI Fly deploy gives live position recovery one uninterrupted window", asyn
   );
 });
 
-test("CI pins the checked-in GHC and Cabal toolchain", async () => {
+test("CI pins the checked-in Haskell toolchain without downloading a second compiler for HLint", async () => {
   for (const relativePath of ["../.github/workflows/ci.yml", "../.github/workflows/autoloop.yml"]) {
     const workflow = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(workflow, /ghc:\s*"9\.4\.8"/);
     assert.match(workflow, /cabal:\s*"3\.12\.1\.0"/);
     assert.doesNotMatch(workflow, /cabal:\s*latest/);
+    assert.match(workflow, /https:\/\/github\.com\/ndmitchell\/hlint\/releases\/download\/v3\.8\/hlint-3\.8-x86_64-linux\.tar\.gz/);
+    assert.match(workflow, /882363872064c70801858b4e9fa17468531fc30b91ed5b8d260eb48fc90b3e61/);
+    assert.match(workflow, /sha256sum --check --strict/);
+    assert.match(workflow, /--retry 2 --connect-timeout 15 --max-time 120/);
+    assert.doesNotMatch(workflow, /apt-get install[^\n]*hlint/);
   }
 });
 
