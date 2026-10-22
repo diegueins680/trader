@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-21",
+  "sourceBaseline": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "kind": "engineering_not_financial_experiment",
+  "purpose": "Expose immutable nine-input causal replay transitions for a future learner without changing frozen twelve-input training or artifacts.",
+  "version": "causal-transition-v4",
+  "observationVersion": "causal-close-inventory-v3",
+  "rewardVersion": "net-equity-delta-v4",
+  "contract": "formal/research/causal-transition-v4-contract.md",
+  "registrationStatus": "Working-tree engineering scope recorded before implementation; not a committed financial preregistration.",
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "data": "Deterministic synthetic bars and exact funding events only.",
+  "budget": "Fixed conformance, future-rewrite, terminal, partial-fill, invalid-input and immutability fixtures; no policy fit or hyperparameter search.",
+  "verification": ["bash scripts/verify.sh automation", "bash scripts/verify.sh full"],
+  "acceptance": "Regression evidence only; no new SMT/source certificate, original38 closure, learner integration, numerical conversion, artifact compatibility, historical availability, profitability, deployment or order authority is claimed."
+}

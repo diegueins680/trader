@@ -73,6 +73,7 @@ import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BinanceTradesPanel } from "./components/BinanceTradesPanel";
+import { PortfolioGraduationStatus } from "./components/PortfolioGraduationStatus";
 import { BinanceRevenuePanel } from "./components/BinanceRevenuePanel";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { ConfigDock, type ConfigDockProps } from "./components/ConfigDock";
@@ -9703,6 +9704,12 @@ export function App() {
                           return `${selector.mode} • ${state} • P10 ${pnl} • DD95 ${drawdown} • ${members}`;
                         })()}
                       </div>
+                    </div>
+                  ) : null}
+                  {bot.status?.portfolioSelector ? (
+                    <div className="kv">
+                      <div className="k">Fleet review</div>
+                      <div className="v"><PortfolioGraduationStatus selector={bot.status.portfolioSelector} /></div>
                     </div>
                   ) : null}
                   {botDisplay.marketGovernor ? (

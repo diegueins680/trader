@@ -124,6 +124,7 @@
     "haskell/app/Trader/TechnicalAnalysis/Strategies.hs",
     "haskell/app/Trader/Text.hs",
     "haskell/app/Trader/ThresholdCalibration.hs",
+    "haskell/app/Trader/TopComboRetention.hs",
     "haskell/app/Trader/TopComboScoring.hs",
     "haskell/app/Trader/TopCombosStore.hs",
     "haskell/app/Trader/TradeLogRiskState.hs",
@@ -167,10 +168,10 @@
     "7079a6d92cb960aea3de75b969559d20f5a472e3f6e6e62681ea92bd2c112c94"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "2b96862e23bf431094dedc271bbd0707182b4cba7049fff21d46ba5f999b78af",
+    "haskell/trader.cabal": "b53cbb4cbb3fd85aab6b1df79613b350af81fe4a0df800c41cb80e3d6cf6c66e",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
-    "haskell/app/Main.hs": "b925463fef04cbf01be31abbf7a3a2e74ef57f6815552b06530656bfb27d51c0",
+    "haskell/app/Main.hs": "afe38b98a87bc57d41c7a9d9207b68c5d9f5b3621e99c078916ebba7a49ff4ad",
     "haskell/app/Trader/Optimizer/Optimize.hs": "69f4bb68c98fb03335d272282577715de2c995304c9246de46bffae90cdba94e",
     "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
@@ -190,7 +191,7 @@
       "git rev-parse HEAD",
       "cast"
     ],
-    "conditions": "trusted installed binaries/PATH, no added code mounts or manual policy conversion; existing helper source unchanged",
+    "conditions": "trusted installed binaries/PATH, no added research-code mounts or manual policy conversion; retention-only helper changes reviewed with the same external command targets and artifact admission",
     "references": [
       "Dockerfile",
       "Dockerfile.optimized",

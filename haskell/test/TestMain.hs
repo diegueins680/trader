@@ -4,7 +4,7 @@
 
 module Main (main) where
 
-import Control.Exception (SomeException, evaluate, toException, try)
+import Control.Exception (SomeException, bracket, evaluate, finally, toException, try)
 import Control.Monad (forM_, unless)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
@@ -19,11 +19,13 @@ import Data.Int (Int64)
 import Data.List (find, intercalate, isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import System.Directory (removeFile)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.IO (hClose, openTempFile)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Env (canonicalizeUuidEnvValues)
@@ -473,6 +475,7 @@ import Trader.ThresholdCalibration (
     validateCalibrationMethod,
     validateThresholdCalibrationConfig,
  )
+import Trader.TopComboRetention (comboUuidText, parseRetainedComboUuids, retainRankedCombos)
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier, topComboMinimumFinalEquity)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
@@ -490,20 +493,27 @@ import Trader.TopCombosStore (
     comboBacktestFreshEnoughForMaxAge,
     comboBacktestFreshnessMs,
     comboBacktestStaleAfterMs,
+    comboFinalEquityValue,
     comboIdentityKey,
     comboLiveQuarantined,
     comboLiveStats,
     comboLiveStatsFromObject,
     comboPerformanceKey,
+    defaultComboBacktestRefreshPolicy,
     etagMatches,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
+    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
+    topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
+    validateTopCombosReplicaPayload,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -828,6 +838,8 @@ main = do
     testOptimizerRecordsRetryDiscoveryStopsWhenEligible
     testOptimizerSoftSearchEligibility
     testTopComboBacktestPrunesRoiLosers
+    testRetainedTopCombos
+    testRetainedOptimizerExport
     testMetricsConsumesTradingPublicResults
     testMetricsFiniteInputBoundary
     testOnlineStatsFiniteInputBoundary
@@ -2517,7 +2529,7 @@ testTopComboBacktestPrunesRoiLosers = do
                             && cbasPrunedKeys stats == [key]
                         )
                     let lenientPolicy =
-                            ComboBacktestRefreshPolicy
+                            defaultComboBacktestRefreshPolicy
                                 { cbrpStaleAfterMs = comboBacktestStaleAfterMs
                                 , cbrpPruneFinalEquityFloor = 0.95
                                 }
@@ -2539,6 +2551,203 @@ testTopComboBacktestPrunesRoiLosers = do
                                     && cbasUpdatedCount boundaryStats == 1
                                     && cbasPrunedCount boundaryStats == 0
                                 )
+
+testRetainedTopCombos :: IO ()
+testRetainedTopCombos = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        otherUuid = "11111111-1234-5678-9abc-def012345678"
+        retained = Set.singleton pin
+        pinned = selectionComboForTest "pin" 0.2 (Just 1000) Nothing
+        pinnedTwin = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
+            value -> value
+        other = case selectionComboForTest "other" 0.5 (Just 1000) Nothing of
+            Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
+            value -> value
+        payload :: [Aeson.Value] -> Aeson.Value
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int), "combos" .= rows]
+        rows value = case value of
+            Aeson.Object obj -> case KM.lookup "combos" obj of
+                Just (Aeson.Array values) -> V.toList values
+                _ -> []
+            _ -> []
+        mergeAt capacity values = fst (mergeTopCombosPayloadsWithStatsAndRetention retained [pin] capacity 3000 values)
+        merge = mergeAt 1
+        loss =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.8 :: Double), "tradeCount" .= (30 :: Int), "annualizedReturn" .= (-0.2 :: Double)]
+                , cbuFinalEquity = Just 0.8
+                , cbuScore = Just (-0.2)
+                , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
+                }
+        policy = defaultComboBacktestRefreshPolicy{cbrpRetainedUuids = retained}
+        unstampedLoss = selectionComboForTest "unstamped-loss" (-0.2) (Just 1000) Nothing
+        infeasible = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) obj)
+            value -> value
+        normalize = normalizeTopCombosPayloadWithRetention retained
+    assert
+        "retention UUIDs canonicalize and deduplicate"
+        (parseRetainedComboUuids " 0BADC0DE-1234-5678-9ABC-DEF012345678,0badc0de-1234-5678-9abc-def012345678" == Right retained)
+    assert "invalid retention UUIDs reject" (isLeft (parseRetainedComboUuids "invalid"))
+    let oversized = T.intercalate "," [T.justifyRight 8 '0' (T.pack (show n)) <> "-1234-5678-9abc-def012345678" | n <- [1 .. 257 :: Int]]
+    assert "retention list rejects more than 256 distinct pins" (isLeft (parseRetainedComboUuids (T.unpack oversized)))
+    forM_ [unstampedLoss, infeasible] $ \adverse -> do
+        let original = payload [adverse]
+            normalized = normalize original
+        assert "ordinary normalization still prunes unretained adverse rows" (null (rows (normalizeTopCombosPayload original)))
+        assert "retention normalization preserves adverse evidence as raw" (map comboProcessingTierForTest (rows normalized) == [Just "raw"])
+        assert "retention normalization is idempotent" (normalize normalized == normalized)
+        assert
+            "replica comparison detects a missing retained adverse row"
+            (not (topCombosPayloadEquivalentWithRetention retained normalized (payload [])))
+        assert
+            "replica comparison ignores generation time while preserving retained evidence"
+            (topCombosPayloadEquivalentWithRetention retained normalized (Aeson.object ["generatedAtMs" .= (9000 :: Int), "combos" .= [adverse]]))
+        forM_ ["local", "db", "s3", "state-sync"] $ \source ->
+            case validateTopCombosReplicaPayload source original of
+                Left err -> ioError (userError err)
+                Right validated -> do
+                    assert "replica validation defers pruning and preserves the original evidence" (validated == original)
+                    let merged = merge [validated, payload [other]]
+                    assert "replica validation and merge preserve the retained adverse UUID" (mapMaybe comboUuidText (rows merged) == [pin])
+                    assert "replica validation and overrides cannot authorize retained adverse evidence" (map comboProcessingTierForTest (rows merged) == [Just "raw"])
+        adverseKey <- maybe (ioError (userError "missing adverse fixture identity")) pure (comboIdentityKey adverse)
+        case applyComboUpdatesWithStats 2000 (HM.singleton adverseKey loss) original of
+            Left err -> ioError (userError err)
+            Right (dropped, _) ->
+                assert "retention respects tombstones for each adverse strategy identity" (null (rows (merge [dropped, original])))
+    assert
+        "infeasible retained threshold carries the rejection reason"
+        (maybe False ("open-threshold-infeasible" `elem`) (listToMaybe (rows (merge [payload [infeasible]])) >>= comboProcessingReasonsForTest))
+    forM_ [Aeson.Null, Aeson.object [], Aeson.object ["combos" .= ("invalid" :: T.Text)]] $ \invalid ->
+        assert "replica validation still rejects an invalid payload shape" (isLeft (validateTopCombosReplicaPayload "local" invalid))
+    let quarantined = liveComboForTest "BTCUSDT" 0.4 (Just (liveStatsForTest 0.5 (Just (-0.2)) 100))
+    assert
+        "retention and deployable overrides preserve live quarantine"
+        (map comboProcessingTierForTest (rows (merge [payload [quarantined]])) == [Just "quarantined"])
+    assert
+        "retained lower-ranked combo reserves a capacity slot"
+        (mapMaybe comboUuidText (rows (merge [payload [other, pinned]])) == [pin])
+    assert
+        "retention preserves each UUID when different retained rows share a strategy identity"
+        ( Set.fromList (mapMaybe comboUuidText (rows (fst (mergeTopCombosPayloadsWithStatsAndRetention (Set.fromList [pin, otherUuid]) [] 1 3000 [payload [pinned, pinnedTwin]]))))
+            == Set.fromList [pin, otherUuid]
+        )
+    assert
+        "an unretained identity twin cannot replace the retained UUID"
+        (mapMaybe comboUuidText (rows (merge [payload [pinnedTwin, pinned]])) == [pin])
+    forM_ [[pinned, pinnedTwin], [pinnedTwin, pinned]] $ \twins ->
+        assert
+            "unretained twins consume no spare capacity regardless of input order"
+            (mapMaybe comboUuidText (rows (mergeAt 10 [payload twins])) == [pin])
+    assert
+        "missing retained UUIDs do not suppress an ordinary identity twin"
+        (mapMaybe comboUuidText (rows (mergeAt 10 [payload [pinnedTwin]])) == [otherUuid])
+    assert
+        "pins survive even a zero capacity"
+        (retainRankedCombos Just retained 0 [otherUuid, pin] == [pin])
+    assert
+        "negative capacity cannot overflow into ordinary slots"
+        (retainRankedCombos Just retained minBound [otherUuid, pin] == [pin])
+    assert
+        "missing pins reserve no capacity"
+        (retainRankedCombos Just retained 1 [otherUuid] == [otherUuid])
+    key <- maybe (ioError (userError "missing pinned fixture identity")) pure (comboIdentityKey pinned)
+    case applyComboUpdatesWithStatsWithPolicy policy 2000 (HM.singleton key loss) (payload [pinned]) of
+        Left err -> ioError (userError err)
+        Right (updated, stats) -> do
+            assert
+                "pinned adverse refresh updates evidence without pruning"
+                (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 0 && null (cbasPrunedKeys stats))
+            let merged = merge [payload [pinned], updated]
+            assert
+                "replica merge retains fresh adverse evidence over stale profitable copy"
+                (map comboFinalEquityValue (rows merged) == [Just 0.8])
+            assert
+                "retention and deployable override cannot authorize a below-floor pin"
+                (map comboProcessingTierForTest (rows merged) == [Just "raw"])
+            case applyComboUpdatesWithStats 2000 (HM.singleton key loss) (payload [pinned]) of
+                Left err -> ioError (userError err)
+                Right (dropped, _) ->
+                    assert
+                        "retention never resurrects a tombstoned pin"
+                        (null (rows (merge [dropped, payload [pinned]])))
+
+testRetainedOptimizerExport :: IO ()
+testRetainedOptimizerExport = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-retained-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-retained-output.json"
+    hClose outputHandle
+    let restore = maybe (unsetEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS") (setEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS")
+        cleanup =
+            forM_
+                [inputPath, outputPath]
+                ( \path -> do
+                    _ <- try (removeFile path) :: IO (Either SomeException ())
+                    pure ()
+                )
+        args =
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = []
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 1
+                , maHistoryDir = Nothing
+                , maScoringConfig = defaultTopComboScoringConfig
+                , maCopyToDist = False
+                }
+        write rows = BL.writeFile inputPath (Aeson.encode (Aeson.object ["combos" .= rows]))
+        readRows = do
+            decoded <- Aeson.eitherDecode <$> BL.readFile outputPath
+            case decoded of
+                Right (Aeson.Object obj) -> case KM.lookup "combos" obj of
+                    Just (Aeson.Array rows) -> pure (V.toList rows)
+                    _ -> ioError (userError "missing exported combos")
+                _ -> ioError (userError "invalid exported payload")
+    bracket
+        (lookupEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS")
+        restore
+        ( \_ -> do
+            unsetEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS"
+            write [processingComboForTest "retained-native" "db" False (Just adoptionMinWalkForwardSharpeMean) 0.4 adoptionMinTradeCount]
+            initialCode <- runMerge args
+            initialRows <- readRows
+            original <- case initialRows of
+                [row] -> pure row
+                _ -> ioError (userError "expected one native combo")
+            uuid <- maybe (ioError (userError "missing native UUID")) pure (comboUuidText original)
+            setEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS" (T.unpack uuid)
+            let adverse = case original of
+                    Aeson.Object obj ->
+                        Aeson.Object
+                            ( KM.insert
+                                "backtestRefreshedAtMs"
+                                (Aeson.toJSON (2000 :: Int))
+                                ( KM.insert
+                                    "finalEquity"
+                                    (Aeson.toJSON (0.8 :: Double))
+                                    (KM.insert "metrics" (Aeson.object ["finalEquity" .= (0.8 :: Double), "tradeCount" .= (30 :: Int), "annualizedReturn" .= (-0.2 :: Double)]) obj)
+                                )
+                            )
+                    value -> value
+            write [adverse]
+            code <- runMerge args
+            exported <- readRows
+            assert
+                "optimizer export retains the exact pinned UUID and adverse refresh"
+                (initialCode == 0 && code == 0 && map comboUuidText exported == [Just uuid] && map comboFinalEquityValue exported == [Just 0.8])
+            assert
+                "optimizer export cannot promote a retained loser"
+                (map comboProcessingTierForTest exported == [Just "raw"])
+            assert
+                "optimizer export preserves refresh stamps"
+                (all (\row -> comboBacktestFreshnessMs row == Just 2000) exported)
+        )
+        `finally` cleanup
 
 testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
 testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
@@ -7495,7 +7704,7 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         missingWalkForward = selectionComboForTestWithWalkForward False "missing-walk-forward" 0.35 (Just (now - oneDay)) Nothing
         exactlyAtBoundary = selectionComboForTest "boundary" 0.4 (Just (now - comboBacktestStaleAfterMs)) Nothing
         shortStalePolicy =
-            ComboBacktestRefreshPolicy
+            defaultComboBacktestRefreshPolicy
                 { cbrpStaleAfterMs = oneDay
                 , cbrpPruneFinalEquityFloor = 1.0
                 }
@@ -8447,8 +8656,7 @@ testMarketContextFactorV2 = do
                         Nothing -> False
             assert
                 "missing, premature, impossible, or non-finite selected peer returns are explicitly unavailable"
-                ( all unavailable [missingChosen, invalidTiming, futureAvailability, invalidReturn, nonFiniteReturn]
-                )
+                (all unavailable [missingChosen, invalidTiming, futureAvailability, invalidReturn, nonFiniteReturn])
             assert
                 "an observed zero market return stays distinct from unavailable evidence"
                 ( case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected observedZero of

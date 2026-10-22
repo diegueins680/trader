@@ -59,6 +59,7 @@ This repo ships with the placeholder prefix `trader-prod`. Keep it the same ever
 | `TRADER_STATE_S3_PREFIX` | `trader-prod` | Identical everywhere. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | *(from Tigris)* | Credentials. |
 | `TRADER_STATE_S3_FORCE_PATH_STYLE` | *(unset)* | Defaults to path-style when an endpoint is set. |
+| `TRADER_TOP_COMBOS_RETAIN_UUIDS` | empty | Comma-separated UUIDs (max 256) retained through refresh, optimizer export, and replica capacity limits. Configure identically on every writer sharing a bus, including read-only standbys. Retention preserves evidence, not trading eligibility; tombstones and quarantine still apply. |
 | `TRADER_TOP_COMBOS_SYNC_MAX_COMBOS` | `5000` | Anti-entropy retention cap. Defaults to `max(TRADER_OPTIMIZER_MAX_COMBOS, 5000)` so live/read-only replicas do not shrink the shared leaderboard. |
 
 ---

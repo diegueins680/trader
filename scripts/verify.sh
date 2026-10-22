@@ -79,6 +79,7 @@ verify_automation() {
   require_cmd python3
 
   run_step "validate deploy TOML and Compose config" bash -c "cd \"$ROOT_DIR\" && bash scripts/verify-deploy-config.sh"
+  run_step "formal source lock and module inventory" python3 "$ROOT_DIR/scripts/check-formal-source-lock.py"
   run_step "node scripts/verify-formal-specs.mjs" bash -c "cd \"$ROOT_DIR\" && node scripts/verify-formal-specs.mjs"
   run_step "node --test test/*.test.mjs" bash -c "cd \"$ROOT_DIR\" && node --test test/*.test.mjs"
 }
@@ -88,6 +89,7 @@ verify_formal() {
   require_cmd node
   local formal_python="${TRADER_FORMAL_PYTHON:-python3}"
   require_cmd "$formal_python"
+  run_step "formal source lock and module inventory" "$formal_python" "$ROOT_DIR/scripts/check-formal-source-lock.py"
   run_step "formal specification coverage" node "$ROOT_DIR/scripts/verify-formal-specs.mjs"
   run_step "proof ledger and model regression tests" "$formal_python" "$ROOT_DIR/scripts/formal/test_integrity.py"
   run_step "SMT, state model and Haskell conformance" "$formal_python" "$ROOT_DIR/scripts/formal/verify.py"

@@ -72,3 +72,17 @@ proposal/type/process/production-exclusion certificates freshly reproduce togeth
 Keep all other obligations and every original scope/criterion unchanged. If the
 mapping cannot establish the criterion, keep 12 partial with the discovered gap.
 No financial evidence or new policy may be promoted by this verification work.
+# Immutable engineering helper consumers (2026-10-21)
+
+The separate `causal_transition_v4`, `causal_optimizer_v5` and `causal_ppo_v5`
+modules do not construct or mutate the frozen `Replay`. Their exact ASTs,
+imports and call sites are registered in `causal-ppo-v5-consumer-source.json`.
+The importer audit verifies those complete inventories, strict default guards,
+readonly helper imports and absence of file/process/dynamic-code effects before
+accepting these three known importers. Unknown consumers remain rejected.
+Changing the registry cannot excuse a new forbidden capability or enabled default.
+
+This is a helper-boundary source audit under trusted library/runtime assumptions.
+It does not expand the twenty-module mutable-Replay ownership/SMT model, certify
+the new learner's numerics, data admission or training flow, or change original38
+statuses. The new snapshots and transition schemas retain their separate versions.

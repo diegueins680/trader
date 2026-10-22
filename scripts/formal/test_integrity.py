@@ -3612,6 +3612,45 @@ class ChampionArchiveTests(unittest.TestCase):
 
 
 class ShieldConsumerTests(unittest.TestCase):
+    def test_registered_immutable_engineering_consumers_have_guarded_math_boundary(self):
+        import shield_consumers as consumer
+        result = consumer.engineering_consumers()
+        self.assertEqual(result['modules'], ['causal_optimizer_v5', 'causal_ppo_v5', 'causal_transition_v4'])
+        self.assertEqual(result['defaultEntries'], 6)
+
+    def test_engineering_effect_mutants_reject_even_with_refreshed_inventory(self):
+        import json
+        import shield_consumers as consumer
+        from promotion_boundary import inventory
+        sources = {name:(ROOT / ('scripts/research/'+name+'.py')).read_text() for name in consumer.ENGINEERING}
+        registry = read_json(ROOT / consumer.ENGINEERING_REGISTRY)
+        mutations = [
+            ('causal_ppo_v5', 'import sys', 'import sys\nimport os'),
+            ('causal_ppo_v5', 'def _number(value: object) -> float:', 'def _number(value: object) -> float:\n    open("sink", "w")'),
+            ('causal_ppo_v5', 'import sys', 'import sys\nfrom sequential_learning import save_policy'),
+            ('causal_ppo_v5', 'converted = float(value)', 'converted = float(value)\n    sys.exit(0)'),
+            ('causal_ppo_v5', 'enabled: object = False', 'enabled: object = True'),
+            ('causal_optimizer_v5', 'enabled is not True or', 'enabled is not True and'),
+            ('causal_transition_v4', 'enabled is not True or', 'enabled is not True and'),
+        ]
+        for name, old, new in mutations:
+            with self.subTest(module=name, mutation=new), self.assertRaisesRegex(ValueError, 'engineering (import|helper|external)|default|short-circuit'):
+                changed = dict(sources)
+                self.assertIn(old, changed[name])
+                changed[name] = changed[name].replace(old, new)
+                refreshed = copy.deepcopy(registry)
+                refreshed['modules'][name] = json.loads(json.dumps(inventory(changed[name])))
+                consumer.engineering_consumers(changed, refreshed)
+
+    def test_engineering_consumer_semantic_drift_and_missing_modules_reject(self):
+        import shield_consumers as consumer
+        sources = {name:(ROOT / ('scripts/research/'+name+'.py')).read_text() for name in consumer.ENGINEERING}
+        with self.assertRaisesRegex(ValueError, 'engineering consumer coverage'):
+            consumer.engineering_consumers({})
+        sources['causal_ppo_v5'] = sources['causal_ppo_v5'].replace('0.99, enabled=True', '0.5, enabled=True')
+        with self.assertRaisesRegex(ValueError, 'engineering source/effect drift'):
+            consumer.engineering_consumers(sources)
+
     def test_source_origin_and_repeated_call_model(self):
         import shield_consumers as p
         surface=p.extract()

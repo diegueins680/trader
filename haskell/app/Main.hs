@@ -587,6 +587,7 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
+import Trader.TopComboRetention (comboUuidText, retainedComboUuidsFromEnv)
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
@@ -597,7 +598,6 @@ import Trader.TopCombosStore (
     TopCombosStore (..),
     TopCombosSyncFingerprint (..),
     applyComboUpdatesKeepAllWithStats,
-    applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
     batchCombosForBacktestRefresh,
     blendedAnnualizedReturn,
@@ -615,22 +615,21 @@ import Trader.TopCombosStore (
     isTopCombosPayload,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
-    mergeTopCombosPayloads,
-    mergeTopCombosPayloadsWithStats,
-    mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
-    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
-    sanitizeTopCombosValue,
+    sanitizeTopCombosValueWithRetention,
     selectCombosForBacktestRefreshWithPolicy,
     setComboLiveStats,
     topCombosGeneratedAtMs,
-    topCombosPayloadEquivalent,
+    topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
+    validateTopCombosReplicaPayload,
     withTopCombosBuildGate,
     withTopCombosLock,
     writeTopCombosValue,
@@ -2353,11 +2352,11 @@ topCombosReplicaFailure name msg =
 topCombosReplicaRepairable :: TopCombosReplicaFetch -> Bool
 topCombosReplicaRepairable fetch = isNothing (tcrfError fetch)
 
-topCombosReplicaNeedsRepair :: Aeson.Value -> TopCombosReplicaFetch -> Bool
-topCombosReplicaNeedsRepair merged fetch =
+topCombosReplicaNeedsRepair :: Set.Set T.Text -> Aeson.Value -> TopCombosReplicaFetch -> Bool
+topCombosReplicaNeedsRepair retained merged fetch =
     topCombosReplicaRepairable fetch
         && case tcrfPayload fetch of
-            Just val -> not (topCombosPayloadEquivalent merged val)
+            Just val -> not (topCombosPayloadEquivalentWithRetention retained merged val)
             Nothing -> True
 
 topCombosSyncErrorIsMissing :: String -> String -> Bool
@@ -2366,13 +2365,6 @@ topCombosSyncErrorIsMissing name msg =
         "local" -> msg == "Top combos JSON not found."
         "db" -> msg == "No persisted combos found in the database."
         _ -> False
-
-validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
-validateTopCombosReplicaPayload name val =
-    let normalized = normalizeTopCombosPayload val
-     in if isTopCombosPayload normalized
-            then Right normalized
-            else Left (name ++ " payload missing combos array.")
 
 {- | File identity (device and inode), size and the full-resolution modification time.
 The store writes the leaderboard through a temp file and rename, so every write lands
@@ -2553,6 +2545,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             everySec <- topCombosSyncEverySecFromEnv
             initialDelaySec <- topCombosSyncInitialDelaySecFromEnv
             syncMaxCombos <- topCombosSyncMaxCombosFromEnv
+            retainedUuids <- retainedComboUuidsFromEnv
             let topJsonPath = tcsPath topCombosStore
             errRef <- newIORef HM.empty
             putStrLn (printf "Top combos sync enabled: everySec=%d initialDelaySec=%d maxCombos=%d path=%s" everySec initialDelaySec syncMaxCombos topJsonPath)
@@ -2576,13 +2569,13 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                 then pure Nothing
                                 else do
                                     now <- getTimestampMs
-                                    let merged = mergeTopCombosPayloads syncMaxCombos now candidates
+                                    let merged = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] syncMaxCombos now candidates)
                                         localNeedsWrite =
                                             case tcrfPayload localFetch of
-                                                Just val -> not (topCombosPayloadEquivalent merged val)
+                                                Just val -> not (topCombosPayloadEquivalentWithRetention retainedUuids merged val)
                                                 Nothing -> True
                                         dbNeedsWrite =
-                                            maybe False (topCombosReplicaNeedsRepair merged) dbFetch
+                                            maybe False (topCombosReplicaNeedsRepair retainedUuids merged) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
                                         remoteTargets =
                                             if localNeedsWrite
@@ -2590,10 +2583,20 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                 else
                                                     [ tcrfName fetch
                                                     | fetch <- remoteFetches
-                                                    , topCombosReplicaNeedsRepair merged fetch
+                                                    , topCombosReplicaNeedsRepair retainedUuids merged fetch
                                                     ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
+                                    let presentUuids = case merged of
+                                            Aeson.Object obj -> case KM.lookup "combos" obj of
+                                                Just (Aeson.Array rows) -> Set.fromList (mapMaybe comboUuidText (V.toList rows))
+                                                _ -> Set.empty
+                                            _ -> Set.empty
+                                        missingUuids = Set.toAscList (retainedUuids `Set.difference` presentUuids)
+                                    updateTopCombosSyncError errRef $
+                                        if null missingUuids
+                                            then topCombosReplicaMissing "retention"
+                                            else topCombosReplicaFailure "retention" ("Retained live combo records unavailable: " ++ intercalate ", " (map T.unpack missingUuids))
                                     localReady <-
                                         if localNeedsWrite
                                             then do
@@ -3667,8 +3670,8 @@ persistedComboLegacyIdentityKey row = do
                     , "objective" .= pcrObjective row
                     ]
 
-filterPersistedComboRows :: [PersistedComboRow] -> [PersistedComboRow]
-filterPersistedComboRows rows =
+filterPersistedComboRows :: Set.Set T.Text -> [PersistedComboRow] -> [PersistedComboRow]
+filterPersistedComboRows retained rows =
     let sourceAwareKeys =
             [ key
             | row <- rows
@@ -3677,7 +3680,8 @@ filterPersistedComboRows rows =
             ]
      in [ row
         | row <- rows
-        , isJust (persistedComboSource row)
+        , Set.member (uuidToText (pcrUuid row)) retained
+            || isJust (persistedComboSource row)
             || maybe True (`notElem` sourceAwareKeys) (persistedComboLegacyIdentityKey row)
         ]
 
@@ -4421,6 +4425,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
         Aeson.Object obj ->
             case KM.lookup (AK.fromString "combos") obj of
                 Just (Aeson.Array combos) -> do
+                    retainedUuids <- retainedComboUuidsFromEnv
                     results <- forM (V.toList combos) (backfillTopComboCloseTiming mOps baseArgs)
                     let failures = mapMaybe tccrFailure results
                         stats =
@@ -4431,7 +4436,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
                                 , tccbFailedCombos = length failures
                                 }
                         combos' = Aeson.Array (V.fromList (map tccrValue results))
-                        updatedVal = normalizeTopCombosPayload (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
+                        updatedVal = normalizeTopCombosPayloadWithRetention retainedUuids (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
                     pure (Right (updatedVal, stats, failures))
                 _ -> pure (Left "Top combos JSON missing combos array.")
         _ -> pure (Left "Top combos JSON root must be an object.")
@@ -6431,9 +6436,9 @@ data BotController = BotController
     , bcManualInFlight :: IORef Int
     , bcDrain :: DrainController
     -- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
-    -- ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
-    -- ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
-    -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
+    --     ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
+    --     ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
+    --     ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -9177,6 +9182,26 @@ topComboDeployableOverrideUuidsFromEnv = do
                 )
         Right canonical -> pure canonical
 
+topComboRetentionStatus :: Set.Set Text -> Aeson.Value -> Aeson.Value
+topComboRetentionStatus retained payload =
+    let combos = case payload of
+            Aeson.Object obj -> case KM.lookup "combos" obj of
+                Just (Aeson.Array rows) -> V.toList rows
+                _ -> []
+            _ -> []
+        present = Set.fromList (mapMaybe comboUuidText combos)
+        deployable combo = case combo of
+            Aeson.Object obj -> case KM.lookup "processing" obj of
+                Just (Aeson.Object processing) -> KM.lookup "tier" processing == Just (Aeson.String "deployable")
+                _ -> False
+            _ -> False
+        ineligible = Set.fromList (mapMaybe comboUuidText (filter (not . deployable) combos))
+     in object
+            [ "configuredUuids" .= Set.toAscList retained
+            , "missingUuids" .= Set.toAscList (retained `Set.difference` present)
+            , "ineligibleUuids" .= Set.toAscList (retained `Set.intersection` ineligible)
+            ]
+
 comboPollSecondsFromEnv :: IO Int
 comboPollSecondsFromEnv = do
     pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
@@ -9744,7 +9769,7 @@ applyStartupComboBacktestUpdate ::
     BS.ByteString ->
     ComboBacktestUpdate ->
     IO (Either String ComboBacktestApplyStats)
-applyStartupComboBacktestUpdate = applyStartupComboBacktestUpdateImpl applyComboUpdatesWithStats
+applyStartupComboBacktestUpdate ctx = applyStartupComboBacktestUpdateImpl (applyComboUpdatesWithStatsWithPolicy (tcbcRefreshPolicy ctx)) ctx
 
 {- | Like 'applyStartupComboBacktestUpdate' but uses the keep-all variant of
 'applyComboUpdatesWithStats': an unprofitable refresh keeps the combo with
@@ -14509,9 +14534,9 @@ backtestTopCombosOnce topNRaw ctx = do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
                                                     -- Periodic refreshes are authoritative for stale combos:
-                                                    -- prune refreshed performance below the configured floor and
-                                                    -- carry a tombstone in the payload so stale replicas cannot
-                                                    -- resurrect it.
+                                                    -- retain pinned evidence, prune other refreshed performance
+                                                    -- below the floor, and tombstone those removals so stale
+                                                    -- replicas cannot resurrect them.
                                                     case applyComboUpdatesWithStatsWithPolicy (tcbcRefreshPolicy ctx) now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
@@ -17019,6 +17044,7 @@ runRestApi cliArgs mWebhook = do
                 _ -> defaultBotStartupBacktestMinTrades
     topCombosStaleDaysEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS"
     topCombosPruneFloorEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR"
+    retainedUuids <- retainedComboUuidsFromEnv
     let defaultRefreshPolicy = defaultComboBacktestRefreshPolicy
         defaultStaleDays = fromIntegral (cbrpStaleAfterMs defaultRefreshPolicy) / 86400000
         topCombosStaleDays = readNonNegativeDoubleMaybe topCombosStaleDaysEnv defaultStaleDays
@@ -17026,6 +17052,7 @@ runRestApi cliArgs mWebhook = do
         topCombosRefreshPolicyRaw =
             defaultRefreshPolicy
                 { cbrpStaleAfterMs = floor (topCombosStaleDays * 86400000)
+                , cbrpRetainedUuids = retainedUuids
                 , cbrpPruneFinalEquityFloor = topCombosPruneFloor
                 }
     topCombosRefreshPolicy <-
@@ -21000,6 +21027,7 @@ readTopCombosValueFromDbRaw store = do
   where
     readDb = do
         maxCombos <- optimizerMaxCombosFromEnv
+        retainedUuids <- retainedComboUuidsFromEnv
         let limitSafe = max 1 maxCombos
         -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
         -- function of payload-visible columns so the content fingerprint can stand in for it.
@@ -21010,12 +21038,14 @@ readTopCombosValueFromDbRaw store = do
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
+                        <> "WHERE combo_uuid = ANY(?::uuid[]) OR combo_uuid IN ("
+                        <> "SELECT combo_uuid FROM combos "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC LIMIT ?) "
                         <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC "
-                        <> "LIMIT ?"
                     )
-                    (Only limitSafe) ::
+                    (PGArray (Set.toAscList retainedUuids), limitSafe) ::
                     IO [PersistedComboRow]
-        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows rows)
+        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows retainedUuids rows)
         if null combos
             then pure (Left "No persisted combos found in the database.")
             else do
@@ -21036,8 +21066,9 @@ readTopCombosValueFromDbRaw store = do
             other -> other
 
 readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDb store =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
+readTopCombosValueFromDb store = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback =
@@ -21098,8 +21129,9 @@ readTopCombosValueRaw path = do
                                 Right val -> pure (Right val)
 
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
-readTopCombosValue path =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueRaw path
+readTopCombosValue path = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueRaw path
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -22122,6 +22154,7 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
     s3Fp <- topCombosS3FingerprintBounded
     graduationMeta <- topCombosLocalFingerprint (portfolioGraduationPath topCombosStore)
     overrides <- topComboDeployableOverrideUuidsFromEnv
+    retainedUuids <- retainedComboUuidsFromEnv
     configuredMode <- portfolioSelectorRolloutModeFromEnv
     -- The effective rollout mode evaluates the whole graduation config against the review
     -- file, so a redeploy that changes any TRADER_PORTFOLIO_AUTO_GRADUATE_* value must
@@ -22143,6 +22176,7 @@ optimizerCombosEtag buildInfo mOps topCombosStore paths = do
                                 , "db" .= dbTag
                                 , "s3" .= s3Tag
                                 , "graduation" .= graduationTag
+                                , "retainedUuids" .= Set.toAscList retainedUuids
                                 , "overrides" .= overrides
                                 , "mode" .= portfolioRolloutModeCode configuredMode
                                 , "graduationConfig" .= show graduationConfig
@@ -22167,11 +22201,12 @@ buildOptimizerCombosBody ::
     FilePath ->
     IO (Either Wai.Response BS.ByteString)
 buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath = do
+    retainedUuids <- retainedComboUuidsFromEnv
     -- Decode each replica file once: the leaderboard is hundreds of megabytes of JSON and
     -- a second decode doubles the transient heap of every request.
     topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
     rewrittenRef <- newIORef False
-    let topVal0 = fmap normalizeTopCombosPayload topRaw0
+    let topVal0 = fmap (normalizeTopCombosPayloadWithRetention retainedUuids) topRaw0
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
@@ -22211,7 +22246,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
                             Left _ -> pure (Right val)
                             Right dbVal' -> do
                                 now <- getTimestampMs
-                                let mergedVal = mergeTopCombosPayloads (max minPersist maxCombos) now [val, dbVal']
+                                let mergedVal = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] (max minPersist maxCombos) now [val, dbVal'])
                                     mergedCount = topCombosComboCount mergedVal
                                 if mergedCount <= currentCount
                                     then pure (Right val)
@@ -22224,7 +22259,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
                                         when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
-    let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
+    let sanitizeVal = fmap (fst . sanitizeTopCombosValueWithRetention retainedUuids)
     tmpResponseVal <-
         if tmpPath /= topJsonPath
             then readTopCombosValueLocal tmpPath
@@ -22252,12 +22287,12 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
     now <- getTimestampMs
     let maxResponseCombos = max minPersist maxCombos
         (mergedVal, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
-            mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxResponseCombos now responseVals
+            mergeTopCombosPayloadsWithStatsAndRetention retainedUuids deployableOverrides maxResponseCombos now responseVals
         combos = extractCombos mergedVal
         payloadSources =
             concatMap
                 ( \val ->
-                    let sanitized = fst (sanitizeTopCombosValue val)
+                    let sanitized = fst (sanitizeTopCombosValueWithRetention retainedUuids val)
                      in if null (extractCombos sanitized)
                             then []
                             else maybeToList (extractPayloadSource sanitized)
@@ -22276,6 +22311,7 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
                         , "rawCount" .= rawCount
                         , "droppedCount" .= droppedCount
                         , "dedupedCount" .= dedupedCount
+                        , "retention" .= topComboRetentionStatus retainedUuids mergedVal
                         , "combos" .= combos
                         ]
             Right <$> evaluate (BL.toStrict (encode out))
@@ -22422,13 +22458,14 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                     else withTopCombosLock topCombosStore $ do
                                         localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
                                         minPersist <- topCombosMinPersistFromEnv
+                                        retainedUuids <- retainedComboUuidsFromEnv
                                         let localTopVal =
                                                 case localTopValResult of
                                                     Right val -> Just val
                                                     Left _ -> Nothing
                                             localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
                                             localCount = maybe 0 topCombosComboCount localTopVal
-                                            (incomingSanitized, _) = sanitizeTopCombosValue raw
+                                            (incomingSanitized, _) = sanitizeTopCombosValueWithRetention retainedUuids raw
                                             incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
                                             incomingCount = topCombosComboCount incomingSanitized
                                             needsBackfill = localCount < minPersist && incomingCount > localCount
@@ -22444,8 +22481,8 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                                 maxCombos <- topCombosSyncMaxCombosFromEnv
                                                 let mergedVal =
                                                         case localTopVal of
-                                                            Just localVal -> mergeTopCombosPayloads maxCombos now [localVal, incomingSanitized]
-                                                            Nothing -> mergeTopCombosPayloads maxCombos now [incomingSanitized]
+                                                            Just localVal -> fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] maxCombos now [localVal, incomingSanitized])
+                                                            Nothing -> fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] maxCombos now [incomingSanitized])
                                                     action =
                                                         case localTopVal of
                                                             Just _ -> "merged"
