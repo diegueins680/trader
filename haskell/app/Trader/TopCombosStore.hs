@@ -1698,10 +1698,13 @@ mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItem
     mergeCombo acc comboVal =
         case comboMergeKey comboVal of
             Nothing -> acc
-            Just key ->
-                case M.lookup key acc of
-                    Nothing -> M.insert key comboVal acc
-                    Just prev -> M.insert key (pickBestCombo comboVal prev) acc
+            Just identity ->
+                let key = case comboUuidText comboVal of
+                        Just uuid | Set.member uuid retained -> "retained:" <> TE.encodeUtf8 uuid <> ":" <> identity
+                        _ -> identity
+                 in case M.lookup key acc of
+                        Nothing -> M.insert key comboVal acc
+                        Just prev -> M.insert key (pickBestCombo comboVal prev) acc
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =

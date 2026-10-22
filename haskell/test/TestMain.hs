@@ -2558,6 +2558,9 @@ testRetainedTopCombos = do
         otherUuid = "11111111-1234-5678-9abc-def012345678"
         retained = Set.singleton pin
         pinned = selectionComboForTest "pin" 0.2 (Just 1000) Nothing
+        pinnedTwin = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
+            value -> value
         other = case selectionComboForTest "other" 0.5 (Just 1000) Nothing of
             Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
             value -> value
@@ -2626,6 +2629,14 @@ testRetainedTopCombos = do
     assert
         "retained lower-ranked combo reserves a capacity slot"
         (mapMaybe comboUuidText (rows (merge [payload [other, pinned]])) == [pin])
+    assert
+        "retention preserves each UUID when different retained rows share a strategy identity"
+        ( Set.fromList (mapMaybe comboUuidText (rows (fst (mergeTopCombosPayloadsWithStatsAndRetention (Set.fromList [pin, otherUuid]) [] 1 3000 [payload [pinned, pinnedTwin]]))))
+            == Set.fromList [pin, otherUuid]
+        )
+    assert
+        "an unretained identity twin cannot replace the retained UUID"
+        (mapMaybe comboUuidText (rows (merge [payload [pinnedTwin, pinned]])) == [pin])
     assert
         "pins survive even a zero capacity"
         (retainRankedCombos Just retained 0 [otherUuid, pin] == [pin])

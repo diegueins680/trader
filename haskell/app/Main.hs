@@ -3670,8 +3670,8 @@ persistedComboLegacyIdentityKey row = do
                     , "objective" .= pcrObjective row
                     ]
 
-filterPersistedComboRows :: [PersistedComboRow] -> [PersistedComboRow]
-filterPersistedComboRows rows =
+filterPersistedComboRows :: Set.Set T.Text -> [PersistedComboRow] -> [PersistedComboRow]
+filterPersistedComboRows retained rows =
     let sourceAwareKeys =
             [ key
             | row <- rows
@@ -3680,7 +3680,8 @@ filterPersistedComboRows rows =
             ]
      in [ row
         | row <- rows
-        , isJust (persistedComboSource row)
+        , Set.member (uuidToText (pcrUuid row)) retained
+            || isJust (persistedComboSource row)
             || maybe True (`notElem` sourceAwareKeys) (persistedComboLegacyIdentityKey row)
         ]
 
@@ -21026,6 +21027,7 @@ readTopCombosValueFromDbRaw store = do
   where
     readDb = do
         maxCombos <- optimizerMaxCombosFromEnv
+        retainedUuids <- retainedComboUuidsFromEnv
         let limitSafe = max 1 maxCombos
         -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
         -- function of payload-visible columns so the content fingerprint can stand in for it.
@@ -21036,12 +21038,14 @@ readTopCombosValueFromDbRaw store = do
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
+                        <> "WHERE combo_uuid = ANY(?::uuid[]) OR combo_uuid IN ("
+                        <> "SELECT combo_uuid FROM combos "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC LIMIT ?) "
                         <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC "
-                        <> "LIMIT ?"
                     )
-                    (Only limitSafe) ::
+                    (PGArray (Set.toAscList retainedUuids), limitSafe) ::
                     IO [PersistedComboRow]
-        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows rows)
+        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows retainedUuids rows)
         if null combos
             then pure (Left "No persisted combos found in the database.")
             else do
