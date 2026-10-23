@@ -91,6 +91,8 @@ export async function runBenchmark(config, {
   const probe = async (path, conditional = false) => {
     const start = performance.now();
     let status = 0;
+    let httpStatus = 0;
+    let failureReason = "request-failed";
     let byteCount = 0;
     let body;
     try {
@@ -101,40 +103,55 @@ export async function runBenchmark(config, {
         method: "GET", headers: requestHeaders, redirect: "error", signal: AbortSignal.timeout(config.timeoutMs),
       });
       status = response.status;
-      if (status === 304 && !sentEtag) throw new Error("Unexpected conditional response");
+      httpStatus = status;
+      if (status === 304 && !sentEtag) {
+        failureReason = "unexpected-304";
+        throw new Error("Unexpected conditional response");
+      }
       if (status === 200 && !response.headers.get("content-type")?.includes("application/json")) {
+        failureReason = "non-json";
         await response.body?.cancel();
         throw new Error("Expected API JSON");
       }
       // Consume every body to measure full request cost; do not retain leaderboard JSON.
       const parseBody = !conditional && status === 200;
       const chunks = parseBody ? [] : null;
+      failureReason = "body-read-failed";
       if (response.body) {
         for await (const chunk of response.body) {
           byteCount += chunk.length;
           if (chunks) {
-            if (byteCount > 16 * 1024 * 1024) throw new Error("Status response too large");
+            if (byteCount > 16 * 1024 * 1024) {
+              failureReason = "status-too-large";
+              throw new Error("Status response too large");
+            }
             chunks.push(chunk);
           }
         }
       }
-      if (parseBody) body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (parseBody) {
+        failureReason = "invalid-json";
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      }
       if ((path === "/health" || path === "/ready") && status === 200 && body?.ready !== true) {
+        failureReason = body?.ready === false ? "readiness-false" : "readiness-missing";
         throw new Error("Readiness evidence missing or false");
       }
       if (conditional && status === 200) etag = response.headers.get("etag") || undefined;
       if (status === 200 && path === "/bot/status") {
         const bots = body?.multi === true ? body.bots : [body];
         if (!Array.isArray(bots) || !bots.every((bot) => bot && typeof bot.running === "boolean")) {
+          failureReason = "worker-evidence-invalid";
           throw new Error("Worker status evidence missing");
         }
         workers.push(bots.filter((bot) => bot.running === true).length);
       }
+      failureReason = status === 200 || status === 304 ? null : "http-status";
     } catch {
       // Errors can embed URLs, response bodies, or authorization details.
       status = 0;
     }
-    requests.push({ path, status, bytes: byteCount, latencyMs: performance.now() - start });
+    requests.push({ path, status, httpStatus, failureReason, bytes: byteCount, latencyMs: performance.now() - start });
   };
   try {
     for (let round = 0; round < config.rounds; round += 1) {
@@ -162,6 +179,8 @@ export async function runBenchmark(config, {
     return [path, {
       latencyMs: summarize(matching.map((request) => request.latencyMs)),
       statuses: Object.fromEntries([...new Set(matching.map(({ status }) => status))].map((status) => [status, matching.filter((r) => r.status === status).length])),
+      httpStatuses: Object.fromEntries([...new Set(matching.map(({ httpStatus }) => httpStatus))].map((status) => [status, matching.filter((r) => r.httpStatus === status).length])),
+      failureReasons: Object.fromEntries([...new Set(matching.map(({ failureReason }) => failureReason).filter(Boolean))].map((reason) => [reason, matching.filter((r) => r.failureReason === reason).length])),
       bytes: matching.reduce((sum, request) => sum + request.bytes, 0),
     }];
   }));
