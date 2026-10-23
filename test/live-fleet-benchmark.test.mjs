@@ -52,6 +52,7 @@ test("fleet benchmark measures concurrent cold requests and conditional cache hi
   assert.equal(result.memory.maxAllowedBytes, null);
   assert.equal(result.workers.last, 18);
   assert.equal(result.coverage.startupTriggered, false);
+  assert.deepEqual(result.endpoints["/health"].failureReasons, {});
   assert.doesNotMatch(JSON.stringify(result), /test-secret|private-tenant/);
 });
 
@@ -68,6 +69,9 @@ test("fleet benchmark reports outages, worker loss, and measurement failure with
   });
   assert.equal(result.passed, false);
   assert.equal(result.failures, 2);
+  assert.deepEqual(result.endpoints["/optimizer/combos"].failureReasons, { "request-failed": 1 });
+  assert.deepEqual(result.endpoints["/ready"].httpStatuses, { 503: 1 });
+  assert.deepEqual(result.endpoints["/ready"].failureReasons, { "http-status": 1 });
   assert.equal(result.workers.last, 0);
   assert.equal(result.memory.errors, 1);
   assert.equal(result.memory.assessment, "measurement-failed");
@@ -86,6 +90,28 @@ test("fleet benchmark rejects HTML proxy fallbacks and false readiness despite H
   });
   assert.equal(result.passed, false);
   assert.equal(result.failures, 3);
+  assert.deepEqual(result.endpoints["/health"].statuses, { 0: 1 });
+  assert.deepEqual(result.endpoints["/health"].httpStatuses, { 200: 1 });
+  assert.deepEqual(result.endpoints["/health"].failureReasons, { "readiness-false": 1 });
+  assert.deepEqual(result.endpoints["/ready"].failureReasons, { "non-json": 1 });
+});
+
+test("fleet benchmark categorizes malformed JSON and missing readiness without copying response details", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/health")) return new Response('{"secret":"private-response",', { headers: { "content-type": "application/json" } });
+      if (url.endsWith("/ready")) return Response.json({ error: "private-response" });
+      if (url.endsWith("/bot/status")) return Response.json({ running: "private-response" });
+      return Response.json({ combos: [] });
+    },
+  });
+  assert.equal(result.failures, 3);
+  assert.deepEqual(result.endpoints["/health"].failureReasons, { "invalid-json": 1 });
+  assert.deepEqual(result.endpoints["/ready"].failureReasons, { "readiness-missing": 1 });
+  assert.deepEqual(result.endpoints["/bot/status"].failureReasons, { "worker-evidence-invalid": 1 });
+  assert.doesNotMatch(JSON.stringify(result), /private-response|secret/);
 });
 
 const emptyFleetResponse = async (url) => url.endsWith("/bot/status")

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Operations: skip leaderboard decoding on bot-status polls when the saved portfolio selection is absent, expired or for another rollout mode. Current selections still receive full evidence validation. Fleet benchmarks now report fixed failure categories and original HTTP status counts alongside validated probe statuses, without retaining response bodies or exception text.
+
 - Operations: let the read-only fleet benchmark enforce `--max-memory-bytes` against sampled peaks, report explicit measured/unmeasured memory assessments, and reject unsolicited `304` responses or malformed worker-status evidence.
 
 - CI: install the checksum-verified HLint 3.8 release bundle directly instead of pulling another GHC through the distro package manager. Bound linter and formatter download timeouts and retries in CI and the hosted autoloop.

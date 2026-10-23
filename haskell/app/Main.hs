@@ -25177,16 +25177,21 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
     graduationReview <- readPortfolioGraduationReviewMaybe (portfolioGraduationPath topCombosStore)
     disabledSymbols <- botDisabledSymbolsFromEnv
     selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
-    -- Bot status is a latency-sensitive runtime endpoint. The selector summary is
-    -- supplemental, so read its local snapshot instead of queueing behind the
-    -- shared ops connection (which also handles bot event persistence).
-    exportOrErr <- readTopCombosExport topCombosStore
-    now <- getTimestampMs
+    selectionCheckAtMs <- getTimestampMs
     let mode =
             if maybe False (portfolioGraduationReviewApplies graduationConfig reviewedUuids) graduationReview
                 then PortfolioEnforce
                 else configuredMode
-        firstFullDayMs = ((pgcStartedAtMs graduationConfig + 86400000 - 1) `div` 86400000) * 86400000
+    -- An absent, expired or differently-modeled selection cannot be valid, so
+    -- avoid decoding the potentially large leaderboard on every status poll.
+    -- Current selections still use the local snapshot without queueing behind
+    -- the shared ops connection. Recheck expiry after that read below.
+    exportOrErr <-
+        if maybe False (\selected -> selectionCheckAtMs <= psValidUntilMs selected && psMode selected == mode) selection
+            then readTopCombosExport topCombosStore
+            else pure (Left "No current portfolio selection.")
+    now <- getTimestampMs
+    let firstFullDayMs = ((pgcStartedAtMs graduationConfig + 86400000 - 1) `div` 86400000) * 86400000
         earliestReviewAtMs = firstFullDayMs + fromIntegral (pgcMinimumDailyObservations graduationConfig) * 86400000
         selectionValid =
             case (selection, exportOrErr) of
