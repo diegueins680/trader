@@ -434,6 +434,7 @@ import Trader.SignalGates (
     signalTrendSmaConfirmed,
     signalTrendSmaConfirmedWithConfig,
  )
+import Trader.Test.OpsMigrations (testOpsMigrations)
 
 import Trader.Test.AdmissionProgress (admissionProgressSuite)
 import Trader.Test.ApiRoutes (apiRouteSuite)
@@ -567,6 +568,7 @@ import Trader.VolConfGate (
 
 main :: IO ()
 main = do
+    testOpsMigrations
     testTopCombosSyncSkipAndEtag
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride

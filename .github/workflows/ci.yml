@@ -26,6 +26,23 @@ jobs:
 
   haskell:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: trader_test
+          POSTGRES_PASSWORD: trader_test_only
+          POSTGRES_DB: trader_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trader_test -d trader_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Credentials belong only to this disposable CI service.
+      TRADER_TEST_DB_URL: "host=127.0.0.1 port=5432 dbname=trader_test user=trader_test password=trader_test_only"
     steps:
       - uses: actions/checkout@v7
 

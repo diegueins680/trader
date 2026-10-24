@@ -57,7 +57,7 @@ function summarize(samples) {
   if (samples.length === 0) return null;
   const sorted = [...samples].sort((a, b) => a - b);
   const percentile = (p) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
-  return { count: sorted.length, first: samples[0], last: samples.at(-1), max: sorted.at(-1), p95: percentile(0.95), p99: percentile(0.99) };
+  return { count: sorted.length, first: samples[0], last: samples.at(-1), min: sorted[0], max: sorted.at(-1), p95: percentile(0.95), p99: percentile(0.99) };
 }
 
 // Only GET probes are issued. Scheduled sync and any independently authorized
@@ -93,15 +93,17 @@ export async function runBenchmark(config, {
     let status = 0;
     let httpStatus = 0;
     let failureReason = "request-failed";
+    let timeToHeadersMs = null;
     let byteCount = 0;
     let body;
+    const sentEtag = conditional ? etag : undefined;
     try {
       const requestHeaders = { ...headers };
-      const sentEtag = conditional ? etag : undefined;
       if (sentEtag) requestHeaders["If-None-Match"] = sentEtag;
       const response = await fetchImpl(`${config.baseUrl}${path}`, {
         method: "GET", headers: requestHeaders, redirect: "error", signal: AbortSignal.timeout(config.timeoutMs),
       });
+      timeToHeadersMs = performance.now() - start;
       status = response.status;
       httpStatus = status;
       if (status === 304 && !sentEtag) {
@@ -151,7 +153,7 @@ export async function runBenchmark(config, {
       // Errors can embed URLs, response bodies, or authorization details.
       status = 0;
     }
-    requests.push({ path, status, httpStatus, failureReason, bytes: byteCount, latencyMs: performance.now() - start });
+    requests.push({ path, status, httpStatus, failureReason, conditional: Boolean(sentEtag), timeToHeadersMs, bytes: byteCount, latencyMs: performance.now() - start });
   };
   try {
     for (let round = 0; round < config.rounds; round += 1) {
@@ -176,12 +178,26 @@ export async function runBenchmark(config, {
   const paths = [...new Set(requests.map(({ path }) => path))];
   const endpoints = Object.fromEntries(paths.map((path) => {
     const matching = requests.filter((request) => request.path === path);
+    const httpStatuses = [...new Set(matching.map(({ httpStatus }) => httpStatus))];
+    const headerTimes = (probes) => probes.map(({ timeToHeadersMs }) => timeToHeadersMs).filter((value) => value !== null);
     return [path, {
       latencyMs: summarize(matching.map((request) => request.latencyMs)),
+      timeToHeadersMs: summarize(headerTimes(matching)),
       statuses: Object.fromEntries([...new Set(matching.map(({ status }) => status))].map((status) => [status, matching.filter((r) => r.status === status).length])),
-      httpStatuses: Object.fromEntries([...new Set(matching.map(({ httpStatus }) => httpStatus))].map((status) => [status, matching.filter((r) => r.httpStatus === status).length])),
+      httpStatuses: Object.fromEntries(httpStatuses.map((status) => [status, matching.filter((r) => r.httpStatus === status).length])),
       failureReasons: Object.fromEntries([...new Set(matching.map(({ failureReason }) => failureReason).filter(Boolean))].map((reason) => [reason, matching.filter((r) => r.failureReason === reason).length])),
       bytes: matching.reduce((sum, request) => sum + request.bytes, 0),
+      conditionalRequests: matching.filter((request) => request.conditional).length,
+      conditionalMisses: matching.filter((request) => request.conditional && request.status === 200).length,
+      byHttpStatus: Object.fromEntries(httpStatuses.map((status) => {
+        const probes = matching.filter((request) => request.httpStatus === status);
+        return [status, {
+          latencyMs: summarize(probes.map((request) => request.latencyMs)),
+          timeToHeadersMs: summarize(headerTimes(probes)),
+          bytes: probes.reduce((sum, request) => sum + request.bytes, 0),
+          failedProbes: probes.filter((request) => request.failureReason !== null).length,
+        }];
+      })),
     }];
   }));
   return {
@@ -190,6 +206,8 @@ export async function runBenchmark(config, {
     passed: failures === 0 && !memoryFailed && memoryAssessment !== "limit-exceeded"
       && workers.length === config.rounds && workers.every((count) => count === config.expectedWorkers),
     failures, endpoints, workers: summarize(workers),
+    workerCountMismatches: workers.filter((count) => count !== config.expectedWorkers).length,
+    missingWorkerSamples: config.rounds - workers.length,
     memory: {
       source: config.memoryFile ? "cgroup" : config.rssPid ? "rss" : "unmeasured",
       bytes: memoryBytes, errors: memoryErrors, assessment: memoryAssessment, maxAllowedBytes: memoryLimit,
