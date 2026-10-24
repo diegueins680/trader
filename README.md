@@ -480,6 +480,8 @@ Serve mode requires `TRADER_DB_URL` or `DATABASE_URL`. The local wrapper supplie
 
 Startup applies schema migration 6 to backfill PostgreSQL-maintained `params_json_md5` and `metrics_json_md5` columns on `combos`. Fingerprint reads use those stored digests instead of hashing every JSON payload again. Payload edits, inserts, deletes and transaction rollbacks retain the existing fingerprint behavior; bookkeeping updates retain the same ETag. The migration performs a table rewrite under a database lock, so allow for that one-time startup work when upgrading an existing database.
 
+Leaderboard normalization and full response builds compute each strategy's ranking key once per sort. Equal-key rows keep their prior stable ordering, and ranking still uses the same validation, quarantine and performance evidence.
+
 Set `TRADER_TEST_DB_URL` to a disposable PostgreSQL database when running `bash scripts/verify.sh haskell` or `full` to include the migration integration tests. They create and remove a random schema and check fresh installation, backfill, exact legacy fingerprints, every fingerprinted payload column, bookkeeping, another writer's commit/rollback, and generated-column write protection. CI supplies PostgreSQL 16; without that variable, local output explicitly reports the integration test as skipped.
 Database-backed endpoints serialize access to their shared PostgreSQL connection and automatically replace it after libpq connection failures, including a connection left busy by an interrupted command.
 

@@ -755,6 +755,7 @@ main = do
     testTopComboProcessingCarriesOverfitAndMapEliteMetadata
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
+    testTopComboRankingPreservesTies
     testDeployableTierRequiresCompleteAdoptionEvidence
     testExplicitDeployableOverrideIsBoundedAndAuditable
     testTopComboFreshnessMultiplierDefaultsDisabled
@@ -7070,6 +7071,27 @@ testDeployableTierRanksAheadOfUnvalidatedCandidate = do
     assert
         "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
         (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
+
+testTopComboRankingPreservesTies :: IO ()
+testTopComboRankingPreservesTies = do
+    let row label = processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount
+        payload = Aeson.object ["combos" .= map row ["charlie", "alpha", "bravo"]]
+        labels value =
+            case value of
+                Aeson.Object o -> case KM.lookup "combos" o of
+                    Just (Aeson.Array rows) -> mapMaybe labelOf (V.toList rows)
+                    _ -> []
+                _ -> []
+        labelOf value =
+            case value of
+                Aeson.Object o -> KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "normalization preserves input order for equal validation and performance keys"
+        (labels (normalizeTopCombosPayload payload) == (["charlie", "alpha", "bravo"] :: [T.Text]))
+    assert
+        "bounded merge preserves deterministic identity order when performance keys tie"
+        (labels (mergeTopCombosPayloads 2 9500 [payload]) == (["alpha", "bravo"] :: [T.Text]))
 
 testDeployableTierRequiresCompleteAdoptionEvidence :: IO ()
 testDeployableTierRequiresCompleteAdoptionEvidence = do
