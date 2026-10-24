@@ -438,7 +438,7 @@ import Trader.NeuralGovernor (
     parseNeuralGovernorRolloutMode,
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
-import Trader.Ops.Migrations (ensureOpsDbSchema)
+import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
     OptimizerAdmissionStats (..),
@@ -2394,7 +2394,7 @@ topCombosLocalFingerprint path = do
 
 {- | Content digest over the columns the leaderboard payload is built from: an md5 over
 every row's identity, headline metrics, thresholds, objective, source, creation stamp
-and the md5 of each JSON column's text. Volatile bookkeeping that the payload never
+and the stored, generated md5 of each JSON column's text. Volatile bookkeeping that the payload never
 exposes (@operation_count@, @updated_at_ms@, the tuple version) is deliberately left
 out, otherwise the per-minute bot operation counters would invalidate every ETag and
 keep the sync from ever settling.
@@ -2406,14 +2406,7 @@ topCombosDbFingerprint store = do
             withOpsConnection store $ \conn ->
                 query_
                     conn
-                    ( "SELECT count(*)::bigint, "
-                        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(created_at_ms::text, '') "
-                        <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
-                        <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
-                        <> "|| ':' || coalesce(objective, '') || ':' || coalesce(source, '') "
-                        <> "|| ':' || coalesce(md5(params_json::text), '') || ':' || coalesce(md5(metrics_json::text), ''), ',' ORDER BY combo_uuid)), '') "
-                        <> "FROM combos"
-                    )
+                    topCombosDbFingerprintQuery
         ) ::
             IO (Either SomeException [(Int64, String)])
     pure $

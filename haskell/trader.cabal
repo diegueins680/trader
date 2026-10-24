@@ -296,6 +296,8 @@ test-suite trader-tests
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.Ops.Migrations
+                     , Trader.Test.OpsMigrations
                      , Trader.QuantityRounding
                      , Trader.OrderNumeric
                      , Trader.BinanceTradeAnalysis
@@ -456,6 +458,7 @@ test-suite trader-tests
                      , optparse-applicative >=0.17
                      , random >=1.2
                      , stm ==2.5.1.0
+                     , postgresql-simple >=0.6 && <0.7
                      , process
                      , ad >=4.4
                      , scientific

@@ -51,6 +51,15 @@ test("fleet benchmark measures concurrent cold requests and conditional cache hi
   assert.equal(result.memory.assessment, "observed");
   assert.equal(result.memory.maxAllowedBytes, null);
   assert.equal(result.workers.last, 18);
+  assert.equal(result.workers.min, 18);
+  assert.equal(result.workerCountMismatches, 0);
+  assert.equal(result.missingWorkerSamples, 0);
+  const leaderboard = result.endpoints["/optimizer/combos"];
+  assert.equal(leaderboard.conditionalRequests, 8);
+  assert.equal(leaderboard.conditionalMisses, 0);
+  assert.equal(leaderboard.byHttpStatus[200].latencyMs.count, 4);
+  assert.equal(leaderboard.byHttpStatus[304].latencyMs.count, 8);
+  assert.equal(leaderboard.byHttpStatus[304].bytes, 0);
   assert.equal(result.coverage.startupTriggered, false);
   assert.deepEqual(result.endpoints["/health"].failureReasons, {});
   assert.doesNotMatch(JSON.stringify(result), /test-secret|private-tenant/);
@@ -70,6 +79,8 @@ test("fleet benchmark reports outages, worker loss, and measurement failure with
   assert.equal(result.passed, false);
   assert.equal(result.failures, 2);
   assert.deepEqual(result.endpoints["/optimizer/combos"].failureReasons, { "request-failed": 1 });
+  assert.equal(result.endpoints["/optimizer/combos"].byHttpStatus[0].timeToHeadersMs, null);
+  assert.equal(result.endpoints["/optimizer/combos"].byHttpStatus[0].failedProbes, 1);
   assert.deepEqual(result.endpoints["/ready"].httpStatuses, { 503: 1 });
   assert.deepEqual(result.endpoints["/ready"].failureReasons, { "http-status": 1 });
   assert.equal(result.workers.last, 0);
@@ -93,6 +104,7 @@ test("fleet benchmark rejects HTML proxy fallbacks and false readiness despite H
   assert.deepEqual(result.endpoints["/health"].statuses, { 0: 1 });
   assert.deepEqual(result.endpoints["/health"].httpStatuses, { 200: 1 });
   assert.deepEqual(result.endpoints["/health"].failureReasons, { "readiness-false": 1 });
+  assert.equal(result.endpoints["/health"].byHttpStatus[200].failedProbes, 1);
   assert.deepEqual(result.endpoints["/ready"].failureReasons, { "non-json": 1 });
 });
 
@@ -116,6 +128,66 @@ test("fleet benchmark categorizes malformed JSON and missing readiness without c
 
 const emptyFleetResponse = async (url) => url.endsWith("/bot/status")
   ? Response.json({ multi: true, bots: [] }) : Response.json({ ready: true });
+
+test("fleet benchmark separates full bodies, ETag misses, cache hits and time to headers", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "3", "--clients", "1", "--interval-ms", "0", "--expected-workers", "0"]);
+  const payload = new TextEncoder().encode('{"combos":[]}');
+  let leaderboardRequests = 0;
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url, options) => {
+      if (!url.endsWith("/optimizer/combos")) return emptyFleetResponse(url);
+      leaderboardRequests += 1;
+      if (leaderboardRequests === 1) {
+        assert.equal(options.headers["If-None-Match"], undefined);
+        // Do not prefetch: defer the body after the consumer receives headers.
+        const body = new ReadableStream({
+          async pull(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            controller.enqueue(payload);
+            controller.close();
+          },
+        }, { highWaterMark: 0 });
+        return new Response(body, { headers: { "content-type": "application/json", etag: 'W/"v1"' } });
+      }
+      if (leaderboardRequests === 2) {
+        assert.equal(options.headers["If-None-Match"], 'W/"v1"');
+        return Response.json({ combos: [] }, { headers: { etag: 'W/"v2"' } });
+      }
+      assert.equal(options.headers["If-None-Match"], 'W/"v2"');
+      return new Response(null, { status: 304 });
+    },
+  });
+  const endpoint = result.endpoints["/optimizer/combos"];
+  assert.equal(result.passed, true);
+  assert.equal(endpoint.conditionalRequests, 2);
+  assert.equal(endpoint.conditionalMisses, 1);
+  assert.equal(endpoint.byHttpStatus[200].latencyMs.count, 2);
+  assert.equal(endpoint.byHttpStatus[304].latencyMs.count, 1);
+  assert.equal(endpoint.byHttpStatus[200].bytes, 2 * payload.length);
+  assert.equal(endpoint.byHttpStatus[304].bytes, 0);
+  assert.equal(endpoint.timeToHeadersMs.count, 3);
+  assert.ok(endpoint.byHttpStatus[200].latencyMs.first - endpoint.byHttpStatus[200].timeToHeadersMs.first >= 25);
+});
+
+test("fleet benchmark exposes a temporary worker loss hidden by identical first and last counts", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "3", "--clients", "1", "--interval-ms", "0"]);
+  const counts = [18, 17, 18];
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url) => url.endsWith("/bot/status")
+      ? Response.json({ multi: true, bots: Array.from({ length: counts.shift() }, () => ({ running: true })) })
+      : emptyFleetResponse(url),
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.failures, 0);
+  assert.equal(result.workers.first, 18);
+  assert.equal(result.workers.last, 18);
+  assert.equal(result.workers.max, 18);
+  assert.equal(result.workers.min, 17);
+  assert.equal(result.workerCountMismatches, 1);
+  assert.equal(result.missingWorkerSamples, 0);
+});
 
 test("fleet benchmark distinguishes request success from unmeasured memory", async () => {
   const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
@@ -175,6 +247,11 @@ test("fleet benchmark rejects unsolicited 304 responses and malformed empty-flee
     });
     assert.equal(result.passed, false, path);
     assert.equal(result.failures, 1, path);
+    if (path === "/bot/status") {
+      assert.equal(result.workers, null);
+      assert.equal(result.missingWorkerSamples, 1);
+      assert.equal(result.workerCountMismatches, 0);
+    }
   }
 });
 

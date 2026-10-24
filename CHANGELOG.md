@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Performance/Top Combos: backfill PostgreSQL-generated JSON digests in schema migration 6 and reuse them for database fingerprints, preserving exact payload-change invalidation while avoiding large JSON rehashes on every ETag/sync read. Add PostgreSQL 16 migration and transaction regressions to CI.
+
+- Operations: separate fleet-probe latency, time to response headers, bytes and failed probes by original HTTP status. Count ETag requests and validated conditional `200` replies, expose minimum sampled values and worker-count mismatches, and distinguish missing worker samples from observed zero workers.
+
 - Performance/Operations: skip leaderboard decoding on bot-status polls when the saved portfolio selection is absent, expired or for another rollout mode. Current selections still receive full evidence validation. Fleet benchmarks now report fixed failure categories and original HTTP status counts alongside validated probe statuses, without retaining response bodies or exception text.
 
 - Operations: let the read-only fleet benchmark enforce `--max-memory-bytes` against sampled peaks, report explicit measured/unmeasured memory assessments, and reject unsolicited `304` responses or malformed worker-status evidence.

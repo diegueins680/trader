@@ -2,6 +2,7 @@
 
 module Trader.Ops.Migrations (
     ensureOpsDbSchema,
+    topCombosDbFingerprintQuery,
 ) where
 
 import Control.Monad (forM_, unless, void)
@@ -11,6 +12,22 @@ import qualified Data.Set as Set
 import Data.String (fromString)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Database.PostgreSQL.Simple (Connection, Only (..), execute, execute_, query_, withTransaction)
+import Database.PostgreSQL.Simple.Types (Query)
+
+{- | The same payload fingerprint as hashing JSON on every read. Migration 6
+stores those two JSON digests as generated columns, so all writers update them
+transactionally with the payload, including writers running older binaries.
+Bookkeeping columns remain excluded. Call 'ensureOpsDbSchema' before use.
+-}
+topCombosDbFingerprintQuery :: Query
+topCombosDbFingerprintQuery =
+    "SELECT count(*)::bigint, "
+        <> "coalesce(md5(string_agg(combo_uuid::text || ':' || coalesce(created_at_ms::text, '') "
+        <> "|| ':' || coalesce(score::text, '') || ':' || coalesce(final_equity::text, '') || ':' || coalesce(annualized_return::text, '') "
+        <> "|| ':' || coalesce(open_threshold::text, '') || ':' || coalesce(close_threshold::text, '') "
+        <> "|| ':' || coalesce(objective, '') || ':' || coalesce(source, '') "
+        <> "|| ':' || coalesce(params_json_md5, '') || ':' || coalesce(metrics_json_md5, ''), ',' ORDER BY combo_uuid)), '') "
+        <> "FROM combos"
 
 data Migration = Migration
     { migVersion :: !Int
@@ -312,6 +329,15 @@ migrations =
                 <> ")"
             , "CREATE INDEX IF NOT EXISTS async_jobs_type_status_idx ON async_jobs(job_type, status)"
             , "CREATE INDEX IF NOT EXISTS async_jobs_updated_at_ms_idx ON async_jobs(updated_at_ms)"
+            ]
+        }
+    , Migration
+        { migVersion = 6
+        , migDescription = "combos_generated_json_digests"
+        , migStatements =
+            [ "ALTER TABLE combos "
+                <> "ADD COLUMN IF NOT EXISTS params_json_md5 TEXT GENERATED ALWAYS AS (md5(params_json::text)) STORED, "
+                <> "ADD COLUMN IF NOT EXISTS metrics_json_md5 TEXT GENERATED ALWAYS AS (md5(metrics_json::text)) STORED"
             ]
         }
     ]
