@@ -87,7 +87,7 @@ import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, newIORef)
 import Data.Int (Int64)
-import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
+import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import qualified Data.Maybe
@@ -348,7 +348,7 @@ normalizeTopCombosPayloadWithRetention retained payload =
                 case KM.lookup (AK.fromString "combos") o of
                     Just (Aeson.Array arr) ->
                         let combos = V.toList arr
-                            combosRanked = zipWith addRank [1 ..] (sortBy compareCombos combos)
+                            combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
                             o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked)) o
                          in Aeson.Object o'
                     _ -> sanitized
@@ -359,9 +359,6 @@ normalizeTopCombosPayloadWithRetention retained payload =
         case annotateComboProcessing val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
-
-    compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
-    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
 
 topCombosPayloadEquivalent :: Aeson.Value -> Aeson.Value -> Bool
 topCombosPayloadEquivalent = topCombosPayloadEquivalentWithRetention Set.empty
@@ -1625,7 +1622,9 @@ mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItem
         mergedUniqueCount = length eligibleMerged
         belowFloorTombstones = tombstonesForBelowFloorWinners belowFloorMerged
         dropTombstones' = M.unionWith max dropTombstones belowFloorTombstones
-        merged = retainRankedCombos comboUuidText retained maxItems (sortBy compareCombos eligibleMerged)
+        -- Ranking validates several metric families. Share each row's key across
+        -- comparisons, preserving the stable order of rows with equal keys.
+        merged = retainRankedCombos comboUuidText retained maxItems (sortOn comboPerformanceKey eligibleMerged)
         ranked = zipWith addRank [1 ..] merged
         sourceVal = fromMaybe "top-combos-store" payloadSource
         sanitizedCount = length combos
@@ -1713,9 +1712,6 @@ mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItem
         case annotateComboProcessingWithDeployableOverrides deployableOverrideSet val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
-
-    compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
-    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
 
     pickBestCombo newer prev =
         let objNew = comboMetricString "objective" newer
