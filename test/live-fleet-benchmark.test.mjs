@@ -54,6 +54,9 @@ test("fleet benchmark measures concurrent cold requests and conditional cache hi
   assert.equal(result.workers.min, 18);
   assert.equal(result.workerCountMismatches, 0);
   assert.equal(result.missingWorkerSamples, 0);
+  assert.equal(result.timing.deadlineMs, 30000);
+  assert.equal(result.timing.deadlineOverruns, 0);
+  assert.equal(result.timing.overrunMs, null);
   const leaderboard = result.endpoints["/optimizer/combos"];
   assert.equal(leaderboard.conditionalRequests, 8);
   assert.equal(leaderboard.conditionalMisses, 0);
@@ -128,6 +131,82 @@ test("fleet benchmark categorizes malformed JSON and missing readiness without c
 
 const emptyFleetResponse = async (url) => url.endsWith("/bot/status")
   ? Response.json({ multi: true, bots: [] }) : Response.json({ ready: true });
+
+test("fleet benchmark fails successful late responses and exposes probe scheduling stalls", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--timeout-ms", "5", "--expected-workers", "0"]);
+  let blocked = false;
+  const result = await runBenchmark(config, {
+    token: "private-token", tenantKey: "private-tenant", memorySample: async () => null,
+    fetchImpl: async (url) => {
+      // Model a transport completing before a stalled abort timer is serviced.
+      // Give the event-loop monitor time to start before blocking this process.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (!blocked) {
+        blocked = true;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+      }
+      return emptyFleetResponse(url);
+    },
+  });
+  assert.equal(result.failures, 0);
+  assert.equal(result.passed, false);
+  assert.equal(result.timing.deadlineOverruns, 4);
+  assert.equal(result.timing.overrunMs.count, 4);
+  assert.ok(result.timing.overrunMs.min >= 25);
+  assert.ok(result.timing.eventLoopDelayMs.max >= 40);
+  for (const endpoint of Object.values(result.endpoints)) {
+    assert.deepEqual(endpoint.statuses, { 200: 1 });
+    assert.deepEqual(endpoint.httpStatuses, { 200: 1 });
+    assert.deepEqual(endpoint.failureReasons, {});
+    assert.equal(endpoint.deadlineOverruns, 1);
+    assert.equal(endpoint.byHttpStatus[200].deadlineOverruns, 1);
+    assert.equal(endpoint.byHttpStatus[200].failedProbes, 0);
+  }
+  assert.doesNotMatch(JSON.stringify(result), /private-token|private-tenant/);
+});
+
+test("fleet deadline includes consuming a body after headers arrive on time", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--timeout-ms", "10", "--expected-workers", "0"]);
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url) => {
+      if (!url.endsWith("/optimizer/combos")) return emptyFleetResponse(url);
+      const body = new ReadableStream({
+        async pull(controller) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          controller.enqueue(new TextEncoder().encode('{"combos":[]}'));
+          controller.close();
+        },
+      }, { highWaterMark: 0 });
+      return new Response(body, { headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.failures, 0);
+  assert.equal(result.endpoints["/optimizer/combos"].deadlineOverruns, 1);
+  assert.equal(result.endpoints["/optimizer/combos"].byHttpStatus[200].failedProbes, 0);
+  assert.ok(result.endpoints["/optimizer/combos"].latencyMs.first >= 40);
+});
+
+test("fleet deadline also rejects a late validated cache hit", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "2", "--clients", "1", "--interval-ms", "0", "--timeout-ms", "10", "--expected-workers", "0"]);
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url, options) => {
+      if (!url.endsWith("/optimizer/combos")) return emptyFleetResponse(url);
+      if (!options.headers["If-None-Match"]) return Response.json({ combos: [] }, { headers: { etag: 'W/"stable"' } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return new Response(null, { status: 304 });
+    },
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.failures, 0);
+  const endpoint = result.endpoints["/optimizer/combos"];
+  assert.equal(endpoint.byHttpStatus[304].deadlineOverruns, 1);
+  assert.equal(endpoint.byHttpStatus[304].failedProbes, 0);
+  assert.equal(endpoint.conditionalRequests, 1);
+  assert.equal(endpoint.conditionalMisses, 0);
+});
 
 test("fleet benchmark separates full bodies, ETag misses, cache hits and time to headers", async () => {
   const config = parseArgs(["--base-url", "https://example.com", "--rounds", "3", "--clients", "1", "--interval-ms", "0", "--expected-workers", "0"]);
