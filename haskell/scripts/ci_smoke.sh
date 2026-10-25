@@ -75,4 +75,12 @@ fi
 grep -q '"ok":true' "$optimize_out"
 grep -q '"source":"csv"' "$optimize_out"
 
+if [[ -n "${TRADER_TEST_DB_URL:-}" ]]; then
+  command -v node >/dev/null || { echo "Node is required for database fingerprint integration." >&2; exit 1; }
+  command -v "${TRADER_TEST_PSQL_BIN:-psql}" >/dev/null || { echo "psql is required for database fingerprint integration." >&2; exit 1; }
+  node "$script_dir/test_top_combos_fingerprint.mjs" "$trader_bin"
+else
+  echo "Database fingerprint integration skipped (TRADER_TEST_DB_URL is not set)."
+fi
+
 echo "Smoke checks passed."

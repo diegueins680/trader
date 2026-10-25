@@ -2406,7 +2406,7 @@ topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
 topCombosDbFingerprint store = do
     rowsOrErr <-
         ( trySync $
-            withOpsConnection store $ \conn ->
+            withTopCombosFingerprintConnection store $ \conn ->
                 query_
                     conn
                     topCombosDbFingerprintQuery
@@ -2887,6 +2887,7 @@ instance ToJSON OpsPerformanceResponse where
 
 data OpsStore = OpsStore
     { osLock :: !(MVar ())
+    , osFingerprintLock :: !(MVar ())
     , osDbUrl :: !BS.ByteString
     , osConn :: !(IORef Connection)
     , osLatestId :: !(IORef Int64)
@@ -2933,6 +2934,14 @@ withOpsConnection store action =
 withIndependentOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
 withIndependentOpsConnection store =
     bracket (connectPostgreSQL (osDbUrl store)) close
+
+-- Keep cheap fingerprints independent of full replica reads and writes, while
+-- bounding their extra connections to one per store. Each read uses a fresh,
+-- bracketed connection; a failed or cancelled query cannot poison the next one.
+withTopCombosFingerprintConnection :: OpsStore -> (Connection -> IO a) -> IO a
+withTopCombosFingerprintConnection store action =
+    withMVar (osFingerprintLock store) $ \_ ->
+        withIndependentOpsConnection store action
 
 newtype OpsPersistenceConfig = OpsPersistenceConfig
     { opcDisabledKinds :: Set.Set Text
@@ -4219,6 +4228,7 @@ newOpsStoreFromEnv = do
                                         (Only v : _) -> v
                                         _ -> 0
                             lock <- newMVar ()
+                            fingerprintLock <- newMVar ()
                             connRef <- newIORef conn
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
@@ -4229,6 +4239,7 @@ newOpsStoreFromEnv = do
                                 ( Just
                                     OpsStore
                                         { osLock = lock
+                                        , osFingerprintLock = fingerprintLock
                                         , osDbUrl = url
                                         , osConn = connRef
                                         , osLatestId = latestRef
