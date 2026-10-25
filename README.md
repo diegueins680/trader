@@ -482,6 +482,8 @@ Startup applies schema migration 6 to backfill PostgreSQL-maintained `params_jso
 
 Leaderboard normalization and full response builds compute each strategy's ranking key once per sort. Equal-key rows keep their prior stable ordering, and ranking still uses the same validation, quarantine and performance evidence.
 
+Before database backfill, leaderboard responses check the minimum persisted row count using the same sanitization rules and stop once enough rows survive. This avoids ranking and annotating the entire payload just to check its size. Responses below the floor and history recovery keep the existing backfill behavior; final response ranking and admission checks still run normally.
+
 Set `TRADER_TEST_DB_URL` to a disposable PostgreSQL database when running `bash scripts/verify.sh haskell` or `full` to include the migration integration tests. They create and remove a random schema and check fresh installation, backfill, exact legacy fingerprints, every fingerprinted payload column, bookkeeping, another writer's commit/rollback, and generated-column write protection. CI supplies PostgreSQL 16; without that variable, local output explicitly reports the integration test as skipped.
 Database-backed endpoints serialize access to their shared PostgreSQL connection and automatically replace it after libpq connection failures, including a connection left busy by an interrupted command.
 

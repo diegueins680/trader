@@ -626,6 +626,7 @@ import Trader.TopCombosStore (
     selectCombosForBacktestRefreshWithPolicy,
     setComboLiveStats,
     topCombosGeneratedAtMs,
+    topCombosHaveAtLeastWithRetention,
     topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
@@ -22230,10 +22231,14 @@ buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPat
     _ <-
         case (mOps, topValBackfilled) of
             (Just opsStore, Right val) -> do
-                let currentCount = topCombosComboCount val
-                if currentCount >= minPersist
+                let enoughCombos =
+                        case topRaw0 of
+                            Right raw -> topCombosHaveAtLeastWithRetention retainedUuids minPersist raw
+                            Left _ -> topCombosComboCount val >= minPersist
+                if enoughCombos
                     then pure (Right val)
                     else do
+                        let currentCount = topCombosComboCount val
                         dbVal <- readTopCombosValueFromDb opsStore
                         case dbVal of
                             Left _ -> pure (Right val)

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Top Combos: stop the response's persistence-floor count once enough rows survive the existing sanitization rules, avoiding a full normalization just to count rows. Preserve retention, tombstones, refreshed adverse evidence and database/history repair behavior.
+
 - Performance/Top Combos: compute validation and performance ranking keys once per strategy when normalizing or merging leaderboard rows, preserving stable ties, ranks, retention and admission behavior while reducing full-response rebuild work.
 
 - Performance/Top Combos: backfill PostgreSQL-generated JSON digests in schema migration 6 and reuse them for database fingerprints, preserving exact payload-change invalidation while avoiding large JSON rehashes on every ETag/sync read. Add PostgreSQL 16 migration and transaction regressions to CI.

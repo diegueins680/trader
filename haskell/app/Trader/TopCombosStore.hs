@@ -65,6 +65,7 @@ module Trader.TopCombosStore (
     topCombosPayloadEquivalent,
     topCombosPayloadEquivalentWithRetention,
     topCombosGeneratedAtMs,
+    topCombosHaveAtLeastWithRetention,
     validateComboBacktestRefreshPolicy,
     validateTopCombosReplicaPayload,
     withTopCombosLock,
@@ -314,15 +315,7 @@ sanitizeTopCombosValueWithRetention retained val =
                         combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
-                            -- A below-floor combo carrying a refresh stamp is an honest
-                            -- re-backtest reading, not junk: it must survive into the
-                            -- merge so it can beat the stale, inflated copies peer
-                            -- instances still publish (see 'pickBestCombo') and then
-                            -- become a tombstone. Dropping it here would resurrect the
-                            -- stale copy on every union merge.
-                            if comboDroppedByTombstones dropTombstones comboVal
-                                || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal) && not (comboIsRetained retained comboVal))
-                                || (not (comboOpenThresholdDeployable comboVal) && not (comboIsRetained retained comboVal))
+                            if comboExcludedBySanitization retained dropTombstones comboVal
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
@@ -332,6 +325,41 @@ sanitizeTopCombosValueWithRetention retained val =
                      in (Aeson.Object o', changed)
                 _ -> (val, 0)
         _ -> (val, 0)
+
+{- | Test the normalized row-count floor without ranking or annotating rows.
+Stop as soon as the floor is met; these are surviving rows before merge
+deduplication and admission, exactly as in normalization.
+-}
+topCombosHaveAtLeastWithRetention :: Set.Set T.Text -> Int -> Aeson.Value -> Bool
+topCombosHaveAtLeastWithRetention retained minimumCount val
+    | minimumCount <= 0 = True
+    | otherwise =
+        case val of
+            Aeson.Object o ->
+                case KM.lookup "combos" o of
+                    Just (Aeson.Array combos)
+                        | V.length combos >= minimumCount -> countSurvivors minimumCount (V.toList combos)
+                    _ -> False
+            _ -> False
+  where
+    tombstones = comboDropTombstoneMap val
+
+    countSurvivors :: Int -> [Aeson.Value] -> Bool
+    countSurvivors remaining _ | remaining <= 0 = True
+    countSurvivors _ [] = False
+    countSurvivors remaining (combo : rest) =
+        countSurvivors
+            (if comboExcludedBySanitization retained tombstones combo then remaining else remaining - 1)
+            rest
+
+comboExcludedBySanitization :: Set.Set T.Text -> M.Map BS.ByteString Int64 -> Aeson.Value -> Bool
+comboExcludedBySanitization retained tombstones comboVal =
+    -- Refreshed below-floor evidence must reach the merge, where it can beat
+    -- a stale profitable copy and become a tombstone. Retention keeps adverse
+    -- evidence visible, while existing tombstones remain authoritative.
+    comboDroppedByTombstones tombstones comboVal
+        || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal) && not (comboIsRetained retained comboVal))
+        || (not (comboOpenThresholdDeployable comboVal) && not (comboIsRetained retained comboVal))
 
 comboOpenThresholdDeployable :: Aeson.Value -> Bool
 comboOpenThresholdDeployable val =
