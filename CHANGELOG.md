@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations: fail fleet benchmarks when measured request latency exceeds `--timeout-ms`, including successful late responses. Report deadline overruns by endpoint and original HTTP status, plus probe-process event-loop delay, so delayed abort timers cannot silently produce a passing latency check.
+
 - Performance/Top Combos: stop the response's persistence-floor count once enough rows survive the existing sanitization rules, avoiding a full normalization just to count rows. Preserve retention, tombstones, refreshed adverse evidence and database/history repair behavior.
 
 - Performance/Top Combos: compute validation and performance ranking keys once per strategy when normalizing or merging leaderboard rows, preserving stable ties, ranks, retention and admission behavior while reducing full-response rebuild work.

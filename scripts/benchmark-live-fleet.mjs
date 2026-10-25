@@ -2,6 +2,7 @@
 
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
@@ -76,6 +77,8 @@ export async function runBenchmark(config, {
   let etag;
   let stopped = false;
   const startedAt = new Date().toISOString();
+  const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
+  eventLoopDelay.enable();
   const monitor = (async () => {
     while (!stopped) {
       try {
@@ -153,7 +156,8 @@ export async function runBenchmark(config, {
       // Errors can embed URLs, response bodies, or authorization details.
       status = 0;
     }
-    requests.push({ path, status, httpStatus, failureReason, conditional: Boolean(sentEtag), timeToHeadersMs, bytes: byteCount, latencyMs: performance.now() - start });
+    const latencyMs = performance.now() - start;
+    requests.push({ path, status, httpStatus, failureReason, conditional: Boolean(sentEtag), timeToHeadersMs, bytes: byteCount, latencyMs, deadlineOverrunMs: Math.max(0, latencyMs - config.timeoutMs) });
   };
   try {
     for (let round = 0; round < config.rounds; round += 1) {
@@ -166,8 +170,10 @@ export async function runBenchmark(config, {
   } finally {
     stopped = true;
     await monitor;
+    eventLoopDelay.disable();
   }
   const failures = requests.filter(({ status }) => status !== 200 && status !== 304).length;
+  const deadlineOverruns = requests.filter(({ deadlineOverrunMs }) => deadlineOverrunMs > 0);
   const memoryBytes = summarize(memory);
   const memoryFailed = memoryErrors > 0 || ((config.memoryFile || config.rssPid) && memoryBytes === null);
   const memoryLimit = config.maxMemoryBytes ?? null;
@@ -189,6 +195,7 @@ export async function runBenchmark(config, {
       bytes: matching.reduce((sum, request) => sum + request.bytes, 0),
       conditionalRequests: matching.filter((request) => request.conditional).length,
       conditionalMisses: matching.filter((request) => request.conditional && request.status === 200).length,
+      deadlineOverruns: matching.filter((request) => request.deadlineOverrunMs > 0).length,
       byHttpStatus: Object.fromEntries(httpStatuses.map((status) => {
         const probes = matching.filter((request) => request.httpStatus === status);
         return [status, {
@@ -196,6 +203,7 @@ export async function runBenchmark(config, {
           timeToHeadersMs: summarize(headerTimes(probes)),
           bytes: probes.reduce((sum, request) => sum + request.bytes, 0),
           failedProbes: probes.filter((request) => request.failureReason !== null).length,
+          deadlineOverruns: probes.filter((request) => request.deadlineOverrunMs > 0).length,
         }];
       })),
     }];
@@ -203,11 +211,19 @@ export async function runBenchmark(config, {
   return {
     schemaVersion: 1, startedAt, finishedAt: new Date().toISOString(),
     rounds: config.rounds, clients: config.clients, expectedWorkers: config.expectedWorkers,
-    passed: failures === 0 && !memoryFailed && memoryAssessment !== "limit-exceeded"
+    passed: failures === 0 && deadlineOverruns.length === 0 && !memoryFailed && memoryAssessment !== "limit-exceeded"
       && workers.length === config.rounds && workers.every((count) => count === config.expectedWorkers),
     failures, endpoints, workers: summarize(workers),
     workerCountMismatches: workers.filter((count) => count !== config.expectedWorkers).length,
     missingWorkerSamples: config.rounds - workers.length,
+    timing: {
+      deadlineMs: config.timeoutMs, deadlineOverruns: deadlineOverruns.length,
+      overrunMs: summarize(deadlineOverruns.map((request) => request.deadlineOverrunMs)),
+      eventLoopDelayMs: eventLoopDelay.count === 0 ? null : {
+        count: eventLoopDelay.count, min: eventLoopDelay.min / 1e6, mean: eventLoopDelay.mean / 1e6,
+        max: eventLoopDelay.max / 1e6, p95: eventLoopDelay.percentile(95) / 1e6, p99: eventLoopDelay.percentile(99) / 1e6,
+      },
+    },
     memory: {
       source: config.memoryFile ? "cgroup" : config.rssPid ? "rss" : "unmeasured",
       bytes: memoryBytes, errors: memoryErrors, assessment: memoryAssessment, maxAllowedBytes: memoryLimit,
