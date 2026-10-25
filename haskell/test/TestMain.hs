@@ -512,6 +512,7 @@ import Trader.TopCombosStore (
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
+    topCombosHaveAtLeastWithRetention,
     topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
     validateTopCombosReplicaPayload,
@@ -756,6 +757,7 @@ main = do
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
     testTopComboRankingPreservesTies
+    testTopComboCountGuard
     testDeployableTierRequiresCompleteAdoptionEvidence
     testExplicitDeployableOverrideIsBoundedAndAuditable
     testTopComboFreshnessMultiplierDefaultsDisabled
@@ -7092,6 +7094,54 @@ testTopComboRankingPreservesTies = do
     assert
         "bounded merge preserves deterministic identity order when performance keys tie"
         (labels (mergeTopCombosPayloads 2 9500 [payload]) == (["alpha", "bravo"] :: [T.Text]))
+
+testTopComboCountGuard :: IO ()
+testTopComboCountGuard = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        row label = processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount
+        field key value combo = case combo of
+            Aeson.Object o -> Aeson.Object (KM.insert key value o)
+            _ -> combo
+        good = field "uuid" (Aeson.String pin) (row "one")
+        adverse = field "finalEquity" (Aeson.toJSON (0.8 :: Double)) good
+        refreshedAdverse = field "backtestRefreshedAtMs" (Aeson.toJSON (2000 :: Int64)) adverse
+        infeasible = field "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) good
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int64), "combos" .= rows]
+        replaceRows rows = field "combos" (Aeson.toJSON rows)
+        loss =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.8 :: Double)]
+                , cbuFinalEquity = Just 0.8
+                , cbuScore = Nothing
+                , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
+                }
+    identity <- maybe (ioError (userError "count fixture identity missing")) pure (comboIdentityKey good)
+    tombstoned <- case applyComboUpdatesWithStats 2000 (HM.singleton identity loss) (payload [good]) of
+        Left err -> ioError (userError err)
+        Right (value, _) -> pure (replaceRows [good] value)
+    let fixtures =
+            [ Aeson.Null
+            , Aeson.object []
+            , Aeson.object ["combos" .= ("invalid" :: T.Text)]
+            , payload ([] :: [Aeson.Value])
+            , payload [Aeson.Null, Aeson.Bool True, Aeson.object [], good]
+            , payload [good, row "two", good]
+            , payload [adverse, infeasible, good]
+            , payload [refreshedAdverse, good]
+            , tombstoned
+            , replaceRows [field "backtestRefreshedAtMs" (Aeson.toJSON (3000 :: Int64)) good] tombstoned
+            ]
+    forM_ [Set.empty, Set.singleton pin] $ \retained ->
+        forM_ fixtures $ \value -> do
+            let normalizedCount = max 0 (topCombosCount (normalizeTopCombosPayloadWithRetention retained value))
+            forM_ [minBound, -1, 0, 1, 2, 3, 4, 100, maxBound] $ \floorCount ->
+                assert
+                    "bounded count agrees with full normalization across retention, refreshes, duplicates and tombstones"
+                    (topCombosHaveAtLeastWithRetention retained floorCount value == (normalizedCount >= floorCount))
+    assert "retention cannot make a tombstoned row count toward the floor" (not (topCombosHaveAtLeastWithRetention (Set.singleton pin) 1 tombstoned))
+    assert "refreshed adverse evidence counts before merge admission" (topCombosHaveAtLeastWithRetention Set.empty 1 (payload [refreshedAdverse]))
+    assert "duplicate rows count before merge deduplication" (topCombosHaveAtLeastWithRetention Set.empty 2 (payload [good, good]))
 
 testDeployableTierRequiresCompleteAdoptionEvidence :: IO ()
 testDeployableTierRequiresCompleteAdoptionEvidence = do
