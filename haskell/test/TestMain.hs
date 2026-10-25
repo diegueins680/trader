@@ -6,7 +6,7 @@ module Main (main) where
 
 import Control.Concurrent (forkFinally, killThread, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryReadMVar)
-import Control.Exception (IOException, SomeException, bracket, bracket_, evaluate, finally, toException, try)
+import Control.Exception (IOException, MaskingState (MaskedInterruptible, Unmasked), SomeException, bracket, bracket_, evaluate, finally, getMaskingState, mask_, toException, try)
 import Control.Monad (forM_, replicateM_, unless, void)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
@@ -1035,8 +1035,22 @@ testTopCombosBuildGateObservation = do
     assert "synchronous observer failures do not prevent the action" (value == 7)
     failed <- try (withTopCombosBuildGateObserved store unavailable (ioError (userError "action failed"))) :: IO (Either IOException ())
     assert "protected action failures still propagate" (isLeft failed)
-    observerCancelled <- timeout 20000 (withTopCombosBuildGateObserved store (const (threadDelay 1000000)) (pure ()))
+    unmasked <- withTopCombosBuildGateObserved store (const (pure ())) getMaskingState
+    assert "setup masking does not mask the protected action" (unmasked == Unmasked)
+    inherited <- mask_ (withTopCombosBuildGateObserved store (const (pure ())) getMaskingState)
+    assert "the protected action preserves inherited masking" (inherited == MaskedInterruptible)
+    writeIORef events []
+    let cancellableObserver event = do
+            collect event
+            case event of
+                TopCombosBuildWaiting -> threadDelay 1000000
+                _ -> pure ()
+    observerCancelled <- timeout 20000 (withTopCombosBuildGateObserved store cancellableObserver (pure ()))
     assert "observer handling does not swallow cancellation" (isNothing observerCancelled)
+    initialObserverEvents <- reverse <$> readIORef events
+    case initialObserverEvents of
+        [TopCombosBuildWaiting, TopCombosBuildFinished _ Nothing] -> pure ()
+        _ -> assert "cancellation in the initial observer still closes the attempt" False
     available <- timeout 1000000 (withTopCombosBuildGate store (pure True))
     assert "all exit paths leave the gate reusable" (available == Just True)
 

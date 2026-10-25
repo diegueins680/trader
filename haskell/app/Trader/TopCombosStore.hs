@@ -78,7 +78,7 @@ module Trader.TopCombosStore (
 import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, bracket, finally, throwIO)
+import Control.Exception (SomeException, bracket, finally, mask, throwIO)
 import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -185,35 +185,40 @@ Synchronous observer failures are ignored, while asynchronous exceptions propaga
 Events report gate lifetime, not whether the protected action succeeded.
 -}
 withTopCombosBuildGateObserved :: TopCombosStore -> (TopCombosBuildGateEvent -> IO ()) -> IO a -> IO a
-withTopCombosBuildGateObserved store observe action = do
+withTopCombosBuildGateObserved store observe action = mask $ \restore -> do
+    requestedAt <- getMonotonicTimeNSec
+    queuedRef <- newIORef requestedAt
+    acquiredRef <- newIORef Nothing
+    endedRef <- newIORef Nothing
     let emit event = do
             _ <- trySync (observe event) :: IO (Either SomeException ())
             pure ()
-    emit TopCombosBuildWaiting
-    queuedAt <- getMonotonicTimeNSec
-    acquiredRef <- newIORef Nothing
-    endedRef <- newIORef Nothing
-    let elapsedMs :: Word64 -> Word64 -> Double
+        elapsedMs :: Word64 -> Word64 -> Double
         elapsedMs start end = fromIntegral (toInteger end - toInteger start) / 1000000
         finish = do
             endedAt <- getMonotonicTimeNSec
+            queuedAt <- readIORef queuedRef
             acquiredAt <- readIORef acquiredRef
             heldUntil <- readIORef endedRef
             emit $
                 case acquiredAt of
                     Nothing -> TopCombosBuildFinished (elapsedMs queuedAt endedAt) Nothing
                     Just at -> TopCombosBuildFinished (elapsedMs queuedAt at) (elapsedMs at <$> heldUntil)
-    withTopCombosBuildGate
-        store
-        ( ( do
-                acquiredAt <- getMonotonicTimeNSec
-                writeIORef acquiredRef (Just acquiredAt)
-                emit (TopCombosBuildAcquired (elapsedMs queuedAt acquiredAt))
-                action
-          )
-            `finally` (getMonotonicTimeNSec >>= writeIORef endedRef . Just)
-        )
-        `finally` finish
+        run = do
+            emit TopCombosBuildWaiting
+            queuedAt <- getMonotonicTimeNSec
+            writeIORef queuedRef queuedAt
+            withTopCombosBuildGate
+                store
+                ( ( do
+                        acquiredAt <- getMonotonicTimeNSec
+                        writeIORef acquiredRef (Just acquiredAt)
+                        emit (TopCombosBuildAcquired (elapsedMs queuedAt acquiredAt))
+                        action
+                  )
+                    `finally` (getMonotonicTimeNSec >>= writeIORef endedRef . Just)
+                )
+    restore run `finally` finish
 
 {- | Fixed caller labels and numeric observations only. One strict write also
 keeps concurrent records intact on an unbuffered handle such as stderr.

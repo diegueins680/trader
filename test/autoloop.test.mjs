@@ -1932,7 +1932,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(main, /withTopCombosBuildGateObserved store observe action/);
   assert.match(main, /Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore \$ do/);
   const comboStore = await fs.readFile(new URL("../haskell/app/Trader/TopCombosStore.hs", import.meta.url), "utf8");
-  assert.match(comboStore, /withTopCombosBuildGateObserved store observe action = do[\s\S]*?withTopCombosBuildGate\s+store\s+\(/);
+  assert.match(comboStore, /withTopCombosBuildGateObserved store observe action = mask \$ \\restore -> do[\s\S]*?withTopCombosBuildGate\s+store\s+\(/);
   assert.match(comboStore, /withTopCombosBuildGate store action = withMVar \(tcsBuildGate store\) \(const action\)/);
   assert.match(main, /etagMatches given tag -> respond \(Wai\.responseLBS status304/);
   assert.match(main, /barsCapApplies = not \(methodIsTechnicalAnalysis \(runtimeMethod \(argMethod args\)\)\)/);
