@@ -628,6 +628,7 @@ import Trader.TopCombosStore (
     topCombosGeneratedAtMs,
     topCombosHaveAtLeastWithRetention,
     topCombosPayloadEquivalentWithRetention,
+    topCombosSyncCanSettle,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
     validateTopCombosReplicaPayload,
@@ -2645,7 +2646,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                     )
                                 )
                     errs <- readIORef errRef
-                    pure (isNothing plan && HM.null errs)
+                    pure (topCombosSyncCanSettle (isJust plan) (HM.keys errs))
                 loop = do
                     fingerprint <- topCombosSyncFingerprint mOps mStateSyncTarget topJsonPath
                     settled <- readIORef settledRef

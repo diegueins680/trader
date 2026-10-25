@@ -3,6 +3,7 @@
 module Trader.TopCombosStore (
     TopCombosSyncFingerprint (..),
     etagMatches,
+    topCombosSyncCanSettle,
     topCombosSyncCanSkip,
     topCombosSyncFingerprintComplete,
     withTopCombosBuildGate,
@@ -2083,6 +2084,15 @@ data TopCombosSyncFingerprint = TopCombosSyncFingerprint
 topCombosSyncFingerprintComplete :: TopCombosSyncFingerprint -> Bool
 topCombosSyncFingerprintComplete fp =
     not (tcsfStateSyncConfigured fp) && all isJust [tcsfLocal fp, tcsfDb fp, tcsfS3 fp]
+
+{- | Missing retained records remain a diagnostic, but decoding the same replicas
+again cannot recover them. Storage errors (including unknown error sources) and
+pending repairs must keep retrying. A settled pass still needs complete, unchanged
+fingerprints before 'topCombosSyncCanSkip' permits skipping.
+-}
+topCombosSyncCanSettle :: Bool -> [String] -> Bool
+topCombosSyncCanSettle repairsPlanned errorSources =
+    not repairsPlanned && all (== "retention") errorSources
 
 {- | A sync pass may be skipped only when every replica could be fingerprinted and
 nothing changed since the last pass that found nothing to repair.

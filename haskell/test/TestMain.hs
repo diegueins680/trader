@@ -521,6 +521,7 @@ import Trader.TopCombosStore (
     selectCombosForBacktestRefreshWithPolicy,
     topCombosHaveAtLeastWithRetention,
     topCombosPayloadEquivalentWithRetention,
+    topCombosSyncCanSettle,
     topCombosSyncCanSkip,
     validateTopCombosReplicaPayload,
     withTopCombosBuildGate,
@@ -956,6 +957,13 @@ be flagged.
 testTopCombosSyncSkipAndEtag :: IO ()
 testTopCombosSyncSkipAndEtag = do
     let fp = TopCombosSyncFingerprint{tcsfLocal = Just "100:1", tcsfDb = Just "3:9:9", tcsfS3 = Just "\"abc\"", tcsfStateSyncConfigured = False}
+    assert "reconciled pass without diagnostics settles" (topCombosSyncCanSettle False [])
+    assert "unavailable retained records alone allow settling" (topCombosSyncCanSettle False ["retention"])
+    assert "pending repair does not settle despite retention-only diagnostics" (not (topCombosSyncCanSettle True ["retention"]))
+    assert "pending repair without diagnostics does not settle" (not (topCombosSyncCanSettle True []))
+    forM_ ["local", "db", "s3", "state-sync", "unknown-replica"] $ \source -> do
+        assert "storage failure prevents settling" (not (topCombosSyncCanSettle False [source]))
+        assert "retention diagnostic does not hide storage failure" (not (topCombosSyncCanSettle False ["retention", source]))
     assert "no settled fingerprint never skips" (not (topCombosSyncCanSkip Nothing fp))
     assert "identical complete fingerprint skips" (topCombosSyncCanSkip (Just fp) fp)
     assert "changed local replica reruns" (not (topCombosSyncCanSkip (Just fp) fp{tcsfLocal = Just "100:2"}))
