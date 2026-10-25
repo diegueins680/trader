@@ -4,8 +4,10 @@
 
 module Main (main) where
 
-import Control.Exception (SomeException, bracket, evaluate, finally, toException, try)
-import Control.Monad (forM_, unless)
+import Control.Concurrent (forkFinally, killThread, threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryReadMVar)
+import Control.Exception (IOException, SomeException, bracket, bracket_, evaluate, finally, toException, try)
+import Control.Monad (forM_, replicateM_, unless, void)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -15,6 +17,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (find, intercalate, isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
@@ -26,7 +29,8 @@ import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parse
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import System.Directory (removeFile)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.IO (hClose, openTempFile)
+import System.IO (BufferMode (NoBuffering), hClose, hIsClosed, hSetBuffering, openTempFile)
+import System.Timeout (timeout)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
@@ -483,6 +487,8 @@ import Trader.TopCombosStore (
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    TopCombosBuildGateEvent (..),
+    TopCombosStore (..),
     TopCombosSyncFingerprint (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
@@ -507,6 +513,7 @@ import Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
     mergeTopCombosPayloadsWithStatsAndRetention,
+    newTopCombosStore,
     normalizeTopCombosPayload,
     normalizeTopCombosPayloadWithRetention,
     recalculateComboPerformanceFromOperation,
@@ -516,6 +523,9 @@ import Trader.TopCombosStore (
     topCombosPayloadEquivalentWithRetention,
     topCombosSyncCanSkip,
     validateTopCombosReplicaPayload,
+    withTopCombosBuildGate,
+    withTopCombosBuildGateObserved,
+    writeTopCombosBuildGateEvent,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -571,6 +581,8 @@ main :: IO ()
 main = do
     testOpsMigrations
     testTopCombosSyncSkipAndEtag
+    testTopCombosBuildGateObservation
+    testTopCombosBuildGateLogAtomicity
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
     testTradeMethodGateUsesResultEvidence
@@ -956,6 +968,107 @@ testTopCombosSyncSkipAndEtag = do
     assert "star matches" (etagMatches "*" "\"abc\"")
     assert "different etag does not match" (not (etagMatches "\"abd\"" "\"abc\""))
     assert "empty etag never matches" (not (etagMatches "" ""))
+
+testTopCombosBuildGateObservation :: IO ()
+testTopCombosBuildGateObservation = do
+    store <- newTopCombosStore "unused-observed-gate" Nothing
+    events <- newIORef []
+    finishedOutsideGate <- newIORef False
+    queued <- newEmptyMVar
+    started <- newEmptyMVar
+    done <- newEmptyMVar
+    let observe event = do
+            modifyIORef' events (event :)
+            case event of
+                TopCombosBuildWaiting -> putMVar queued ()
+                TopCombosBuildFinished _ _ -> do
+                    free <- tryReadMVar (tcsBuildGate store)
+                    writeIORef finishedOutsideGate (isJust free)
+                _ -> pure ()
+        action = putMVar started () >> threadDelay 20000
+        await label signal = do
+            result <- timeout 5000000 (takeMVar signal)
+            maybe (ioError (userError label)) pure result
+    bracket_ (takeMVar (tcsBuildGate store)) (void (tryPutMVar (tcsBuildGate store) ())) $
+        bracket
+            (forkFinally (withTopCombosBuildGateObserved store observe action) (putMVar done))
+            killThread
+            ( \_ -> do
+                await "gate waiter did not announce itself" queued
+                threadDelay 20000
+                early <- tryReadMVar started
+                assert "observed gate still serializes actions" (isNothing early)
+                putMVar (tcsBuildGate store) ()
+                outcome <- await "gate action did not finish" done
+                assert "observed gate preserves normal completion" (not (isLeft outcome))
+            )
+    recorded <- reverse <$> readIORef events
+    outside <- readIORef finishedOutsideGate
+    assert "finished observers run after releasing the shared gate" outside
+    case recorded of
+        [TopCombosBuildWaiting, TopCombosBuildAcquired waited, TopCombosBuildFinished waited' (Just held)] -> do
+            assert "gate queue time includes contention" (waited >= 10)
+            assert "gate queue time is stable across events" (waited == waited')
+            assert "gate occupancy includes the protected action" (held >= 10)
+        _ -> assert "gate events follow waiting, acquired, finished" False
+    let collect event = modifyIORef' events (event :)
+    writeIORef events []
+    cancelledWait <-
+        withTopCombosBuildGate store $
+            timeout 20000 (withTopCombosBuildGateObserved store collect (putMVar started ()))
+    assert "cancellation can interrupt gate waiting" (isNothing cancelledWait)
+    waitingEvents <- reverse <$> readIORef events
+    case waitingEvents of
+        [TopCombosBuildWaiting, TopCombosBuildFinished waited Nothing] ->
+            assert "cancelled waiter reports elapsed wait without occupancy" (waited >= 10)
+        _ -> assert "cancelled waiter never claims acquisition" False
+    writeIORef events []
+    cancelledHold <- timeout 20000 (withTopCombosBuildGateObserved store collect (threadDelay 1000000))
+    assert "cancellation can interrupt a protected action" (isNothing cancelledHold)
+    holdingEvents <- reverse <$> readIORef events
+    case holdingEvents of
+        [TopCombosBuildWaiting, TopCombosBuildAcquired _, TopCombosBuildFinished _ (Just held)] ->
+            assert "cancelled holder reports its observed occupancy" (held >= 10)
+        _ -> assert "cancelled holder emits a finished event" False
+    let unavailable _ = ioError (userError "observer unavailable")
+    value <- withTopCombosBuildGateObserved store unavailable (pure (7 :: Int))
+    assert "synchronous observer failures do not prevent the action" (value == 7)
+    failed <- try (withTopCombosBuildGateObserved store unavailable (ioError (userError "action failed"))) :: IO (Either IOException ())
+    assert "protected action failures still propagate" (isLeft failed)
+    observerCancelled <- timeout 20000 (withTopCombosBuildGateObserved store (const (threadDelay 1000000)) (pure ()))
+    assert "observer handling does not swallow cancellation" (isNothing observerCancelled)
+    available <- timeout 1000000 (withTopCombosBuildGate store (pure True))
+    assert "all exit paths leave the gate reusable" (available == Just True)
+
+testTopCombosBuildGateLogAtomicity :: IO ()
+testTopCombosBuildGateLogAtomicity =
+    bracket
+        (openTempFile "/tmp" "trader-gate-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            hSetBuffering handle NoBuffering
+            done <- newEmptyMVar
+            let labels = map show [1 .. 48 :: Int]
+                emit label = writeTopCombosBuildGateEvent handle "response" label 1000 (TopCombosBuildFinished 12 (Just 34))
+            bracket
+                (mapM (\label -> forkFinally (emit label) (putMVar done)) labels)
+                (mapM_ killThread)
+                ( \_ -> replicateM_ (length labels) $ do
+                    outcome <- timeout 5000000 (takeMVar done)
+                    assert "concurrent gate log write completed" (maybe False (not . isLeft) outcome)
+                )
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            decoded <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let labelOf value = case value of
+                    Aeson.Object o -> KM.lookup "attemptId" o >>= AT.parseMaybe Aeson.parseJSON
+                    _ -> Nothing
+            assert "unbuffered concurrent gate logs remain separate JSON records" (length rows == length labels)
+            assert "concurrent gate logs retain every attempt exactly once" (Set.fromList (mapMaybe labelOf decoded) == Set.fromList labels)
 
 testPredictorLivenessDetectsDegenerateForecast :: IO ()
 testPredictorLivenessDetectsDegenerateForecast = do

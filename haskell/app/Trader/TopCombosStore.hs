@@ -6,6 +6,9 @@ module Trader.TopCombosStore (
     topCombosSyncCanSkip,
     topCombosSyncFingerprintComplete,
     withTopCombosBuildGate,
+    TopCombosBuildGateEvent (..),
+    withTopCombosBuildGateObserved,
+    writeTopCombosBuildGateEvent,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -75,7 +78,7 @@ module Trader.TopCombosStore (
 import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, bracket, throwIO)
+import Control.Exception (SomeException, bracket, finally, throwIO)
 import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -86,7 +89,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
-import Data.IORef (IORef, newIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy, sortOn)
 import qualified Data.Map.Strict as M
@@ -97,6 +100,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
+import Data.Word (Word64)
+import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, removeFile, renameFile, setModificationTime)
 import System.FilePath (takeDirectory)
 import System.IO (Handle, hClose, openTempFile)
@@ -166,6 +171,70 @@ before 'withTopCombosLock', never the other way round.
 -}
 withTopCombosBuildGate :: TopCombosStore -> IO a -> IO a
 withTopCombosBuildGate store action = withMVar (tcsBuildGate store) (const action)
+
+data TopCombosBuildGateEvent
+    = TopCombosBuildWaiting
+    | TopCombosBuildAcquired !Double
+    | TopCombosBuildFinished !Double !(Maybe Double)
+    deriving (Eq, Show)
+
+{- | Observe queue and occupancy times in milliseconds using a monotonic clock.
+The finished event runs after the gate is released, including on cancellation
+or action failure; an absent occupancy means acquisition was not observed.
+Synchronous observer failures are ignored, while asynchronous exceptions propagate.
+Events report gate lifetime, not whether the protected action succeeded.
+-}
+withTopCombosBuildGateObserved :: TopCombosStore -> (TopCombosBuildGateEvent -> IO ()) -> IO a -> IO a
+withTopCombosBuildGateObserved store observe action = do
+    let emit event = do
+            _ <- trySync (observe event) :: IO (Either SomeException ())
+            pure ()
+    emit TopCombosBuildWaiting
+    queuedAt <- getMonotonicTimeNSec
+    acquiredRef <- newIORef Nothing
+    endedRef <- newIORef Nothing
+    let elapsedMs :: Word64 -> Word64 -> Double
+        elapsedMs start end = fromIntegral (toInteger end - toInteger start) / 1000000
+        finish = do
+            endedAt <- getMonotonicTimeNSec
+            acquiredAt <- readIORef acquiredRef
+            heldUntil <- readIORef endedRef
+            emit $
+                case acquiredAt of
+                    Nothing -> TopCombosBuildFinished (elapsedMs queuedAt endedAt) Nothing
+                    Just at -> TopCombosBuildFinished (elapsedMs queuedAt at) (elapsedMs at <$> heldUntil)
+    withTopCombosBuildGate
+        store
+        ( ( do
+                acquiredAt <- getMonotonicTimeNSec
+                writeIORef acquiredRef (Just acquiredAt)
+                emit (TopCombosBuildAcquired (elapsedMs queuedAt acquiredAt))
+                action
+          )
+            `finally` (getMonotonicTimeNSec >>= writeIORef endedRef . Just)
+        )
+        `finally` finish
+
+{- | Fixed caller labels and numeric observations only. One strict write also
+keeps concurrent records intact on an unbuffered handle such as stderr.
+-}
+writeTopCombosBuildGateEvent :: Handle -> String -> String -> Int64 -> TopCombosBuildGateEvent -> IO ()
+writeTopCombosBuildGateEvent handle origin attemptId atMs event = do
+    let (phase, waitMs, heldMs) = case event of
+            TopCombosBuildWaiting -> ("waiting", Nothing, Nothing)
+            TopCombosBuildAcquired waited -> ("acquired", Just waited, Nothing)
+            TopCombosBuildFinished waited held -> ("finished", Just waited, held)
+        record =
+            object
+                [ "event" .= ("top_combos_build_gate" :: String)
+                , "origin" .= origin
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "phase" .= (phase :: String)
+                , "waitMs" .= waitMs
+                , "heldMs" .= heldMs
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
 
 withTopCombosLock :: TopCombosStore -> IO a -> IO a
 withTopCombosLock store action =

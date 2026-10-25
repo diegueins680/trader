@@ -1928,8 +1928,12 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
   assert.match(main, /validateApiComputeLimitsAfterLoad limits args series =[\s\S]{0,260}m \| methodIsTechnicalAnalysis m -> Right \(\)/);
   assert.match(main, /topCombosSyncCanSkip settled fingerprint/);
-  assert.match(main, /let runPass = withTopCombosBuildGate topCombosStore/);
-  assert.match(main, /Nothing -> withTopCombosBuildGate topCombosStore \$ do/);
+  assert.match(main, /let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore/);
+  assert.match(main, /withTopCombosBuildGateObserved store observe action/);
+  assert.match(main, /Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore \$ do/);
+  const comboStore = await fs.readFile(new URL("../haskell/app/Trader/TopCombosStore.hs", import.meta.url), "utf8");
+  assert.match(comboStore, /withTopCombosBuildGateObserved store observe action = do[\s\S]*?withTopCombosBuildGate\s+store\s+\(/);
+  assert.match(comboStore, /withTopCombosBuildGate store action = withMVar \(tcsBuildGate store\) \(const action\)/);
   assert.match(main, /etagMatches given tag -> respond \(Wai\.responseLBS status304/);
   assert.match(main, /barsCapApplies = not \(methodIsTechnicalAnalysis \(runtimeMethod \(argMethod args\)\)\)/);
   assert.match(main, /pinnedTargetMissing && not \(arActive adoptReq\) ->\s+recordError sym "Pinned top combo unavailable; refusing an unpinned live start\."/);

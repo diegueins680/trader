@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations/Top Combos: trace actual response-build and replica-sync gate attempts with correlated waiting, acquired and finished events, monotonic queue/occupancy times and UTC timestamps. Record completion after releasing the gate, preserve cancellation and action failures, and keep credentials, payloads and exception text out of these diagnostics.
+
 - Operations: fail fleet benchmarks when measured request latency exceeds `--timeout-ms`, including successful late responses. Report deadline overruns by endpoint and original HTTP status, plus probe-process event-loop delay, so delayed abort timers cannot silently produce a passing latency check.
 
 - Performance/Top Combos: stop the response's persistence-floor count once enough rows survive the existing sanitization rules, avoiding a full normalization just to count rows. Preserve retention, tombstones, refreshed adverse evidence and database/history repair behavior.
