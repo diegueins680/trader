@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Top Combos: run fresh database fingerprint reads on a separate, bracketed connection behind a dedicated gate, allowing at most one extra fingerprint connection per API process. Avoid queueing conditional responses behind full replica reads and operation writes; preserve the digest query, transaction visibility and fail-closed ETag behavior.
+
 - Performance/Top Combos: allow unchanged replicas to settle when the only remaining diagnostic is an unavailable retained UUID. Keep missing-pin warnings, retry storage failures and pending repairs, and rerun reconciliation when any replica fingerprint changes.
 
 - Operations/Top Combos: trace actual response-build and replica-sync gate attempts with correlated waiting, acquired and finished events, monotonic queue/occupancy times and UTC timestamps. Record completion after releasing the gate, preserve cancellation and action failures, and keep credentials, payloads and exception text out of these diagnostics.
