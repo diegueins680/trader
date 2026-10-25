@@ -631,8 +631,9 @@ import Trader.TopCombosStore (
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
     validateTopCombosReplicaPayload,
-    withTopCombosBuildGate,
+    withTopCombosBuildGateObserved,
     withTopCombosLock,
+    writeTopCombosBuildGateEvent,
     writeTopCombosValue,
  )
 import Trader.TradeLogRiskState (
@@ -2547,7 +2548,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
             settledRef <- newIORef Nothing
             skipLoggedRef <- newIORef False
-            let runPass = withTopCombosBuildGate topCombosStore $ do
+            let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore $ do
                     dbFetch <- traverse fetchTopCombosReplicaDb mOps
                     s3Fetch <- fetchTopCombosReplicaS3
                     stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
@@ -22088,6 +22089,18 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
                                     completeRequestProgressMaybe mTracker (Just "response ready")
                                     respond (jsonValue status200 resp')
 
+-- Fixed caller labels and numeric timings only: never log request credentials,
+-- tenant identifiers, replica locations, payloads or exception text here.
+withLoggedTopCombosBuildGate :: String -> TopCombosStore -> IO a -> IO a
+withLoggedTopCombosBuildGate origin store action = do
+    startedAt <- getMonotonicTimeNSec
+    thread <- myThreadId
+    let attemptId = show thread ++ ":" ++ show startedAt
+        observe event = do
+            atMs <- getTimestampMs
+            writeTopCombosBuildGateEvent stderr origin attemptId atMs event
+    withTopCombosBuildGateObserved store observe action
+
 handleOptimizerCombos ::
     BuildInfo ->
     Maybe OpsStore ->
@@ -22122,7 +22135,7 @@ handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore
             hit <- maybe (pure Nothing) cachedFor mEtag
             case hit of
                 Just body -> serveCached body
-                Nothing -> withTopCombosBuildGate topCombosStore $ do
+                Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore $ do
                     hit' <- maybe (pure Nothing) cachedFor mEtag
                     case hit' of
                         Just body -> serveCached body
