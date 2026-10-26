@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Top Combos: share one retention-aware reference across replica comparisons in each sync pass, reducing repeated leaderboard normalization during planning.
+
 - Trading/Live Fleet: refresh XRP after its pinned record became raw, using a fresh strict-tier candidate within runtime compute limits. Keep all previous pins in shared retention (34 UUIDs). SOL now joins ARB, ATOM, ETH, LINK and OP awaiting qualifying evidence; risk caps, startup pacing, admission checks and the graduation window are unchanged.
 
 - Operations/Top Combos: trace sync read, planning and persistence phase lifetimes with the same attempt ID as the shared build gate. Preserve action results, exceptions, cancellation and masking; keep records limited to fixed labels and numeric timings. Phase completion does not certify persistence success, and deferred work may execute in a later IO phase.

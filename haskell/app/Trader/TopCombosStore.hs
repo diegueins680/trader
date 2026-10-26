@@ -72,6 +72,9 @@ module Trader.TopCombosStore (
     selectCombosForBacktestRefreshWithPolicy,
     topCombosPayloadEquivalent,
     topCombosPayloadEquivalentWithRetention,
+    TopCombosPayloadComparison,
+    prepareTopCombosPayloadComparison,
+    topCombosPayloadMatches,
     topCombosGeneratedAtMs,
     topCombosHaveAtLeastWithRetention,
     validateComboBacktestRefreshPolicy,
@@ -530,8 +533,24 @@ topCombosPayloadEquivalent :: Aeson.Value -> Aeson.Value -> Bool
 topCombosPayloadEquivalent = topCombosPayloadEquivalentWithRetention Set.empty
 
 topCombosPayloadEquivalentWithRetention :: Set.Set T.Text -> Aeson.Value -> Aeson.Value -> Bool
-topCombosPayloadEquivalentWithRetention retained a b =
-    stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained a) == stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained b)
+topCombosPayloadEquivalentWithRetention retained a =
+    topCombosPayloadMatches (prepareTopCombosPayloadComparison retained a)
+
+-- Keep the policy with the lazy comparison value so every replica uses the same
+-- retention rules and repeated comparisons share the reference normalization.
+data TopCombosPayloadComparison = TopCombosPayloadComparison (Set.Set T.Text) Aeson.Value
+
+prepareTopCombosPayloadComparison :: Set.Set T.Text -> Aeson.Value -> TopCombosPayloadComparison
+prepareTopCombosPayloadComparison retained value =
+    TopCombosPayloadComparison retained (topCombosComparablePayload retained value)
+
+topCombosPayloadMatches :: TopCombosPayloadComparison -> Aeson.Value -> Bool
+topCombosPayloadMatches (TopCombosPayloadComparison retained reference) value =
+    reference == topCombosComparablePayload retained value
+
+topCombosComparablePayload :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+topCombosComparablePayload retained value =
+    stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained value)
   where
     stripEphemeralRootFields val =
         case val of
