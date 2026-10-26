@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Top Combos: batch each combo's parameter replica into one PostgreSQL insert instead of one insert per key, reducing database round trips during leaderboard persistence. Preserve parameter replacement, JSON values, strategy associations and caller-transaction rollback.
+
 - Trading/Live Fleet: correct a one-character NEAR pin transcription error in the active pin and shared retention lists. Match the exact exported candidate UUID so the existing guarded auto-start can launch NEAR; keep risk settings and retirement handling unchanged.
 
 - Trading/Live Fleet: replace the retired AAVE, BCH, DOGE, DOT, ETH, FIL, NEAR, OP and SOL pins with current strict-tier candidates and add their UUIDs to shared retention on both Hetzner roles and both Fly profiles, preserving the previous 18 pins for position recovery. Keep the 1% adoption cap, worker limits, retirement checks and graduation window. ARB, ATOM, LINK and XRP remain idle on retired pins pending qualifying evidence; the 18-worker target is not a capacity result.

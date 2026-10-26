@@ -438,6 +438,7 @@ import Trader.NeuralGovernor (
     parseNeuralGovernorRolloutMode,
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
+import Trader.Ops.ComboParameters (persistComboParameters)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
@@ -21003,16 +21004,6 @@ persistTopCombosToDbBulk conn export =
                             , now
                             )
                     persistComboParameters conn comboUuid mStrategyId (tcParams combo)
-
-persistComboParameters :: Connection -> UUID.UUID -> Maybe Int -> Aeson.Object -> IO ()
-persistComboParameters conn comboUuid mStrategyId params = do
-    void $ execute conn "DELETE FROM combo_parameters WHERE combo_uuid = ?" (Only comboUuid)
-    forM_ (KM.toList params) $ \(k, v) ->
-        void $
-            execute
-                conn
-                "INSERT INTO combo_parameters (combo_uuid, name, value_json, strategy_id) VALUES (?, ?, ?::jsonb, ?)"
-                (comboUuid, AK.toText k, encodeJsonTextMaybe (Just v), mStrategyId)
 
 persistTopCombosHistoryMaybe :: FilePath -> S3State -> BL.ByteString -> IO ()
 persistTopCombosHistoryMaybe topJsonPath st contents = do
