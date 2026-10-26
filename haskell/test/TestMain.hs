@@ -518,11 +518,13 @@ import Trader.TopCombosStore (
     newTopCombosStore,
     normalizeTopCombosPayload,
     normalizeTopCombosPayloadWithRetention,
+    prepareTopCombosPayloadComparison,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
     topCombosHaveAtLeastWithRetention,
     topCombosPayloadEquivalentWithRetention,
+    topCombosPayloadMatches,
     topCombosSyncCanSettle,
     topCombosSyncCanSkip,
     validateTopCombosReplicaPayload,
@@ -863,6 +865,7 @@ main = do
     testOptimizerSoftSearchEligibility
     testTopComboBacktestPrunesRoiLosers
     testRetainedTopCombos
+    testTopCombosPayloadComparison
     testRetainedOptimizerExport
     testMetricsConsumesTradingPublicResults
     testMetricsFiniteInputBoundary
@@ -2785,6 +2788,53 @@ testTopComboBacktestPrunesRoiLosers = do
                                     && cbasUpdatedCount boundaryStats == 1
                                     && cbasPrunedCount boundaryStats == 0
                                 )
+
+testTopCombosPayloadComparison :: IO ()
+testTopCombosPayloadComparison = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        profitable = selectionComboForTest "profitable" 0.2 (Just 1000) Nothing
+        adverse = selectionComboForTest "adverse" (-0.2) (Just 1000) Nothing
+        payload :: [Aeson.Value] -> Aeson.Value
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int), "source" .= ("local" :: T.Text), "combos" .= rows]
+        setField key value input = case input of
+            Aeson.Object fields -> Aeson.Object (KM.insert key value fields)
+            other -> other
+        original = payload [profitable, adverse]
+        fixtures =
+            [ Aeson.Null
+            , Aeson.String "not a board"
+            , Aeson.object []
+            , payload []
+            , payload [profitable]
+            , payload [adverse]
+            , original
+            , payload [adverse, profitable]
+            , payload [profitable, profitable]
+            , setField "generatedAtMs" (Aeson.toJSON (9000 :: Int)) original
+            , setField "source" (Aeson.String "remote") original
+            , setField "metadata" (Aeson.String "changed") original
+            , payload [setField "rank" (Aeson.toJSON (99 :: Int)) profitable, adverse]
+            , payload [setField "backtestRefreshedAtMs" (Aeson.toJSON (2000 :: Int)) adverse]
+            , payload [setField "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) profitable]
+            ]
+        stripEphemeral input = case input of
+            Aeson.Object fields -> Aeson.Object (KM.delete "generatedAtMs" (KM.delete "source" fields))
+            other -> other
+        legacyEquivalent retained a b =
+            stripEphemeral (normalizeTopCombosPayloadWithRetention retained a)
+                == stripEphemeral (normalizeTopCombosPayloadWithRetention retained b)
+    forM_ [Set.empty, Set.singleton pin] $ \retained ->
+        forM_ fixtures $ \reference -> do
+            let comparison = prepareTopCombosPayloadComparison retained reference
+                expected = map (legacyEquivalent retained reference) fixtures
+            assert
+                "shared replica comparison preserves legacy normalization, metadata and retention decisions"
+                (map (topCombosPayloadMatches comparison) fixtures == expected)
+            assert
+                "pairwise replica comparison preserves its public behavior"
+                (map (topCombosPayloadEquivalentWithRetention retained reference) fixtures == expected)
+    _ <- evaluate (prepareTopCombosPayloadComparison Set.empty (error "unused comparison payload was forced"))
+    pure ()
 
 testRetainedTopCombos :: IO ()
 testRetainedTopCombos = do

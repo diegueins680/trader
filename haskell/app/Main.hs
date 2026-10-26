@@ -596,6 +596,7 @@ import Trader.TopCombosStore (
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
     TopCombosMergeStats (..),
+    TopCombosPayloadComparison,
     TopCombosStore (..),
     TopCombosSyncFingerprint (..),
     TopCombosSyncPhase (..),
@@ -620,6 +621,7 @@ import Trader.TopCombosStore (
     mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
     normalizeTopCombosPayloadWithRetention,
+    prepareTopCombosPayloadComparison,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
@@ -629,7 +631,7 @@ import Trader.TopCombosStore (
     setComboLiveStats,
     topCombosGeneratedAtMs,
     topCombosHaveAtLeastWithRetention,
-    topCombosPayloadEquivalentWithRetention,
+    topCombosPayloadMatches,
     topCombosSyncCanSettle,
     topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
@@ -2359,11 +2361,11 @@ topCombosReplicaFailure name msg =
 topCombosReplicaRepairable :: TopCombosReplicaFetch -> Bool
 topCombosReplicaRepairable fetch = isNothing (tcrfError fetch)
 
-topCombosReplicaNeedsRepair :: Set.Set T.Text -> Aeson.Value -> TopCombosReplicaFetch -> Bool
-topCombosReplicaNeedsRepair retained merged fetch =
+topCombosReplicaNeedsRepair :: TopCombosPayloadComparison -> TopCombosReplicaFetch -> Bool
+topCombosReplicaNeedsRepair comparison fetch =
     topCombosReplicaRepairable fetch
         && case tcrfPayload fetch of
-            Just val -> not (topCombosPayloadEquivalentWithRetention retained merged val)
+            Just val -> not (topCombosPayloadMatches comparison val)
             Nothing -> True
 
 topCombosSyncErrorIsMissing :: String -> String -> Bool
@@ -2574,12 +2576,13 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                 else do
                                     now <- getTimestampMs
                                     let merged = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] syncMaxCombos now candidates)
+                                        comparison = prepareTopCombosPayloadComparison retainedUuids merged
                                         localNeedsWrite =
                                             case tcrfPayload localFetch of
-                                                Just val -> not (topCombosPayloadEquivalentWithRetention retainedUuids merged val)
+                                                Just val -> not (topCombosPayloadMatches comparison val)
                                                 Nothing -> True
                                         dbNeedsWrite =
-                                            maybe False (topCombosReplicaNeedsRepair retainedUuids merged) dbFetch
+                                            maybe False (topCombosReplicaNeedsRepair comparison) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
                                         remoteTargets =
                                             if localNeedsWrite
@@ -2587,7 +2590,7 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                 else
                                                     [ tcrfName fetch
                                                     | fetch <- remoteFetches
-                                                    , topCombosReplicaNeedsRepair retainedUuids merged fetch
+                                                    , topCombosReplicaNeedsRepair comparison fetch
                                                     ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)

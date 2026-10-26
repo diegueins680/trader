@@ -825,6 +825,8 @@ The checked-in Hetzner trading profile is the sole live executor. Its current bo
 
 Leaderboard database persistence replaces each combo's parameter rows with one batched insert rather than a separate insert per key. Parameter JSON (including nulls and nested values), optional strategy associations and the enclosing transaction's rollback behavior are preserved. This reduces round trips during sync; it does not establish a production startup-time or memory-capacity bound.
 
+Replica sync shares one normalized reference for the merged leaderboard across its local, database and remote comparisons. Each replica is normalized under the same captured retention policy; comparisons ignore the root generation time and source while retaining other metadata and adverse retained evidence. This reduces repeated planning work within each pass.
+
 Retained UUIDs remain distinct even when their strategy parameters match. An unretained twin of a present retained row cannot consume an ordinary leaderboard slot; a missing retained UUID does not suppress ordinary rows. Replica copies of the same retained UUID and strategy identity still merge using the existing refresh-evidence ordering; retention does not change their eligibility gates.
 
 Database fallback rows without `processing.tier` are treated as unknown and cannot be activated by `TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS`. Valid UUID values are canonicalized before lookup and deduplication, so equivalent uppercase and lowercase spellings select the same reviewed candidate.
