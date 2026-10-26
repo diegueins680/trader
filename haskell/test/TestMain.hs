@@ -490,6 +490,8 @@ import Trader.TopCombosStore (
     TopCombosBuildGateEvent (..),
     TopCombosStore (..),
     TopCombosSyncFingerprint (..),
+    TopCombosSyncPhase (..),
+    TopCombosSyncPhaseEvent (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
@@ -526,7 +528,9 @@ import Trader.TopCombosStore (
     validateTopCombosReplicaPayload,
     withTopCombosBuildGate,
     withTopCombosBuildGateObserved,
+    withTopCombosSyncPhaseObserved,
     writeTopCombosBuildGateEvent,
+    writeTopCombosSyncPhaseEvent,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -584,6 +588,8 @@ main = do
     testTopCombosSyncSkipAndEtag
     testTopCombosBuildGateObservation
     testTopCombosBuildGateLogAtomicity
+    testTopCombosSyncPhaseObservation
+    testTopCombosSyncPhaseLog
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
     testTradeMethodGateUsesResultEvidence
@@ -1091,6 +1097,94 @@ testTopCombosBuildGateLogAtomicity =
                     _ -> Nothing
             assert "unbuffered concurrent gate logs remain separate JSON records" (length rows == length labels)
             assert "concurrent gate logs retain every attempt exactly once" (Set.fromList (mapMaybe labelOf decoded) == Set.fromList labels)
+
+testTopCombosSyncPhaseObservation :: IO ()
+testTopCombosSyncPhaseObservation = do
+    events <- newIORef []
+    ran <- newIORef False
+    let collect event = modifyIORef' events (event :)
+        checkClosed label = do
+            recorded <- reverse <$> readIORef events
+            case recorded of
+                [TopCombosSyncPhaseStarted SyncPlan, TopCombosSyncPhaseFinished SyncPlan elapsed] ->
+                    assert label (elapsed >= 0 && not (isNaN elapsed) && not (isInfinite elapsed))
+                _ -> assert (label ++ ": incomplete phase") False
+    value <- withTopCombosSyncPhaseObserved SyncPlan collect (pure (7 :: Int))
+    assert "sync phase tracing preserves the action result" (value == 7)
+    checkClosed "normal sync phase closes"
+    writeIORef events []
+    failed <- try (withTopCombosSyncPhaseObserved SyncPlan collect (ioError (userError "private-sync-action"))) :: IO (Either IOException ())
+    assert "sync phase tracing preserves action failure" (isLeft failed)
+    checkClosed "failed sync phase closes"
+    writeIORef events []
+    cancelled <- timeout 20000 (withTopCombosSyncPhaseObserved SyncPlan collect (threadDelay 1000000))
+    assert "sync phase action remains cancellable" (isNothing cancelled)
+    checkClosed "cancelled sync phase closes"
+    writeIORef events []
+    let cancelObserver event = do
+            collect event
+            case event of
+                TopCombosSyncPhaseStarted _ -> threadDelay 1000000
+                _ -> pure ()
+    observerCancelled <- timeout 20000 (withTopCombosSyncPhaseObserved SyncPlan cancelObserver (writeIORef ran True))
+    actionRan <- readIORef ran
+    assert "sync observer cancellation propagates before action admission" (isNothing observerCancelled && not actionRan)
+    checkClosed "cancelled initial sync observer closes"
+    let unavailable _ = ioError (userError "private-sync-observer")
+    unaffected <- withTopCombosSyncPhaseObserved SyncPlan unavailable (pure (11 :: Int))
+    assert "synchronous sync observer errors do not prevent action execution" (unaffected == 11)
+    actionFailed <- try (withTopCombosSyncPhaseObserved SyncPlan unavailable (ioError (userError "private-sync-action"))) :: IO (Either IOException ())
+    assert "observer failure does not replace the action error" (either (isInfixOf "private-sync-action" . show) (const False) actionFailed)
+    unmasked <- withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState
+    inherited <- mask_ (withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState)
+    assert "sync phase preserves caller masking" (unmasked == Unmasked && inherited == MaskedInterruptible)
+
+testTopCombosSyncPhaseLog :: IO ()
+testTopCombosSyncPhaseLog =
+    bracket
+        (openTempFile "/tmp" "trader-sync-phase-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            hSetBuffering handle NoBuffering
+            let phases = [SyncReadDb, SyncReadS3, SyncReadState, SyncPlan, SyncWriteDb, SyncWriteRemote]
+                labels = ["read-db", "read-s3", "read-state-sync", "plan", "write-db", "write-remote"] :: [String]
+                emit (phase, label) = withTopCombosSyncPhaseObserved phase (writeTopCombosSyncPhaseEvent handle label 1000) (pure ())
+            done <- newEmptyMVar
+            bracket
+                (mapM (\pair -> forkFinally (emit pair) (putMVar done)) (zip phases labels))
+                (mapM_ killThread)
+                ( \_ -> replicateM_ (length phases) $ do
+                    result <- timeout 5000000 (takeMVar done)
+                    assert "concurrent sync phase observation completed" (maybe False (not . isLeft) result)
+                )
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            decoded <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let textField :: AK.Key -> Aeson.Value -> Maybe String
+                textField key value = case value of
+                    Aeson.Object obj -> KM.lookup key obj >>= AT.parseMaybe Aeson.parseJSON
+                    _ -> Nothing
+                valid value = case value of
+                    Aeson.Object obj ->
+                        Set.fromList (KM.keys obj) == Set.fromList ["event", "attemptId", "atMs", "phase", "state", "elapsedMs"]
+                            && textField "event" value == Just ("top_combos_sync_phase" :: String)
+                            && textField "phase" value == textField "attemptId" value
+                            && KM.lookup "atMs" obj == Just (Aeson.toJSON (1000 :: Int))
+                            && case textField "state" value of
+                                Just "started" -> KM.lookup "elapsedMs" obj == Just Aeson.Null
+                                Just "finished" -> case KM.lookup "elapsedMs" obj >>= AT.parseMaybe Aeson.parseJSON of
+                                    Just elapsed -> elapsed >= (0 :: Double) && not (isNaN elapsed) && not (isInfinite elapsed)
+                                    Nothing -> False
+                                _ -> False
+                    _ -> False
+            assert "sync phase logs remain separate fixed-shape JSON records" (length rows == 12 && all valid decoded)
+            forM_ labels $ \label -> do
+                let matching = filter (\value -> textField "attemptId" value == Just label) decoded
+                assert "sync phase records retain their attempt identity and lifecycle" (map (textField "state") matching == [Just ("started" :: String), Just "finished"])
 
 testPredictorLivenessDetectsDegenerateForecast :: IO ()
 testPredictorLivenessDetectsDegenerateForecast = do

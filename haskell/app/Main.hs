@@ -598,6 +598,7 @@ import Trader.TopCombosStore (
     TopCombosMergeStats (..),
     TopCombosStore (..),
     TopCombosSyncFingerprint (..),
+    TopCombosSyncPhase (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStatsWithPolicy,
     batchCombosForBacktestRefresh,
@@ -635,7 +636,9 @@ import Trader.TopCombosStore (
     validateTopCombosReplicaPayload,
     withTopCombosBuildGateObserved,
     withTopCombosLock,
+    withTopCombosSyncPhaseObserved,
     writeTopCombosBuildGateEvent,
+    writeTopCombosSyncPhaseEvent,
     writeTopCombosValue,
  )
 import Trader.TradeLogRiskState (
@@ -2550,12 +2553,16 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
             settledRef <- newIORef Nothing
             skipLoggedRef <- newIORef False
-            let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore $ do
-                    dbFetch <- traverse fetchTopCombosReplicaDb mOps
-                    s3Fetch <- fetchTopCombosReplicaS3
-                    stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
+            let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore $ \attemptId -> do
+                    let observe event = do
+                            atMs <- getTimestampMs
+                            writeTopCombosSyncPhaseEvent stderr attemptId atMs event
+                        runPhase phase = withTopCombosSyncPhaseObserved phase observe
+                    dbFetch <- runPhase SyncReadDb (traverse fetchTopCombosReplicaDb mOps)
+                    s3Fetch <- runPhase SyncReadS3 fetchTopCombosReplicaS3
+                    stateSyncFetch <- runPhase SyncReadState (fetchTopCombosReplicaStateSync mStateSyncTarget)
                     forM_ (catMaybes [dbFetch, s3Fetch, stateSyncFetch]) (updateTopCombosSyncError errRef)
-                    plan <-
+                    plan <- runPhase SyncPlan $
                         withTopCombosLock topCombosStore $ do
                             localFetch <- fetchTopCombosReplicaLocal topJsonPath
                             updateTopCombosSyncError errRef localFetch
@@ -2629,8 +2636,8 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                     case plan of
                         Nothing -> pure ()
                         Just TopCombosSyncPlan{tcspRepairLocal = repairLocal, tcspRepairDb = repairDb, tcspRemoteTargets = remoteTargets, tcspComboCount = comboCount} -> do
-                            when repairDb (persistTopCombosDbMaybe mOps topCombosStore)
-                            remotePersisted <- persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath
+                            when repairDb (runPhase SyncWriteDb (persistTopCombosDbMaybe mOps topCombosStore))
+                            remotePersisted <- runPhase SyncWriteRemote (persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath)
                             let repairedTargets =
                                     concat
                                         [ ["local" | repairLocal]
@@ -22094,7 +22101,7 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
 
 -- Fixed caller labels and numeric timings only: never log request credentials,
 -- tenant identifiers, replica locations, payloads or exception text here.
-withLoggedTopCombosBuildGate :: String -> TopCombosStore -> IO a -> IO a
+withLoggedTopCombosBuildGate :: String -> TopCombosStore -> (String -> IO a) -> IO a
 withLoggedTopCombosBuildGate origin store action = do
     startedAt <- getMonotonicTimeNSec
     thread <- myThreadId
@@ -22102,7 +22109,7 @@ withLoggedTopCombosBuildGate origin store action = do
         observe event = do
             atMs <- getTimestampMs
             writeTopCombosBuildGateEvent stderr origin attemptId atMs event
-    withTopCombosBuildGateObserved store observe action
+    withTopCombosBuildGateObserved store observe (action attemptId)
 
 handleOptimizerCombos ::
     BuildInfo ->
@@ -22138,7 +22145,7 @@ handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore
             hit <- maybe (pure Nothing) cachedFor mEtag
             case hit of
                 Just body -> serveCached body
-                Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore $ do
+                Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore $ \_ -> do
                     hit' <- maybe (pure Nothing) cachedFor mEtag
                     case hit' of
                         Just body -> serveCached body

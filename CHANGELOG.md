@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations/Top Combos: trace sync read, planning and persistence phase lifetimes with the same attempt ID as the shared build gate. Preserve action results, exceptions, cancellation and masking; keep records limited to fixed labels and numeric timings. Phase completion does not certify persistence success, and deferred work may execute in a later IO phase.
+
 - Trading/Live Fleet: qualify XRP and refresh newly raw AAVE, FIL and SOL pins using fresh strict-tier candidates within existing compute limits. Preserve all prior pins in shared retention (33 UUIDs), the 1% adoption cap, startup pacing, retirement/admission checks and graduation window. ARB, ATOM, ETH, LINK and OP still need qualifying evidence.
 
 - Operations/Fleet Benchmark: report fixed readiness-state counts from `/health` and bounded JSON `/ready` 503 bodies, distinguishing recovery readiness from draining without copying response text. Preserve HTTP failures, false/missing-readiness failures, worker targets and deadline checks; inventory-scan readiness revocation remains unchanged.

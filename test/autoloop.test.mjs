@@ -1929,8 +1929,8 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(main, /validateApiComputeLimitsAfterLoad limits args series =[\s\S]{0,260}m \| methodIsTechnicalAnalysis m -> Right \(\)/);
   assert.match(main, /topCombosSyncCanSkip settled fingerprint/);
   assert.match(main, /let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore/);
-  assert.match(main, /withTopCombosBuildGateObserved store observe action/);
-  assert.match(main, /Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore \$ do/);
+  assert.match(main, /withTopCombosBuildGateObserved store observe \(action attemptId\)/);
+  assert.match(main, /Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore \$ \\_ -> do/);
   const comboStore = await fs.readFile(new URL("../haskell/app/Trader/TopCombosStore.hs", import.meta.url), "utf8");
   assert.match(comboStore, /withTopCombosBuildGateObserved store observe action = mask \$ \\restore -> do[\s\S]*?withTopCombosBuildGate\s+store\s+\(/);
   assert.match(comboStore, /withTopCombosBuildGate store action = withMVar \(tcsBuildGate store\) \(const action\)/);

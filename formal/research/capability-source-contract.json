@@ -172,7 +172,7 @@
     "haskell/trader.cabal": "c37910532060a3bb37b356fb9c945256577c3dc2545825fc78f21736bd78130e",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
-    "haskell/app/Main.hs": "70c50975e620e446ed9e951d37cfbe50e050ddc336754da065ac8465e6579e4a",
+    "haskell/app/Main.hs": "78f6d7e4b190bd0c3b64997e61065ba7538e7d7ef567efbf53642177007f8bcf",
     "haskell/app/Trader/Optimizer/Optimize.hs": "69f4bb68c98fb03335d272282577715de2c995304c9246de46bffae90cdba94e",
     "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
