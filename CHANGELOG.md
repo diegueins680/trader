@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Trading/Live Fleet: replace the retired AAVE, BCH, DOGE, DOT, ETH, FIL, NEAR, OP and SOL pins with current strict-tier candidates and add their UUIDs to shared retention on both Hetzner roles and both Fly profiles, preserving the previous 18 pins for position recovery. Keep the 1% adoption cap, worker limits, retirement checks and graduation window. ARB, ATOM, LINK and XRP remain idle on retired pins pending qualifying evidence; the 18-worker target is not a capacity result.
+
 - Performance/Top Combos: run fresh database fingerprint reads on a separate, bracketed connection behind a dedicated gate, allowing at most one extra fingerprint connection per API process. Avoid queueing conditional responses behind full replica reads and operation writes; preserve the digest query, transaction visibility and fail-closed ETag behavior.
 
 - Performance/Top Combos: allow unchanged replicas to settle when the only remaining diagnostic is an unavailable retained UUID. Keep missing-pin warnings, retry storage failures and pending repairs, and rerun reconciliation when any replica fingerprint changes.
