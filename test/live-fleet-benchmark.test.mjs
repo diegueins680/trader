@@ -65,6 +65,8 @@ test("fleet benchmark measures concurrent cold requests and conditional cache hi
   assert.equal(leaderboard.byHttpStatus[304].bytes, 0);
   assert.equal(result.coverage.startupTriggered, false);
   assert.deepEqual(result.endpoints["/health"].failureReasons, {});
+  assert.deepEqual(result.endpoints["/health"].readinessStates, { ready: 3 });
+  assert.equal(Object.hasOwn(leaderboard, "readinessStates"), false);
   assert.doesNotMatch(JSON.stringify(result), /test-secret|private-tenant/);
 });
 
@@ -353,4 +355,106 @@ test("research and trading retain the complete pinned fleet independently of eli
     assert.ok(match, `${file} must retain shared live records`);
     assert.deepEqual(new Set(match[1].split(",")), retained);
   }
+});
+
+
+test("fleet benchmark reports readiness signals while preserving HTTP and false-readiness failures", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const cases = [
+    [{ ready: true }, "ready"],
+    [{ ready: false, draining: false, botRecoveryReady: false }, "recovery-not-ready"],
+    [{ ready: false, draining: true, botRecoveryReady: false }, "draining"],
+    [{ ready: false }, "not-ready"],
+    [{ ready: false, draining: "false", botRecoveryReady: false }, "not-ready"],
+    [{ ready: false, draining: false, botRecoveryReady: true }, "not-ready"],
+    [{ ready: "false", draining: false, botRecoveryReady: false }, "unavailable"],
+    [{ draining: true }, "unavailable"],
+    [null, "unavailable"],
+  ];
+  for (const [body, state] of cases) {
+    const payload = body === null ? null : { ...body, status: "private-readiness-reason", error: "private-response" };
+    const result = await runBenchmark(config, {
+      token: "private-token", tenantKey: "private-tenant", memorySample: async () => null,
+      fetchImpl: async (url) => {
+        if (url.endsWith("/health")) return Response.json(payload);
+        if (url.endsWith("/ready")) return Response.json(payload, { status: 503 });
+        return emptyFleetResponse(url);
+      },
+    });
+    assert.equal(result.passed, false);
+    assert.equal(result.failures, body?.ready === true ? 1 : 2);
+    const health = result.endpoints["/health"], ready = result.endpoints["/ready"];
+    assert.deepEqual(health.readinessStates, { [state]: 1 });
+    assert.deepEqual(ready.readinessStates, { [state]: 1 });
+    assert.deepEqual(health.httpStatuses, { 200: 1 });
+    assert.deepEqual(ready.statuses, { 503: 1 });
+    assert.deepEqual(ready.httpStatuses, { 503: 1 });
+    assert.deepEqual(ready.failureReasons, { "http-status": 1 });
+    assert.equal(ready.byHttpStatus[503].failedProbes, 1);
+    assert.doesNotMatch(JSON.stringify(result), /private-token|private-tenant|private-readiness-reason|private-response/);
+  }
+});
+
+test("fleet benchmark bounds readiness error diagnostics and consumes malformed or non-JSON errors", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const valid = JSON.stringify({ ready: false, draining: false, botRecoveryReady: false });
+  const limit = 64 * 1024;
+  const bodies = [
+    [valid + " ".repeat(limit - valid.length), "application/json", "recovery-not-ready"],
+    [valid + " ".repeat(limit + 1 - valid.length), "application/json", "unavailable"],
+    ['{"ready":false,"private-response":', "application/json", "unavailable"],
+    [valid, "text/html", "unavailable"],
+  ];
+  for (const [text, contentType, state] of bodies) {
+    let consumed = false;
+    const encoded = new TextEncoder().encode(text);
+    const result = await runBenchmark(config, {
+      token: "", tenantKey: "", memorySample: async () => null,
+      fetchImpl: async (url) => {
+        if (!url.endsWith("/ready")) return emptyFleetResponse(url);
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoded.subarray(0, encoded.length - 1));
+          },
+          pull(controller) {
+            controller.enqueue(encoded.subarray(encoded.length - 1));
+            consumed = true;
+            controller.close();
+          },
+        }, { highWaterMark: 0 });
+        return new Response(body, { status: 503, headers: { "content-type": contentType } });
+      },
+    });
+    const ready = result.endpoints["/ready"];
+    assert.equal(consumed, true);
+    assert.equal(result.passed, false);
+    assert.equal(result.failures, 1);
+    assert.deepEqual(ready.readinessStates, { [state]: 1 });
+    assert.deepEqual(ready.httpStatuses, { 503: 1 });
+    assert.deepEqual(ready.failureReasons, { "http-status": 1 });
+    assert.equal(ready.bytes, encoded.length);
+    assert.doesNotMatch(JSON.stringify(result), /private-response/);
+  }
+});
+
+test("fleet readiness diagnostics preserve a truncated error body's transport failure", async () => {
+  const config = parseArgs(["--base-url", "https://example.com", "--rounds", "1", "--clients", "1", "--expected-workers", "0"]);
+  const result = await runBenchmark(config, {
+    token: "", tenantKey: "", memorySample: async () => null,
+    fetchImpl: async (url) => {
+      if (!url.endsWith("/ready")) return emptyFleetResponse(url);
+      const body = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('{"ready":false,')); },
+        pull(controller) { controller.error(new Error("private-stream-error")); },
+      }, { highWaterMark: 0 });
+      return new Response(body, { status: 503, headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.failures, 1);
+  assert.deepEqual(result.endpoints["/ready"].statuses, { 0: 1 });
+  assert.deepEqual(result.endpoints["/ready"].httpStatuses, { 503: 1 });
+  assert.deepEqual(result.endpoints["/ready"].failureReasons, { "body-read-failed": 1 });
+  assert.deepEqual(result.endpoints["/ready"].readinessStates, { unavailable: 1 });
+  assert.doesNotMatch(JSON.stringify(result), /private-stream-error/);
 });

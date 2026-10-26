@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Trading/Live Fleet: qualify XRP and refresh newly raw AAVE, FIL and SOL pins using fresh strict-tier candidates within existing compute limits. Preserve all prior pins in shared retention (33 UUIDs), the 1% adoption cap, startup pacing, retirement/admission checks and graduation window. ARB, ATOM, ETH, LINK and OP still need qualifying evidence.
+
+- Operations/Fleet Benchmark: report fixed readiness-state counts from `/health` and bounded JSON `/ready` 503 bodies, distinguishing recovery readiness from draining without copying response text. Preserve HTTP failures, false/missing-readiness failures, worker targets and deadline checks; inventory-scan readiness revocation remains unchanged.
+
 - Trading/Live Fleet: refresh AAVE and FIL pins after their previous candidates became raw, using fresh strict-tier alternatives within the existing runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (29 UUIDs). ARB, ATOM, ETH, LINK, OP and XRP still need qualifying evidence; preserve the 1% adoption cap, startup pacing, admission gates and graduation window.
 
 - Performance/Top Combos: batch each combo's parameter replica into one PostgreSQL insert instead of one insert per key, reducing database round trips during leaderboard persistence. Preserve parameter replacement, JSON values, strategy associations and caller-transaction rollback.

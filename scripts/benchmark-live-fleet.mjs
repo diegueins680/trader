@@ -8,6 +8,15 @@ import { pathToFileURL } from "node:url";
 
 const execFileAsync = promisify(execFile);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const readinessPaths = new Set(["/health", "/ready"]);
+
+function readinessState(body) {
+  if (body?.ready === true) return "ready";
+  if (body?.ready !== false) return "unavailable";
+  if (body.draining === true) return "draining";
+  if (body.draining === false && body.botRecoveryReady === false) return "recovery-not-ready";
+  return "not-ready";
+}
 
 export function parseArgs(argv) {
   const config = { rounds: 20, clients: 4, intervalMs: 1000, timeoutMs: 30000, expectedWorkers: 18 };
@@ -99,6 +108,7 @@ export async function runBenchmark(config, {
     let timeToHeadersMs = null;
     let byteCount = 0;
     let body;
+    let observedReadiness = readinessPaths.has(path) ? "unavailable" : null;
     const sentEtag = conditional ? etag : undefined;
     try {
       const requestHeaders = { ...headers };
@@ -120,25 +130,33 @@ export async function runBenchmark(config, {
       }
       // Consume every body to measure full request cost; do not retain leaderboard JSON.
       const parseBody = !conditional && status === 200;
-      const chunks = parseBody ? [] : null;
+      // Read a small diagnostic JSON body on readiness 503s without changing
+      // their existing HTTP failure or retaining arbitrary response fields.
+      const parseReadiness = readinessPaths.has(path) && status === 503
+        && response.headers.get("content-type")?.includes("application/json");
+      let chunks = parseBody || parseReadiness ? [] : null;
       failureReason = "body-read-failed";
       if (response.body) {
         for await (const chunk of response.body) {
           byteCount += chunk.length;
           if (chunks) {
-            if (byteCount > 16 * 1024 * 1024) {
+            if (parseBody && byteCount > 16 * 1024 * 1024) {
               failureReason = "status-too-large";
               throw new Error("Status response too large");
             }
-            chunks.push(chunk);
+            if (!parseBody && byteCount > 64 * 1024) chunks = null;
+            else chunks.push(chunk);
           }
         }
       }
       if (parseBody) {
         failureReason = "invalid-json";
         body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } else if (chunks) {
+        try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { /* Diagnostic evidence unavailable. */ }
       }
-      if ((path === "/health" || path === "/ready") && status === 200 && body?.ready !== true) {
+      if (readinessPaths.has(path)) observedReadiness = readinessState(body);
+      if (readinessPaths.has(path) && status === 200 && body?.ready !== true) {
         failureReason = body?.ready === false ? "readiness-false" : "readiness-missing";
         throw new Error("Readiness evidence missing or false");
       }
@@ -157,7 +175,7 @@ export async function runBenchmark(config, {
       status = 0;
     }
     const latencyMs = performance.now() - start;
-    requests.push({ path, status, httpStatus, failureReason, conditional: Boolean(sentEtag), timeToHeadersMs, bytes: byteCount, latencyMs, deadlineOverrunMs: Math.max(0, latencyMs - config.timeoutMs) });
+    requests.push({ path, status, httpStatus, failureReason, observedReadiness, conditional: Boolean(sentEtag), timeToHeadersMs, bytes: byteCount, latencyMs, deadlineOverrunMs: Math.max(0, latencyMs - config.timeoutMs) });
   };
   try {
     for (let round = 0; round < config.rounds; round += 1) {
@@ -192,6 +210,10 @@ export async function runBenchmark(config, {
       statuses: Object.fromEntries([...new Set(matching.map(({ status }) => status))].map((status) => [status, matching.filter((r) => r.status === status).length])),
       httpStatuses: Object.fromEntries(httpStatuses.map((status) => [status, matching.filter((r) => r.httpStatus === status).length])),
       failureReasons: Object.fromEntries([...new Set(matching.map(({ failureReason }) => failureReason).filter(Boolean))].map((reason) => [reason, matching.filter((r) => r.failureReason === reason).length])),
+      ...(readinessPaths.has(path) ? {
+        readinessStates: Object.fromEntries([...new Set(matching.map((request) => request.observedReadiness))]
+          .map((state) => [state, matching.filter((request) => request.observedReadiness === state).length])),
+      } : {}),
       bytes: matching.reduce((sum, request) => sum + request.bytes, 0),
       conditionalRequests: matching.filter((request) => request.conditional).length,
       conditionalMisses: matching.filter((request) => request.conditional && request.status === 200).length,
