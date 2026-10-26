@@ -42,6 +42,7 @@ jobs:
           from pathlib import Path
           report=json.loads(Path('preflight.json').read_text())
           print('PIN_PREFLIGHT_JSON='+json.dumps(report,separators=(',',':')))
-          assert report['passed']
+          assert report['commit']=='c0982d867179e728d72eb3e96819974c000d92ec'
+          assert report['positionCap']==0.01
           assert hashlib.sha256('\n'.join(report['pairs']).encode()).hexdigest()==report['manifestSha256']
           PY

@@ -33,13 +33,15 @@ const e = process.env, f = require('fs'), c = require('crypto');
     const candidates = board.combos.filter(q => symbolOf(q) === symbol);
     const selected = candidates.find(eligible);
     return {symbol, oldUuid: pins[symbols.indexOf(symbol)], eligibleCandidates: candidates.filter(eligible).length,
-      candidate: selected ? describe(selected) : null};
+      candidate: selected ? describe(selected) : null,
+      strictAlternatives: candidates.filter(q => q.processing?.tier === 'deployable' && !q.processing?.relaxed).map(describe).slice(0, 10)};
   });
   const pairs = rows.filter(q => q.candidate).map(q => q.symbol + '=' + q.candidate.uuid).sort();
   const positionCap = Number(e.TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP);
   const out = {at: new Date().toISOString(), commit: health.commit, limits, positionCap, rows, pairs,
     manifestSha256: c.createHash('sha256').update(pairs.join('\n')).digest('hex'),
-    remaining: ['ARBUSDT', 'ATOMUSDT', 'ETHUSDT', 'LINKUSDT', 'XRPUSDT'].map(symbol => ({symbol,
+    pinRows: symbols.map((symbol, i) => {const q = board.combos.find(v => v.uuid === pins[i]); return {symbol, candidate: q ? describe(q) : null};}),
+    remaining: ['ARBUSDT', 'ATOMUSDT', 'ETHUSDT', 'LINKUSDT', 'OPUSDT', 'XRPUSDT'].map(symbol => ({symbol,
       strictCandidates: board.combos.filter(q => symbolOf(q) === symbol && q.processing?.tier === 'deployable' && !q.processing?.relaxed).length})),
     passed: rows.length === 3 && rows.every(q => q.candidate && q.candidate.symbol === q.symbol) && positionCap === 0.01};
   f.writeFileSync('/tmp/worker-pins-refresh-preflight-20261026.json', JSON.stringify(out), {mode: 384});
