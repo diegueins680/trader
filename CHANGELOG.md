@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Trading/Live Fleet: refresh AAVE and FIL pins after their previous candidates became raw, using fresh strict-tier alternatives within the existing runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (29 UUIDs). ARB, ATOM, ETH, LINK, OP and XRP still need qualifying evidence; preserve the 1% adoption cap, startup pacing, admission gates and graduation window.
+
 - Performance/Top Combos: batch each combo's parameter replica into one PostgreSQL insert instead of one insert per key, reducing database round trips during leaderboard persistence. Preserve parameter replacement, JSON values, strategy associations and caller-transaction rollback.
 
 - Trading/Live Fleet: correct a one-character NEAR pin transcription error in the active pin and shared retention lists. Match the exact exported candidate UUID so the existing guarded auto-start can launch NEAR; keep risk settings and retirement handling unchanged.
