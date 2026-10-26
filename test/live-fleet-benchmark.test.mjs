@@ -146,6 +146,8 @@ test("fleet benchmark fails successful late responses and exposes probe scheduli
       if (!blocked) {
         blocked = true;
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+        // Let the overdue monitor callback record the stall before benchmark cleanup.
+        await new Promise((resolve) => setTimeout(resolve, 20));
       }
       return emptyFleetResponse(url);
     },
