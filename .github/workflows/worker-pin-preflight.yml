@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/worker-pin-preflight.yml
       - .github/worker-pin-preflight.cjs
+      - .github/sync-gate-probe.py
 permissions:
   contents: read
 jobs:
@@ -46,4 +47,34 @@ jobs:
           assert report['commit']=='0bb2a37e8fad60522ca64ea9703a3c53768ef6c1'
           assert report['positionCap']==0.01
           assert hashlib.sha256('\n'.join(report['pairs']).encode()).hexdigest()==report['manifestSha256']
+          PY
+      - name: Read existing sync gate evidence
+        env:
+          PROBE_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          PROBE_HOST: ${{ secrets.HETZNER_TRADING_HOST }}
+          PROBE_HOST_KEYS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
+          PROBE_USER: ${{ secrets.HETZNER_SSH_USER }}
+          PROBE_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          key_file="$(mktemp)"
+          host_keys="$(mktemp)"
+          trap 'rm -f "$key_file" "$host_keys"' EXIT
+          printf '%s\n' "$PROBE_SSH_KEY" > "$key_file"
+          printf '%s\n' "$PROBE_HOST_KEYS" > "$host_keys"
+          chmod 600 "$key_file" "$host_keys"
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'python3 - 0bb2a37e8fad60522ca64ea9703a3c53768ef6c1' \
+            < .github/sync-gate-probe.py > gate.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('gate.json').read_text())
+          print('SYNC_GATE_JSON='+json.dumps(report,separators=(',',':')))
+          assert report['commit']=='0bb2a37e8fad60522ca64ea9703a3c53768ef6c1'
+          assert report['malformedGateRecords']==0
           PY
