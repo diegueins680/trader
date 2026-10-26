@@ -4,16 +4,21 @@ module Trader.Test.OpsMigrations (testOpsMigrations) where
 
 import Control.Exception (bracket, bracket_, try)
 import Control.Monad (forM_, unless, void)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AK
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.String (fromString)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
-import Database.PostgreSQL.Simple (Connection, Only (..), SqlError, begin, close, connectPostgreSQL, execute, execute_, query_, rollback, withTransaction)
+import Database.PostgreSQL.Simple (Connection, Only (..), SqlError, begin, close, connectPostgreSQL, execute, execute_, query, query_, rollback, withTransaction)
 import Database.PostgreSQL.Simple.Types (Query)
 import System.Environment (lookupEnv)
+import Trader.Ops.ComboParameters (persistComboParameters)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 
 {- | Optional locally; CI supplies a disposable PostgreSQL 16 service. Every
@@ -99,7 +104,68 @@ checkMigrations url schema conn = do
     void (execute_ conn "TRUNCATE combos CASCADE")
     empty <- equivalent conn
     check "empty tables retain the legacy fingerprint" (empty == [(0, "")])
+    checkComboParameters conn
     putStrLn "Ops migration integration passed (generated digests and transactional invalidation)."
+
+checkComboParameters :: Connection -> IO ()
+checkComboParameters conn = do
+    forM_ fixtures $ \row -> void (execute conn insertFixture row)
+    strategyIds <- query_ conn "INSERT INTO strategies(code,label) VALUES('parameter-test','Parameter test') RETURNING id" :: IO [Only Int]
+    strategyId <- case strategyIds of
+        [Only sid] -> pure sid
+        _ -> ioError (userError "parameter fixture strategy missing")
+    void $
+        execute_
+            conn
+            ( "CREATE TABLE parameter_insert_audit (statements integer NOT NULL); INSERT INTO parameter_insert_audit VALUES (0); "
+                <> "CREATE FUNCTION count_parameter_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE parameter_insert_audit SET statements=statements+1; RETURN NULL; END $$; "
+                <> "CREATE TRIGGER count_parameter_insert AFTER INSERT ON combo_parameters FOR EACH STATEMENT EXECUTE FUNCTION count_parameter_insert()"
+            )
+    let combo = UUID.fromWords 0 0x4000 0x80000000 1
+        other = UUID.fromWords 0 0x4000 0x80000000 2
+        params =
+            KM.fromList $
+                [ (AK.fromString ("parameter" ++ show n), Aeson.toJSON n)
+                | n <- [1 .. 100 :: Int]
+                ]
+                    ++ [ ("text'π\\key", Aeson.String "quoted ' Unicode 你好 and \\ slash")
+                       , ("null", Aeson.Null)
+                       , ("bool", Aeson.Bool True)
+                       , ("nested", Aeson.object ["values" Aeson..= [Aeson.Null, Aeson.toJSON (2.5 :: Double)]])
+                       ]
+        readParams uuid = do
+            rows <- query conn "SELECT coalesce(jsonb_object_agg(name,value_json),'{}'::jsonb)::text FROM combo_parameters WHERE combo_uuid=?" (Only uuid) :: IO [Only T.Text]
+            case rows of
+                [Only value] -> either (ioError . userError) pure (Aeson.eitherDecodeStrict' (TE.encodeUtf8 value))
+                _ -> ioError (userError "parameter replica missing")
+        countStatements = query_ conn "SELECT statements FROM parameter_insert_audit" :: IO [Only Int]
+    withTransaction conn (persistComboParameters conn combo (Just strategyId) params)
+    stored <- readParams combo
+    check "batched parameters preserve every key, nested JSON, null, Unicode and escaping" (stored == Aeson.Object params)
+    statements <- countStatements
+    check "one hundred parameters use one INSERT statement" (statements == [Only 1])
+    wrongStrategy <- query conn "SELECT count(*) FROM combo_parameters WHERE combo_uuid=? AND strategy_id IS DISTINCT FROM ?" (combo, strategyId) :: IO [Only Int]
+    check "every parameter retains its strategy association" (wrongStrategy == [Only 0])
+
+    withTransaction conn (persistComboParameters conn other Nothing (KM.singleton "other" (Aeson.Bool True)))
+    let replacement = KM.singleton "replacement" Aeson.Null
+    withTransaction conn (persistComboParameters conn combo Nothing replacement)
+    replaced <- readParams combo
+    untouched <- readParams other
+    nullStrategies <- query conn "SELECT count(*) FROM combo_parameters WHERE combo_uuid=? AND strategy_id IS NOT NULL" (Only combo) :: IO [Only Int]
+    check "replacement removes obsolete keys and supports an absent strategy" (replaced == Aeson.Object replacement && nullStrategies == [Only 0])
+    check "replacement leaves other combos untouched" (untouched == Aeson.object ["other" Aeson..= True])
+
+    void (execute_ conn "ALTER TABLE combo_parameters ADD CONSTRAINT reject_parameter_test CHECK (name <> 'reject_parameter')")
+    beforeFailure <- countStatements
+    failed <- try (withTransaction conn (persistComboParameters conn combo (Just strategyId) (KM.insert "reject_parameter" (Aeson.Bool True) params))) :: IO (Either SqlError ())
+    afterFailure <- readParams combo
+    afterFailureCount <- countStatements
+    check "failed batch rolls back deletion and all inserted values in the caller transaction" (isLeft failed && afterFailure == replaced && afterFailureCount == beforeFailure)
+    withTransaction conn (persistComboParameters conn combo Nothing KM.empty)
+    cleared <- readParams combo
+    check "empty replacement clears all parameters" (cleared == Aeson.Object KM.empty)
+    putStrLn "Combo parameter integration passed (batched insert, JSON preservation, replacement and rollback)."
 
 equivalent :: Connection -> IO [(Int64, String)]
 equivalent conn = do

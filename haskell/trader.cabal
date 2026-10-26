@@ -71,6 +71,7 @@ executable trader-hs
                      , Trader.Optimizer.OverfitAudit
                      , Trader.Optimizer.Random
                      , Trader.OrderExecution
+                     , Trader.Ops.ComboParameters
                      , Trader.Ops.Migrations
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
@@ -296,6 +297,7 @@ test-suite trader-tests
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.Ops.ComboParameters
                      , Trader.Ops.Migrations
                      , Trader.Test.OpsMigrations
                      , Trader.QuantityRounding
