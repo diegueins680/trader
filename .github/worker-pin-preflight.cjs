@@ -29,7 +29,7 @@ const e = process.env, f = require('fs'), c = require('crypto');
     return q.tier === 'deployable' && !q.relaxed && q.source === 'binance' && q.platform === 'binance'
       && q.ageDays !== null && q.ageDays >= 0 && q.ageDays <= 14 && q.computeLimitsPass;
   };
-  const rows = ['ARBUSDT', 'ATOMUSDT', 'ETHUSDT', 'LINKUSDT', 'OPUSDT', 'XRPUSDT'].map(symbol => {
+  const rows = ['AAVEUSDT', 'ARBUSDT', 'ATOMUSDT', 'BCHUSDT', 'DOGEUSDT', 'DOTUSDT', 'ETHUSDT', 'FILUSDT', 'LINKUSDT', 'NEARUSDT', 'OPUSDT', 'SOLUSDT', 'XRPUSDT'].map(symbol => {
     const candidates = board.combos.filter(q => symbolOf(q) === symbol);
     const selected = candidates.find(eligible);
     return {symbol, oldUuid: pins[symbols.indexOf(symbol)], eligibleCandidates: candidates.filter(eligible).length,
