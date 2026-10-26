@@ -25,7 +25,8 @@ jobs:
         with:
           ghc: "9.4.8"
           cabal: "3.12.1.0"
-      - run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
+      - run: >-
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
       - name: Reproduce and record the exact reviewed source
         run: |
           if ! python3 scripts/formal/verify.py --record > /tmp/parameter-formal-record.log 2>&1; then
