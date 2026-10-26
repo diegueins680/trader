@@ -1,0 +1,48 @@
+name: Read-only worker pin preflight
+on:
+  push:
+    branches: [ops/fleet-readiness-diagnostics]
+    paths:
+      - .github/workflows/worker-pin-preflight.yml
+      - .github/worker-pin-preflight.cjs
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read current trading admission evidence
+        env:
+          PREFLIGHT_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          PREFLIGHT_HOST: ${{ secrets.HETZNER_TRADING_HOST }}
+          PREFLIGHT_HOST_KEYS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
+          PREFLIGHT_USER: ${{ secrets.HETZNER_SSH_USER }}
+          PREFLIGHT_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$PREFLIGHT_SSH_KEY"
+          test -n "$PREFLIGHT_HOST"
+          test -n "$PREFLIGHT_HOST_KEYS"
+          key_file="$(mktemp)"
+          host_keys="$(mktemp)"
+          trap 'rm -f "$key_file" "$host_keys"' EXIT
+          printf '%s\n' "$PREFLIGHT_SSH_KEY" > "$key_file"
+          printf '%s\n' "$PREFLIGHT_HOST_KEYS" > "$host_keys"
+          chmod 600 "$key_file" "$host_keys"
+          ssh -i "$key_file" -p "${PREFLIGHT_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            "${PREFLIGHT_USER:-root}@$PREFLIGHT_HOST" \
+            'docker exec -i trader-api-1 node' \
+            < .github/worker-pin-preflight.cjs > preflight.json
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          report=json.loads(Path('preflight.json').read_text())
+          print('PIN_PREFLIGHT_JSON='+json.dumps(report,separators=(',',':')))
+          assert report['commit']=='995d0c3f6ff4f9abfec0573183b10f3d7254a725'
+          assert report['positionCap']==0.01
+          assert hashlib.sha256('\n'.join(report['pairs']).encode()).hexdigest()==report['manifestSha256']
+          PY
