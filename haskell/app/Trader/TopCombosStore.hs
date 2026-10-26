@@ -10,6 +10,10 @@ module Trader.TopCombosStore (
     TopCombosBuildGateEvent (..),
     withTopCombosBuildGateObserved,
     writeTopCombosBuildGateEvent,
+    TopCombosSyncPhase (..),
+    TopCombosSyncPhaseEvent (..),
+    withTopCombosSyncPhaseObserved,
+    writeTopCombosSyncPhaseEvent,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -239,6 +243,65 @@ writeTopCombosBuildGateEvent handle origin attemptId atMs event = do
                 , "phase" .= (phase :: String)
                 , "waitMs" .= waitMs
                 , "heldMs" .= heldMs
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
+
+{- | IO boundaries within one sync gate attempt. Payload evaluation can be
+deferred into a later boundary; these are wall times, not CPU attributions.
+-}
+data TopCombosSyncPhase
+    = SyncReadDb
+    | SyncReadS3
+    | SyncReadState
+    | SyncPlan
+    | SyncWriteDb
+    | SyncWriteRemote
+    deriving (Eq, Show)
+
+data TopCombosSyncPhaseEvent
+    = TopCombosSyncPhaseStarted !TopCombosSyncPhase
+    | TopCombosSyncPhaseFinished !TopCombosSyncPhase !Double
+    deriving (Eq, Show)
+
+{- | Preserve the action's masking, result and exceptions. A finished event
+closes the observed lifetime, including cancellation; it does not certify
+success. Synchronous observer errors do not affect the protected action.
+-}
+withTopCombosSyncPhaseObserved :: TopCombosSyncPhase -> (TopCombosSyncPhaseEvent -> IO ()) -> IO a -> IO a
+withTopCombosSyncPhaseObserved phase observe action = mask $ \restore -> do
+    startedAt <- getMonotonicTimeNSec
+    let emit event = do
+            _ <- trySync (observe event) :: IO (Either SomeException ())
+            pure ()
+        finish = do
+            endedAt <- getMonotonicTimeNSec
+            let elapsedMs = fromIntegral (toInteger endedAt - toInteger startedAt) / 1000000
+            emit (TopCombosSyncPhaseFinished phase elapsedMs)
+    restore (emit (TopCombosSyncPhaseStarted phase) >> action) `finally` finish
+
+{- | Only enum labels, an internally generated gate attempt ID and numeric
+observations are emitted. Keep each concurrent JSON record in one write.
+-}
+writeTopCombosSyncPhaseEvent :: Handle -> String -> Int64 -> TopCombosSyncPhaseEvent -> IO ()
+writeTopCombosSyncPhaseEvent handle attemptId atMs event = do
+    let (phase, state, elapsedMs) = case event of
+            TopCombosSyncPhaseStarted value -> (value, "started", Nothing)
+            TopCombosSyncPhaseFinished value elapsed -> (value, "finished", Just elapsed)
+        label = case phase of
+            SyncReadDb -> "read-db"
+            SyncReadS3 -> "read-s3"
+            SyncReadState -> "read-state-sync"
+            SyncPlan -> "plan"
+            SyncWriteDb -> "write-db"
+            SyncWriteRemote -> "write-remote"
+        record =
+            object
+                [ "event" .= ("top_combos_sync_phase" :: String)
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "phase" .= (label :: String)
+                , "state" .= (state :: String)
+                , "elapsedMs" .= elapsedMs
                 ]
     BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
 
