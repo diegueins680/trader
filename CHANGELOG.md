@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Trading/Live Fleet: refresh FIL after its pinned record became raw, using a current strict-tier candidate within runtime compute limits. Preserve all previous pins in shared retention (35 UUIDs). AAVE, ARB, ATOM, DOGE, ETH, LINK, OP and SOL await qualifying evidence; the replacement uses the existing adoption, risk, startup and graduation controls.
+
 - Performance/Top Combos: share one retention-aware reference across replica comparisons in each sync pass, reducing repeated leaderboard normalization during planning.
 
 - Trading/Live Fleet: refresh XRP after its pinned record became raw, using a fresh strict-tier candidate within runtime compute limits. Keep all previous pins in shared retention (34 UUIDs). SOL now joins ARB, ATOM, ETH, LINK and OP awaiting qualifying evidence; risk caps, startup pacing, admission checks and the graduation window are unchanged.
