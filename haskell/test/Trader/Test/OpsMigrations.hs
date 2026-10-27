@@ -8,6 +8,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.String (fromString)
@@ -16,9 +17,9 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Database.PostgreSQL.Simple (Connection, Only (..), SqlError, begin, close, connectPostgreSQL, execute, execute_, query, query_, rollback, withTransaction)
-import Database.PostgreSQL.Simple.Types (Query)
+import Database.PostgreSQL.Simple.Types (PGArray (..), Query)
 import System.Environment (lookupEnv)
-import Trader.Ops.ComboParameters (persistComboParameters)
+import Trader.Ops.ComboParameters (persistComboParameters, persistComboReplicas)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 
 {- | Optional locally; CI supplies a disposable PostgreSQL 16 service. Every
@@ -105,6 +106,7 @@ checkMigrations url schema conn = do
     empty <- equivalent conn
     check "empty tables retain the legacy fingerprint" (empty == [(0, "")])
     checkComboParameters conn
+    checkComboReplicas conn
     putStrLn "Ops migration integration passed (generated digests and transactional invalidation)."
 
 checkComboParameters :: Connection -> IO ()
@@ -166,6 +168,83 @@ checkComboParameters conn = do
     cleared <- readParams combo
     check "empty replacement clears all parameters" (cleared == Aeson.Object KM.empty)
     putStrLn "Combo parameter integration passed (batched insert, JSON preservation, replacement and rollback)."
+
+checkComboReplicas :: Connection -> IO ()
+checkComboReplicas conn = do
+    void $
+        execute_
+            conn
+            ( "CREATE TABLE replica_batch_audit (rows integer NOT NULL); "
+                <> "CREATE FUNCTION audit_replica_batch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO replica_batch_audit SELECT count(*) FROM inserted; RETURN NULL; END $$; "
+                <> "CREATE TRIGGER audit_replica_batch AFTER INSERT ON combos REFERENCING NEW TABLE AS inserted FOR EACH STATEMENT EXECUTE FUNCTION audit_replica_batch()"
+            )
+    let uuid = UUID.fromWords 0 0x4000 0x80000000
+        upsert =
+            "INSERT INTO combos (combo_uuid, score, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (combo_uuid) DO UPDATE SET score=EXCLUDED.score, created_at_ms=COALESCE(combos.created_at_ms,EXCLUDED.created_at_ms)"
+        replica n stamp params = (uuid n, (uuid n, fromIntegral n :: Double, stamp :: Maybe Int64), Nothing, params)
+        rows = [replica n (Just 10) (KM.singleton "value" (Aeson.toJSON n)) | n <- [10000 .. 10200]]
+        stored = query_ conn "SELECT combo_uuid,score,created_at_ms,params_json::text,metrics_json::text FROM combos ORDER BY combo_uuid" :: IO [(UUID.UUID, Maybe Double, Maybe Int64, Maybe T.Text, Maybe T.Text)]
+        parameters = query_ conn "SELECT combo_uuid,name,value_json::text,strategy_id FROM combo_parameters ORDER BY combo_uuid,name" :: IO [(UUID.UUID, T.Text, Maybe T.Text, Maybe Int)]
+    withTransaction conn (persistComboReplicas conn upsert rows)
+    batches <- query_ conn "SELECT rows FROM replica_batch_audit ORDER BY rows" :: IO [Only Int]
+    check "201 distinct replicas use bounded batches of 100, 100 and 1" (batches == [Only 1, Only 100, Only 100])
+    inserted <- query_ conn "SELECT count(*) FROM combo_parameters WHERE combo_uuid >= '00000000-0000-4000-8000-000000002710' AND combo_uuid <= '00000000-0000-4000-8000-0000000027d8'" :: IO [Only Int]
+    check "batched replicas retain every parameter row" (inserted == [Only 201])
+    strategyIds <- query_ conn "SELECT id FROM strategies WHERE code='parameter-test'" :: IO [Only Int]
+    strategyId <- case strategyIds of
+        [Only sid] -> pure sid
+        _ -> ioError (userError "replica fixture strategy missing")
+    let associated =
+            [ (uuid 19000, (uuid 19000, 1 :: Double, Nothing :: Maybe Int64), Just strategyId, KM.singleton "associated" Aeson.Null)
+            , replica 19001 Nothing (KM.singleton "unassociated" (Aeson.Bool True))
+            ]
+    withTransaction conn (persistComboReplicas conn upsert associated)
+    associations <- query conn "SELECT combo_uuid,strategy_id FROM combo_parameters WHERE combo_uuid=ANY(?::uuid[]) ORDER BY combo_uuid" (Only (PGArray [uuid 19000, uuid 19001])) :: IO [(UUID.UUID, Maybe Int)]
+    check "a mixed batch preserves each parameter strategy association" (associations == [(uuid 19000, Just strategyId), (uuid 19001, Nothing)])
+    let jsonUuid = uuid 19500
+        jsonParams = Aeson.object ["null" Aeson..= Aeson.Null, "nested" Aeson..= [Aeson.Bool True, Aeson.String "Unicode 你好 ' \\"]]
+        jsonMetrics = Aeson.object ["live" Aeson..= Aeson.object ["operationCount" Aeson..= (12 :: Int)]]
+        jsonUpsert = "INSERT INTO combos (combo_uuid,params_json,metrics_json) VALUES (?, ?, ?) ON CONFLICT (combo_uuid) DO UPDATE SET params_json=EXCLUDED.params_json,metrics_json=EXCLUDED.metrics_json"
+        jsonRows =
+            [ (jsonUuid, (jsonUuid, Just (TE.decodeUtf8 (BL.toStrict (Aeson.encode jsonParams))), Just (TE.decodeUtf8 (BL.toStrict (Aeson.encode jsonMetrics)))), Nothing, KM.empty)
+            , (uuid 19501, (uuid 19501, Nothing, Nothing), Nothing, KM.empty)
+            ]
+    withTransaction conn (persistComboReplicas conn jsonUpsert jsonRows)
+    storedJson <- query conn "SELECT params_json::text,metrics_json::text FROM combos WHERE combo_uuid=?" (Only jsonUuid) :: IO [(T.Text, T.Text)]
+    let decodedJson = [(Aeson.eitherDecodeStrict' (TE.encodeUtf8 params), Aeson.eitherDecodeStrict' (TE.encodeUtf8 metrics)) | (params, metrics) <- storedJson]
+    check "batch VALUES infer JSONB without casts and preserve nulls, nested values, escaping and live evidence" (decodedJson == [(Right jsonParams, Right jsonMetrics)])
+    sqlNulls <- query conn "SELECT params_json IS NULL,metrics_json IS NULL FROM combos WHERE combo_uuid=?" (Only (uuid 19501)) :: IO [(Bool, Bool)]
+    check "batch VALUES preserve SQL NULL distinctly from JSON null" (sqlNulls == [(True, True)])
+    let duplicate = uuid 20000
+        other = uuid 20001
+        duplicateRows =
+            [ replica 20000 Nothing (KM.singleton "obsolete" Aeson.Null)
+            , replica 20001 (Just 4) (KM.singleton "untouched" (Aeson.Bool True))
+            , replica 20000 (Just 7) (KM.singleton "later" (Aeson.String "Unicode 你好 ' \\"))
+            , (duplicate, (duplicate, 99 :: Double, Just (9 :: Int64)), Nothing, KM.empty)
+            ]
+    withTransaction conn (persistComboReplicas conn upsert duplicateRows)
+    duplicated <- query conn "SELECT score,created_at_ms FROM combos WHERE combo_uuid=?" (Only duplicate) :: IO [(Maybe Double, Maybe Int64)]
+    duplicateParams <- query conn "SELECT count(*) FROM combo_parameters WHERE combo_uuid=?" (Only duplicate) :: IO [Only Int]
+    otherParams <- query conn "SELECT value_json::text FROM combo_parameters WHERE combo_uuid=?" (Only other) :: IO [Only T.Text]
+    check "nonadjacent duplicate UUIDs retain last-write order and first non-null creation stamp" (duplicated == [(Just 99, Just 7)])
+    check "an empty final duplicate removes earlier parameter keys without touching other combos" (duplicateParams == [Only 0] && otherParams == [Only "true"])
+    before <- stored
+    beforeParams <- parameters
+    beforeAudit <- query_ conn "SELECT count(*) FROM replica_batch_audit" :: IO [Only Int]
+    withTransaction conn (persistComboReplicas conn upsert ([] :: [(UUID.UUID, (UUID.UUID, Double, Maybe Int64), Maybe Int, Aeson.Object)]))
+    afterEmptyAudit <- query_ conn "SELECT count(*) FROM replica_batch_audit" :: IO [Only Int]
+    check "an empty replica batch issues no upsert" (beforeAudit == afterEmptyAudit)
+    let invalidRows =
+            [ replica n (Just 42) (KM.singleton (if n == 30150 then "reject_parameter" else "valid") (Aeson.toJSON n))
+            | n <- [30000 .. 30200]
+            ]
+    failed <- try (withTransaction conn (persistComboReplicas conn upsert invalidRows)) :: IO (Either SqlError ())
+    after <- stored
+    afterParams <- parameters
+    afterAudit <- query_ conn "SELECT count(*) FROM replica_batch_audit" :: IO [Only Int]
+    check "a later invalid parameter rolls back all replica batches and audit effects" (isLeft failed && before == after && beforeParams == afterParams && beforeAudit == afterAudit)
+    putStrLn "Combo replica integration passed (bounded statements, duplicates, creation order, empty parameters and rollback)."
 
 equivalent :: Connection -> IO [(Int64, String)]
 equivalent conn = do
