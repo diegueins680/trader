@@ -572,7 +572,7 @@
     "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json": "628b6c470fbf31c6d4ddfa78f1c392375f2608caf9bc564fff3b9d506c58c56a",
     "formal/research/causal-ppo-v5-consumer-source.json": "5e072f7037022396bca4424cdf8c98d4c29f22ce3c21f7b42b3c68c563ac5400",
     "scripts/check-formal-source-lock.py": "f46854bf7778aa8564cd89eccb3bcfd1cea413e97fae4b635157c1be1cdf3e72",
-    "haskell/app/Trader/Ops/ComboParameters.hs": "e4ed9e99a494671429acd54b806465a744cbef0de7238e19e16b86deb71df0f0"
+    "haskell/app/Trader/Ops/ComboParameters.hs": "6f83ba36a7fba5bd9da4f2193ffc2223f5de8e2ecc0216a79ff2bb5961aa54ef"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

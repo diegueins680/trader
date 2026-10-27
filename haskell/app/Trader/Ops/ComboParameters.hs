@@ -4,8 +4,6 @@ module Trader.Ops.ComboParameters (persistComboParameters, persistComboReplicas)
 
 import Control.Monad (void)
 import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Key as AK
-import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Set as Set
 import qualified Data.Text.Encoding as TE
@@ -47,11 +45,21 @@ persistParameterBatch :: Connection -> [(UUID.UUID, Maybe Int, Aeson.Object)] ->
 persistParameterBatch _ [] = pure ()
 persistParameterBatch conn rows = do
     void $ execute conn "DELETE FROM combo_parameters WHERE combo_uuid = ANY(?::uuid[])" (Only (PGArray [uuid | (uuid, _, _) <- rows]))
+    let payload =
+            Aeson.encode
+                [ Aeson.object
+                    [ "combo_uuid" Aeson..= comboUuid
+                    , "strategy_id" Aeson..= mStrategyId
+                    , "params" Aeson..= Aeson.Object params
+                    ]
+                | (comboUuid, mStrategyId, params) <- rows
+                ]
     void $
-        executeMany
+        execute
             conn
-            "INSERT INTO combo_parameters (combo_uuid, name, value_json, strategy_id) VALUES (?, ?, ?, ?)"
-            [ (comboUuid, AK.toText key, Just (TE.decodeUtf8 (BL.toStrict (Aeson.encode value))), mStrategyId)
-            | (comboUuid, mStrategyId, params) <- rows
-            , (key, value) <- KM.toList params
-            ]
+            ( "INSERT INTO combo_parameters (combo_uuid,name,value_json,strategy_id) "
+                <> "SELECT combo.combo_uuid,param.key,param.value,combo.strategy_id "
+                <> "FROM jsonb_to_recordset(?::jsonb) AS combo(combo_uuid uuid,strategy_id integer,params jsonb) "
+                <> "CROSS JOIN LATERAL jsonb_each(combo.params) AS param(key,value)"
+            )
+            (Only (TE.decodeUtf8 (BL.toStrict payload)))

@@ -47,3 +47,4 @@ jobs:
           PY
 
 # Bind the corrected multi-row template, including contextual JSONB inference.
+# Bind the JSON recordset parameter writer after the VALUES-size regression.
