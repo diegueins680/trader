@@ -7,7 +7,7 @@ module Main (main) where
 import Control.Concurrent (forkFinally, killThread, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryReadMVar)
 import Control.Exception (IOException, MaskingState (MaskedInterruptible, Unmasked), SomeException, bracket, bracket_, evaluate, finally, getMaskingState, mask_, toException, try)
-import Control.Monad (forM_, replicateM_, unless, void)
+import Control.Monad (forM_, replicateM_, unless, void, when)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -1242,7 +1242,7 @@ testTopCombosDbReadObservation = do
     ran <- newIORef False
     let cancelObserver event = do
             collect event
-            if tcdrStage event == DbReadConnectionWait then threadDelay 1000000 else pure ()
+            when (tcdrStage event == DbReadConnectionWait) (threadDelay 1000000)
     observerCancelled <- timeout 20000 (withTopCombosDbReadObserved cancelObserver provide (const (writeIORef ran True)))
     queryRan <- readIORef ran
     releasedAfterObserver <- tryReadMVar gate
