@@ -26,6 +26,17 @@ try {
   const liveConfiguration = { configured: liveSymbols.length, reviewedPinCountAfterChange: 11, positionCap: Number(liveEnv.TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP), startPacing: Number(liveEnv.TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE), retentionCount: liveEnv.TRADER_TOP_COMBOS_RETAIN_UUIDS.split(",").length, manifestSha256: liveManifest };
   if (liveManifest !== liveExpectedManifest || liveSymbols.length !== 18 || liveConfiguration.positionCap !== 0.01 || liveConfiguration.startPacing !== 2 || liveConfiguration.retentionCount !== 36) throw Error();
   const liveMemoryEvents = await readFile("/sys/fs/cgroup/memory.events", "utf8");
+  const liveReadLimit = async name => {
+    try {
+      const raw = (await readFile('/sys/fs/cgroup/' + name, 'utf8')).trim();
+      if (raw === 'max') return 'max';
+      if (!/^[0-9]+$/.test(raw)) return null;
+      const bytes = Number(raw);
+      return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
+    } catch { return null; }
+  };
+  const liveCgroupLimits = { memoryMaxBytes: await liveReadLimit('memory.max'), memoryHighBytes: await liveReadLimit('memory.high'), scope: 'Configured cgroup limits observed before warmup; canonical benchmark acceptance and its unset ceiling remain unchanged' };
+
   const liveSnapshot = async () => {
     const health = await liveGet("/health");
     if (health.commit !== liveExpectedCommit) throw Error();
@@ -64,7 +75,7 @@ try {
   const liveBoard = await liveGet("/optimizer/combos");
   const liveRemaining = ["AAVEUSDT", "ATOMUSDT", "DOGEUSDT", "ETHUSDT", "FILUSDT", "LINKUSDT", "SOLUSDT"].map(symbol => ({ symbol, strictCandidates: liveBoard.combos.filter(q => (q.params?.binanceSymbol ?? q.params?.symbol) === symbol && q.processing?.tier === "deployable" && !q.processing?.relaxed).length }));
   const livePinAdmission = liveSymbols.map((symbol, i) => { const q = liveBoard.combos.find(q => q.uuid === livePins[i]); return { symbol, uuid: livePins[i], present: !!q, strictCandidates: liveBoard.combos.filter(row => (row.params?.binanceSymbol ?? row.params?.symbol) === symbol && row.processing?.tier === 'deployable' && !row.processing?.relaxed).length, tier: ['deployable', 'raw', 'quarantined'].includes(q?.processing?.tier) ? q.processing.tier : 'other', relaxed: q?.processing?.relaxed === true }; });
-  const liveOut = { baseline: { at: "2026-10-27T14:00:31.542Z", verifiedWorkers: 11, scope: "Observed running workers with deployable pins before graduation query tracing; canonical benchmark target remains 18" }, pinAdmission: livePinAdmission, reportFile: liveReportFile, at: new Date().toISOString(), commit: liveExpectedCommit, canonicalSha256: liveCanonicalSha256, configuration: liveConfiguration, warmup: liveWarmup, benchmark: liveBenchmark, final: liveFinal, remainingAdmission: liveRemaining, memoryEventsUnchanged: liveMemoryEvents === await readFile("/sys/fs/cgroup/memory.events", "utf8"), benchmarkAcceptanceChanged: false, identityScope: "API runtime pin match or retained open-position origin; position origin is preserved until flat, without independent exchange certification", memoryScope: "canonical benchmark window; startup observations and final board read are outside its memory sampling" };
+  const liveOut = { baseline: { at: "2026-10-27T14:00:31.542Z", verifiedWorkers: 11, scope: "Observed running workers with deployable pins before graduation query tracing; canonical benchmark target remains 18" }, pinAdmission: livePinAdmission, reportFile: liveReportFile, at: new Date().toISOString(), commit: liveExpectedCommit, canonicalSha256: liveCanonicalSha256, configuration: liveConfiguration, cgroupLimits: liveCgroupLimits, warmup: liveWarmup, benchmark: liveBenchmark, final: liveFinal, remainingAdmission: liveRemaining, memoryEventsUnchanged: liveMemoryEvents === await readFile("/sys/fs/cgroup/memory.events", "utf8"), benchmarkAcceptanceChanged: false, identityScope: "API runtime pin match or retained open-position origin; position origin is preserved until flat, without independent exchange certification", memoryScope: "canonical benchmark window; startup observations and final board read are outside its memory sampling" };
   await liveWriteFile(liveReportFile, JSON.stringify(liveOut), { mode: 384 });
   console.log(JSON.stringify(liveOut));
 } catch {
