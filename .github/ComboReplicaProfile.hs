@@ -25,14 +25,14 @@ type Row = (UUID.UUID,Maybe Int,Maybe T.Text,Maybe T.Text,Maybe T.Text,Maybe T.T
 type Replica = (UUID.UUID,Row,Maybe Int,A.Object)
 
 fixture :: Int -> Int -> Int -> [Replica]
-fixture count paramsPadding metricsPadding = map make [1..count] ++ [make 1, make 2, make 1]
+fixture count paramsPadding metricsPadding = map (\n->make n 0) [1..count] ++ [make 1 1, make 2 1, make 1 2, make 1 3]
   where
-    make n =
+    make n revision =
       let uuid=UUID.fromWords 0 0x4000 0x80000000 (fromIntegral n)
-          params=KM.fromList (("padding",A.String (T.replicate paramsPadding "p")):[(AK.fromString ("p"++show k),A.toJSON k)|k<-[1..168::Int]])
-          metrics=A.object ["padding" A..= T.replicate metricsPadding "m", "live" A..= A.object ["operationCount" A..= (n `mod` 30),"netReturn" A..= (0.1::Double)]]
+          params=if revision==3 then KM.empty else KM.fromList (("padding",A.String (T.replicate paramsPadding "p")):[(AK.fromString ("p"++show k),A.toJSON k)|k<-[1..168::Int]])
+          metrics=A.object (["padding" A..= T.replicate metricsPadding "m"] ++ ["live" A..= A.object ["operationCount" A..= (if revision==1 then 50 else n `mod` 30),"netReturn" A..= (0.1::Double)] | revision/=3])
           encoded v=Just (TE.decodeUtf8 (BL.toStrict (A.encode v)))
-          row=(uuid,Nothing,Just "SYNTHUSDT",Just "6h",Just "sharpe",Just "synthetic",Just 2,Just 0.2,Just (fromIntegral n),Just 0.01,Just 0.02,encoded (A.Object params),encoded metrics,0,Just (fromIntegral n),1234)
+          row=(uuid,Nothing,Just "SYNTHUSDT",Just "6h",Just "sharpe",Just "synthetic",Just 2,Just 0.2,Just (fromIntegral (n+revision*10000)),Just 0.01,Just 0.02,encoded (A.Object params),encoded metrics,0,(if n==1 && revision==0 then Nothing else Just (if n==1 then if revision==1 then 7 else 9 else fromIntegral n)),1234)
       in (uuid,row,Nothing,params)
 
 fingerprint :: Connection -> IO [(Int64,Maybe String,Int64,Maybe String)]
@@ -57,11 +57,13 @@ main=do
         before<-getMonotonicTimeNSec
         withTransaction conn $ (if mode=="previous" then previous else persistComboReplicas conn comboUpsertSql) (fixture count pp mp)
         after<-getMonotonicTimeNSec
+        expected<-query_ conn "SELECT created_at_ms, (metrics_json->'live'->>'operationCount')::int FROM combos WHERE combo_uuid='00000000-0000-4000-8000-000000000001'" :: IO [(Maybe Int64,Maybe Int)]
+        unless (expected==[(Just 7,Just 50)]) (fail "Creation or richer live evidence changed")
         result<-fingerprint conn
         pure (mode,fromIntegral (after-before)/1000000::Double,result)
    cases<-forM [(1038,3900,1000),(4544,8600,8700)] $ \(count,pp,mp)->do
     pairs<-forM [0..2::Int] $ \i->do
-     let modes=if even i then ["previous","batched"] else ["batched","previous"]
+     let modes=if even i then ["previous"::String,"batched"] else ["batched","previous"]
      results<-mapM (measure count pp mp) modes
      let states=[state|(_,_,state)<-results]
      unless (all (==head states) (tail states)) (fail "Exact replica state differed")

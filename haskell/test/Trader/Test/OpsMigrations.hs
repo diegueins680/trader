@@ -16,7 +16,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Database.PostgreSQL.Simple (Connection, Only (..), SqlError, begin, close, connectPostgreSQL, execute, execute_, query, query_, rollback, withTransaction)
-import Database.PostgreSQL.Simple.Types (Query)
+import Database.PostgreSQL.Simple.Types (PGArray (..), Query)
 import System.Environment (lookupEnv)
 import Trader.Ops.ComboParameters (persistComboParameters, persistComboReplicas)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
@@ -177,7 +177,7 @@ checkComboReplicas conn = do
                 <> "CREATE FUNCTION audit_replica_batch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO replica_batch_audit SELECT count(*) FROM inserted; RETURN NULL; END $$; "
                 <> "CREATE TRIGGER audit_replica_batch AFTER INSERT ON combos REFERENCING NEW TABLE AS inserted FOR EACH STATEMENT EXECUTE FUNCTION audit_replica_batch()"
             )
-    let uuid n = UUID.fromWords 0 0x4000 0x80000000 n
+    let uuid = UUID.fromWords 0 0x4000 0x80000000
         upsert =
             "INSERT INTO combos (combo_uuid, score, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (combo_uuid) DO UPDATE SET score=EXCLUDED.score, created_at_ms=COALESCE(combos.created_at_ms,EXCLUDED.created_at_ms)"
         replica n stamp params = (uuid n, (uuid n, fromIntegral n :: Double, stamp :: Maybe Int64), Nothing, params)
@@ -189,6 +189,17 @@ checkComboReplicas conn = do
     check "201 distinct replicas use bounded batches of 100, 100 and 1" (batches == [Only 1, Only 100, Only 100])
     inserted <- query_ conn "SELECT count(*) FROM combo_parameters WHERE combo_uuid >= '00000000-0000-4000-8000-000000002710' AND combo_uuid <= '00000000-0000-4000-8000-0000000027d8'" :: IO [Only Int]
     check "batched replicas retain every parameter row" (inserted == [Only 201])
+    strategyIds <- query_ conn "SELECT id FROM strategies WHERE code='parameter-test'" :: IO [Only Int]
+    strategyId <- case strategyIds of
+        [Only sid] -> pure sid
+        _ -> ioError (userError "replica fixture strategy missing")
+    let associated =
+            [ (uuid 19000, (uuid 19000, 1 :: Double, Nothing :: Maybe Int64), Just strategyId, KM.singleton "associated" Aeson.Null)
+            , replica 19001 Nothing (KM.singleton "unassociated" (Aeson.Bool True))
+            ]
+    withTransaction conn (persistComboReplicas conn upsert associated)
+    associations <- query conn "SELECT combo_uuid,strategy_id FROM combo_parameters WHERE combo_uuid=ANY(?::uuid[]) ORDER BY combo_uuid" (Only (PGArray [uuid 19000, uuid 19001])) :: IO [(UUID.UUID, Maybe Int)]
+    check "a mixed batch preserves each parameter strategy association" (associations == [(uuid 19000, Just strategyId), (uuid 19001, Nothing)])
     let duplicate = uuid 20000
         other = uuid 20001
         duplicateRows =
@@ -206,7 +217,7 @@ checkComboReplicas conn = do
     before <- stored
     beforeParams <- parameters
     beforeAudit <- query_ conn "SELECT count(*) FROM replica_batch_audit" :: IO [Only Int]
-    withTransaction conn (persistComboReplicas conn upsert (take 0 rows))
+    withTransaction conn (persistComboReplicas conn upsert ([] :: [(UUID.UUID, (UUID.UUID, Double, Maybe Int64), Maybe Int, Aeson.Object)]))
     afterEmptyAudit <- query_ conn "SELECT count(*) FROM replica_batch_audit" :: IO [Only Int]
     check "an empty replica batch issues no upsert" (beforeAudit == afterEmptyAudit)
     let invalidRows =

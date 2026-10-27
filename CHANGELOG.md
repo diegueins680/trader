@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Performance/Top Combos: batch database replica writes across up to 100 distinct UUIDs per group. Preserve repeated-UUID order, first non-null creation timestamps, richer live evidence, parameter replacement, strategy associations, transaction rollback and invalid-row fallback.
+
 - Operations/Top Combos: correlate initial database-connection wait and each query-attempt lifetime with the existing sync gate. Preserve serialization, retries, lazy results, masking and cancellation; emit only fixed labels and numeric timings, without query text or payloads.
 
 - Trading/Live Fleet: refresh the raw OP pin using a fresh strict-tier candidate within runtime compute limits and retain every previous pin across both Hetzner roles and both Fly profiles (35 UUIDs). AAVE, ARB, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence. Preserve risk caps, startup pacing, admission checks and the graduation window.

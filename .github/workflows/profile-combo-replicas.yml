@@ -78,3 +78,5 @@ jobs:
       - run: cd haskell && cabal update
       - name: Compare actual replica writers in disposable PostgreSQL
         run: cd haskell && cabal exec runghc -- -iapp -i../.github ../.github/ComboReplicaProfile.hs
+
+# Final fixture includes ordered creation stamps and richer/stale/missing live evidence.
