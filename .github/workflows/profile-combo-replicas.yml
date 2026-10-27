@@ -82,3 +82,4 @@ jobs:
 # Final fixture includes ordered creation stamps and richer/stale/missing live evidence.
 # Print the lazy encoded report using the bytestring API supported by this pin.
 # Compare smaller groups after the 100-row candidate measured slower.
+# Reject unknown modes in the writer action.

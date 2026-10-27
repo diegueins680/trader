@@ -58,7 +58,7 @@ main=do
        measure count pp mp mode=do
         void (execute_ conn "TRUNCATE combos CASCADE")
         before<-getMonotonicTimeNSec
-        withTransaction conn $ (case mode of "previous" -> previous; "batch8" -> Batch8.persistComboReplicas conn batchedComboUpsertSql; "batch25" -> Batch25.persistComboReplicas conn batchedComboUpsertSql; _ -> fail "Unknown profile mode") (fixture count pp mp)
+        withTransaction conn $ (case mode of "previous" -> previous; "batch8" -> Batch8.persistComboReplicas conn batchedComboUpsertSql; "batch25" -> Batch25.persistComboReplicas conn batchedComboUpsertSql; _ -> \_ -> fail "Unknown profile mode") (fixture count pp mp)
         after<-getMonotonicTimeNSec
         expected<-query_ conn "SELECT created_at_ms, (metrics_json->'live'->>'operationCount')::int FROM combos WHERE combo_uuid='00000000-0000-4000-8000-000000000001'" :: IO [(Maybe Int64,Maybe Int)]
         unless (expected==[(Just 7,Just 50)]) (fail "Creation or richer live evidence changed")
