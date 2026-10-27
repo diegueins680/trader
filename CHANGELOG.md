@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Trading/Live Fleet: refresh the raw OP pin using a fresh strict-tier candidate within runtime compute limits and retain every previous pin across both Hetzner roles and both Fly profiles (35 UUIDs). AAVE, ARB, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence. Preserve risk caps, startup pacing, admission checks and the graduation window.
+
 - Performance/Top Combos: share one retention-aware reference across replica comparisons in each sync pass, reducing repeated leaderboard normalization during planning.
 
 - Trading/Live Fleet: refresh XRP after its pinned record became raw, using a fresh strict-tier candidate within runtime compute limits. Keep all previous pins in shared retention (34 UUIDs). SOL now joins ARB, ATOM, ETH, LINK and OP awaiting qualifying evidence; risk caps, startup pacing, admission checks and the graduation window are unchanged.
