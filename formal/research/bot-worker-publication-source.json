@@ -5,7 +5,7 @@
   "supportHashes": {
     "haskell/test/Trader/Test/WorkerPublication.hs": "27a9f405c1569354bfb380fcdc1e7aae0d3f42d718491d15d64176fb06a1d908",
     "haskell/trader.cabal": "c37910532060a3bb37b356fb9c945256577c3dc2545825fc78f21736bd78130e",
-    "haskell/test/TestMain.hs": "811def667e8772133c11e29166bd3b709848f7566d8d5fe77d11da7cd1df2852",
+    "haskell/test/TestMain.hs": "db41fb541bfed8d59b445fa0bc80e3cf936dbb7d917ed1f2fa558a6cd49f18de",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46"
   }
 }

@@ -1,4 +1,4 @@
-name: Record final database read tracing source receipt
+name: Record complete database read tracing source receipt
 
 on:
   push:
