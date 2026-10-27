@@ -14,6 +14,10 @@ module Trader.TopCombosStore (
     TopCombosSyncPhaseEvent (..),
     withTopCombosSyncPhaseObserved,
     writeTopCombosSyncPhaseEvent,
+    TopCombosDbReadStage (..),
+    TopCombosDbReadEvent (..),
+    withTopCombosDbReadObserved,
+    writeTopCombosDbReadEvent,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -87,6 +91,7 @@ import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (SomeException, bracket, finally, mask, throwIO)
+import Control.Monad (when)
 import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -97,7 +102,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy, sortOn)
 import qualified Data.Map.Strict as M
@@ -305,6 +310,52 @@ writeTopCombosSyncPhaseEvent handle attemptId atMs event = do
                 , "phase" .= (label :: String)
                 , "state" .= (state :: String)
                 , "elapsedMs" .= elapsedMs
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
+
+data TopCombosDbReadStage = DbReadConnectionWait | DbReadQuery
+    deriving (Eq, Show)
+
+data TopCombosDbReadEvent = TopCombosDbReadEvent
+    { tcdrStage :: !TopCombosDbReadStage
+    , tcdrQueryAttempt :: !Int
+    , tcdrElapsedMs :: !Double
+    }
+    deriving (Eq, Show)
+
+{- | Observe initial connection acquisition and each query invocation without
+changing the provider's retry policy or forcing its result. Query completion
+records lifetime, including failure/cancellation, rather than success.
+-}
+withTopCombosDbReadObserved :: (TopCombosDbReadEvent -> IO ()) -> ((connection -> IO a) -> IO a) -> (connection -> IO a) -> IO a
+withTopCombosDbReadObserved observe provide action = do
+    startedAt <- getMonotonicTimeNSec
+    attempts <- newIORef 0
+    let emit stage attempt begin = do
+            endedAt <- getMonotonicTimeNSec
+            let elapsedMs = fromIntegral (toInteger endedAt - toInteger begin) / 1000000
+            _ <- trySync (observe (TopCombosDbReadEvent stage attempt elapsedMs)) :: IO (Either SomeException ())
+            pure ()
+    provide $ \connection -> do
+        attempt <- atomicModifyIORef' attempts (\n -> (n + 1, n + 1))
+        when (attempt == 1) (emit DbReadConnectionWait attempt startedAt)
+        mask $ \restore -> do
+            queryStartedAt <- getMonotonicTimeNSec
+            restore (action connection) `finally` emit DbReadQuery attempt queryStartedAt
+
+writeTopCombosDbReadEvent :: Handle -> String -> Int64 -> TopCombosDbReadEvent -> IO ()
+writeTopCombosDbReadEvent handle attemptId atMs event = do
+    let label = case tcdrStage event of
+            DbReadConnectionWait -> "connection-wait"
+            DbReadQuery -> "query"
+        record =
+            object
+                [ "event" .= ("top_combos_db_read" :: String)
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "stage" .= (label :: String)
+                , "queryAttempt" .= tcdrQueryAttempt event
+                , "elapsedMs" .= tcdrElapsedMs event
                 ]
     BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
 

@@ -595,6 +595,7 @@ import Trader.TopCombosStore (
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    TopCombosDbReadEvent,
     TopCombosMergeStats (..),
     TopCombosPayloadComparison,
     TopCombosStore (..),
@@ -637,9 +638,11 @@ import Trader.TopCombosStore (
     validateComboBacktestRefreshPolicy,
     validateTopCombosReplicaPayload,
     withTopCombosBuildGateObserved,
+    withTopCombosDbReadObserved,
     withTopCombosLock,
     withTopCombosSyncPhaseObserved,
     writeTopCombosBuildGateEvent,
+    writeTopCombosDbReadEvent,
     writeTopCombosSyncPhaseEvent,
     writeTopCombosValue,
  )
@@ -2476,9 +2479,9 @@ fetchTopCombosReplicaLocal path = do
                     Left err -> topCombosReplicaFailure "local" err
                     Right normalized -> topCombosReplicaPayload "local" normalized
 
-fetchTopCombosReplicaDb :: OpsStore -> IO TopCombosReplicaFetch
-fetchTopCombosReplicaDb store = do
-    result <- readTopCombosValueFromDbRaw store
+fetchTopCombosReplicaDb :: (TopCombosDbReadEvent -> IO ()) -> OpsStore -> IO TopCombosReplicaFetch
+fetchTopCombosReplicaDb observe store = do
+    result <- readTopCombosValueFromDbRawObserved (Just observe) store
     pure $
         case result of
             Left err
@@ -2560,7 +2563,10 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                             atMs <- getTimestampMs
                             writeTopCombosSyncPhaseEvent stderr attemptId atMs event
                         runPhase phase = withTopCombosSyncPhaseObserved phase observe
-                    dbFetch <- runPhase SyncReadDb (traverse fetchTopCombosReplicaDb mOps)
+                        observeDb event = do
+                            atMs <- getTimestampMs
+                            writeTopCombosDbReadEvent stderr attemptId atMs event
+                    dbFetch <- runPhase SyncReadDb (traverse (fetchTopCombosReplicaDb observeDb) mOps)
                     s3Fetch <- runPhase SyncReadS3 fetchTopCombosReplicaS3
                     stateSyncFetch <- runPhase SyncReadState (fetchTopCombosReplicaStateSync mStateSyncTarget)
                     forM_ (catMaybes [dbFetch, s3Fetch, stateSyncFetch]) (updateTopCombosSyncError errRef)
@@ -21027,7 +21033,10 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
             pure ()
 
 readTopCombosValueFromDbRaw :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDbRaw store = do
+readTopCombosValueFromDbRaw = readTopCombosValueFromDbRawObserved Nothing
+
+readTopCombosValueFromDbRawObserved :: Maybe (TopCombosDbReadEvent -> IO ()) -> OpsStore -> IO (Either String Aeson.Value)
+readTopCombosValueFromDbRawObserved mObserve store = do
     result <- trySync readDb :: IO (Either SomeException (Either String Aeson.Value))
     case result of
         Left e -> pure (Left ("Failed to read top combos from the database: " ++ show e))
@@ -21037,10 +21046,13 @@ readTopCombosValueFromDbRaw store = do
         maxCombos <- optimizerMaxCombosFromEnv
         retainedUuids <- retainedComboUuidsFromEnv
         let limitSafe = max 1 maxCombos
+            withReadConnection = case mObserve of
+                Nothing -> withOpsConnection store
+                Just observe -> withTopCombosDbReadObserved observe (withOpsConnection store)
         -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
         -- function of payload-visible columns so the content fingerprint can stand in for it.
         rows <-
-            withOpsConnection store $ \conn ->
+            withReadConnection $ \conn ->
                 query
                     conn
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
