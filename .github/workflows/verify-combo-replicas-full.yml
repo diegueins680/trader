@@ -88,5 +88,20 @@ jobs:
           "$RUNNER_TEMP/combo-replicas-formal/bin/python3" -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
           python3 -m pip install -r scripts/research/sequential-requirements.txt
       - run: npm --workspaces=false --prefix haskell/web ci
+      - name: Reproduce exact source receipt before full verification
+        run: |
+          if ! "$TRADER_FORMAL_PYTHON" scripts/formal/verify.py --record > /tmp/combo-replicas-formal-record.log 2>&1; then
+            tail -60 /tmp/combo-replicas-formal-record.log
+            exit 1
+          fi
+      - name: Export exact generated receipt for review
+        run: |
+          python3 - <<'PYCODE'
+          import base64, hashlib, pathlib, zlib
+          raw = pathlib.Path('formal/research/results.json').read_bytes()
+          encoded = base64.b64encode(zlib.compress(raw)).decode('ascii')
+          print('COMBO_REPLICAS_RECEIPT_SHA256=' + hashlib.sha256(raw).hexdigest())
+          for offset in range(0, len(encoded), 4096):
+              print('COMBO_REPLICAS_RECEIPT_CHUNK=' + encoded[offset:offset+4096])
+          PYCODE
       - run: bash scripts/verify.sh full
-

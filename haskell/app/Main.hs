@@ -6459,11 +6459,10 @@ data BotController = BotController
     , bcRuntimeEpoch :: IORef Int
     , bcManualInFlight :: IORef Int
     , bcDrain :: DrainController
-    {- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
-    ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
-    ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
-    ^ Binance account UID per credential pair, resolved once for live ownership identity.
-    -}
+    -- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
+    --     ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
+    --     ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
+    --     ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -14357,17 +14356,15 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
     , tcbcMinTradesForAbort :: !Int
-    {- ^ Minimum trade count for a sub-threshold smoke backtest to be
-    treated as 'BacktestAbort'. Below this, the verdict is
-    'BacktestNoVerdict' (fail open, no prune). Tunable via
-    @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
-    'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
-    -}
+    -- ^ Minimum trade count for a sub-threshold smoke backtest to be
+    --     treated as 'BacktestAbort'. Below this, the verdict is
+    --     'BacktestNoVerdict' (fail open, no prune). Tunable via
+    --     @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
+    --     'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
     , tcbcRefreshPolicy :: !ComboBacktestRefreshPolicy
-    {- ^ Policy for periodic top-combo backtest refresh selection and
-    pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
-    @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
-    -}
+    -- ^ Policy for periodic top-combo backtest refresh selection and
+    --     pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
+    --     @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -17161,9 +17158,9 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( trySync
-            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
-            IO (Either IOException ())
-        )
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
+                IO (Either IOException ())
+            )
             `finally` do
                 void (beginDrain drain)
                 runServeShutdown shutdownTimeoutSec port mJournal mOps workers asyncStores listenKeyManager mBotStateDir bot
