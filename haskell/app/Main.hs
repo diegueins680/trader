@@ -20995,7 +20995,7 @@ persistTopCombosToDbBulk conn export =
         persistComboReplicas
             conn
             ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
-                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
+                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 <> "ON CONFLICT (combo_uuid) DO UPDATE "
                 <> "SET strategy_id = EXCLUDED.strategy_id, "
                 <> "symbol = EXCLUDED.symbol, "

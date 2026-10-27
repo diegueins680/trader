@@ -80,3 +80,4 @@ jobs:
         run: cd haskell && cabal exec runghc -- -iapp -i../.github ../.github/ComboReplicaProfile.hs
 
 # Final fixture includes ordered creation stamps and richer/stale/missing live evidence.
+# Print the lazy encoded report using the bytestring API supported by this pin.

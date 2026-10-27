@@ -45,3 +45,5 @@ jobs:
           for offset in range(0, len(encoded), 4096):
               print('COMBO_REPLICAS_RECEIPT_CHUNK=' + encoded[offset:offset+4096])
           PY
+
+# Bind the corrected multi-row template, including contextual JSONB inference.

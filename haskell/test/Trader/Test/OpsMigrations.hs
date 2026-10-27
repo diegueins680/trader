@@ -8,6 +8,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.String (fromString)
@@ -200,6 +201,20 @@ checkComboReplicas conn = do
     withTransaction conn (persistComboReplicas conn upsert associated)
     associations <- query conn "SELECT combo_uuid,strategy_id FROM combo_parameters WHERE combo_uuid=ANY(?::uuid[]) ORDER BY combo_uuid" (Only (PGArray [uuid 19000, uuid 19001])) :: IO [(UUID.UUID, Maybe Int)]
     check "a mixed batch preserves each parameter strategy association" (associations == [(uuid 19000, Just strategyId), (uuid 19001, Nothing)])
+    let jsonUuid = uuid 19500
+        jsonParams = Aeson.object ["null" Aeson..= Aeson.Null, "nested" Aeson..= [Aeson.Bool True, Aeson.String "Unicode 你好 ' \\"]]
+        jsonMetrics = Aeson.object ["live" Aeson..= Aeson.object ["operationCount" Aeson..= (12 :: Int)]]
+        jsonUpsert = "INSERT INTO combos (combo_uuid,params_json,metrics_json) VALUES (?, ?, ?) ON CONFLICT (combo_uuid) DO UPDATE SET params_json=EXCLUDED.params_json,metrics_json=EXCLUDED.metrics_json"
+        jsonRows =
+            [ (jsonUuid, (jsonUuid, Just (TE.decodeUtf8 (BL.toStrict (Aeson.encode jsonParams))), Just (TE.decodeUtf8 (BL.toStrict (Aeson.encode jsonMetrics)))), Nothing, KM.empty)
+            , (uuid 19501, (uuid 19501, Nothing, Nothing), Nothing, KM.empty)
+            ]
+    withTransaction conn (persistComboReplicas conn jsonUpsert jsonRows)
+    storedJson <- query conn "SELECT params_json::text,metrics_json::text FROM combos WHERE combo_uuid=?" (Only jsonUuid) :: IO [(T.Text, T.Text)]
+    let decodedJson = [(Aeson.eitherDecodeStrict' (TE.encodeUtf8 params), Aeson.eitherDecodeStrict' (TE.encodeUtf8 metrics)) | (params, metrics) <- storedJson]
+    check "batch VALUES infer JSONB without casts and preserve nulls, nested values, escaping and live evidence" (decodedJson == [(Right jsonParams, Right jsonMetrics)])
+    sqlNulls <- query conn "SELECT params_json IS NULL,metrics_json IS NULL FROM combos WHERE combo_uuid=?" (Only (uuid 19501)) :: IO [(Bool, Bool)]
+    check "batch VALUES preserve SQL NULL distinctly from JSON null" (sqlNulls == [(True, True)])
     let duplicate = uuid 20000
         other = uuid 20001
         duplicateRows =

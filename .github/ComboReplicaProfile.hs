@@ -16,7 +16,7 @@ import qualified Data.UUID.V4 as UUID
 import Database.PostgreSQL.Simple
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Environment (getEnv)
-import ComboUpsertSql (comboUpsertSql)
+import ComboUpsertSql (comboUpsertSql, batchedComboUpsertSql)
 import qualified PreviousComboParameters as Before
 import Trader.Ops.ComboParameters (persistComboReplicas)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
@@ -27,6 +27,7 @@ type Replica = (UUID.UUID,Row,Maybe Int,A.Object)
 fixture :: Int -> Int -> Int -> [Replica]
 fixture count paramsPadding metricsPadding = map (\n->make n 0) [1..count] ++ [make 1 1, make 2 1, make 1 2, make 1 3]
   where
+    make :: Int -> Int -> Replica
     make n revision =
       let uuid=UUID.fromWords 0 0x4000 0x80000000 (fromIntegral n)
           params=if revision==3 then KM.empty else KM.fromList (("padding",A.String (T.replicate paramsPadding "p")):[(AK.fromString ("p"++show k),A.toJSON k)|k<-[1..168::Int]])
@@ -55,7 +56,7 @@ main=do
        measure count pp mp mode=do
         void (execute_ conn "TRUNCATE combos CASCADE")
         before<-getMonotonicTimeNSec
-        withTransaction conn $ (if mode=="previous" then previous else persistComboReplicas conn comboUpsertSql) (fixture count pp mp)
+        withTransaction conn $ (if mode=="previous" then previous else persistComboReplicas conn batchedComboUpsertSql) (fixture count pp mp)
         after<-getMonotonicTimeNSec
         expected<-query_ conn "SELECT created_at_ms, (metrics_json->'live'->>'operationCount')::int FROM combos WHERE combo_uuid='00000000-0000-4000-8000-000000000001'" :: IO [(Maybe Int64,Maybe Int)]
         unless (expected==[(Just 7,Just 50)]) (fail "Creation or richer live evidence changed")
@@ -69,4 +70,4 @@ main=do
      unless (all (==head states) (tail states)) (fail "Exact replica state differed")
      pure [A.object ["mode" A..= mode,"ms" A..= ms]|(mode,ms,_)<-results]
     pure (A.object ["combos" A..= count,"parametersPerCombo" A..= (169::Int),"paramsPadding" A..= pp,"metricsPadding" A..= mp,"pairs" A..= pairs,"exactStatesEqual" A..= True])
-   BL.putStrLn (A.encode (A.object ["passed" A..= True,"scope" A..= ("Disposable PostgreSQL 16; actual unchanged production upsert SQL and frozen main parameter writer; synthetic shapes, alternating order, no live traffic"::String),"cases" A..= cases]))
+   BL.putStr (A.encode (A.object ["passed" A..= True,"scope" A..= ("Disposable PostgreSQL 16; original upsert versus the batched template with only its two redundant VALUES JSON casts removed and frozen main parameter writer; synthetic shapes, alternating order, no live traffic"::String),"cases" A..= cases])) >> putStrLn ""
