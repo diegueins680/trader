@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations/Portfolio: trace the shared graduation-review connection interval and its five query lifetimes, using fixed labels and numeric timings. Preserve query order, retries, cancellation, graduation criteria and the review window.
+
 - Trading/Live Fleet: refresh the unavailable ARB pin with a fresh strict-tier candidate within runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (36 UUIDs). AAVE, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence; risk caps, startup pacing, admission checks and graduation settings are unchanged.
 
 - Performance/Top Combos: batch database replica writes across up to 100 distinct UUIDs per group. Preserve repeated-UUID order, first non-null creation timestamps, richer live evidence, parameter replacement, strategy associations, transaction rollback and invalid-row fallback.

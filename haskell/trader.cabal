@@ -73,6 +73,7 @@ executable trader-hs
                      , Trader.OrderExecution
                      , Trader.Ops.ComboParameters
                      , Trader.Ops.Migrations
+                     , Trader.Ops.GraduationTrace
                      , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
@@ -299,7 +300,9 @@ test-suite trader-tests
   other-modules:       Trader.Binance
                      , Trader.Ops.ComboParameters
                      , Trader.Ops.Migrations
+                     , Trader.Ops.GraduationTrace
                      , Trader.Test.OpsMigrations
+                     , Trader.Test.GraduationTrace
                      , Trader.QuantityRounding
                      , Trader.OrderNumeric
                      , Trader.BinanceTradeAnalysis

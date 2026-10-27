@@ -438,6 +438,7 @@ import Trader.SignalGates (
     signalTrendSmaConfirmed,
     signalTrendSmaConfirmedWithConfig,
  )
+import Trader.Test.GraduationTrace (graduationTraceSuite)
 import Trader.Test.OpsMigrations (testOpsMigrations)
 
 import Trader.Test.AdmissionProgress (admissionProgressSuite)
@@ -924,6 +925,7 @@ main = do
     runOnlineNeuralTests
     runResearchPolicyTests
     runTechnicalAnalysisTests
+    runSuite "graduationTrace" graduationTraceSuite
     runSuite "apiRoutes" apiRouteSuite
     runSuite "cors" corsSuite
     runSuite "formalVerification" formalVerificationSuite
