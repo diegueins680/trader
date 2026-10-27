@@ -574,7 +574,7 @@
     "scripts/check-formal-source-lock.py": "f46854bf7778aa8564cd89eccb3bcfd1cea413e97fae4b635157c1be1cdf3e72",
     "haskell/app/Trader/Ops/ComboParameters.hs": "6f83ba36a7fba5bd9da4f2193ffc2223f5de8e2ecc0216a79ff2bb5961aa54ef",
     "haskell/app/Trader/Ops/GraduationTrace.hs": "58641427d0697afbab73e8f797d5ee4478c55c79eeeb5013093d6772f6320c85",
-    "haskell/test/Trader/Test/GraduationTrace.hs": "4e4a3a6cfc5c6054a46e8e4714f247920b55881a6a75b0154a974a289cf5f7f6"
+    "haskell/test/Trader/Test/GraduationTrace.hs": "772abcb35a4ddf03f59a00a0efc672a01f2e09a3c3ea825f1063f07158397a4a"
   },
   "numpy": "2.3.5",
   "cabalParserLibrary": "3.8.1.0",

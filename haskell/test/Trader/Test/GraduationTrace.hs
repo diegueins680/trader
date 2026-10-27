@@ -10,6 +10,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (sort)
+import Data.Maybe (isNothing)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.IO (SeekMode (AbsoluteSeek), hClose, hFileSize, hFlush, hSeek, openBinaryTempFile)
 import System.IO.Error (ioeGetErrorString)
@@ -56,7 +57,7 @@ testUnwinding = do
     readIORef events >>= checkPair GraduationBaseline
     writeIORef events []
     cancelled <- timeout 20000 (withGraduationPhaseObserved GraduationDaily collect (threadDelay 1000000))
-    check "action cancellation swallowed" (cancelled == Nothing)
+    check "action cancellation swallowed" (isNothing cancelled)
     readIORef events >>= checkPair GraduationDaily
 
 testObserverFailure :: IO ()
@@ -69,7 +70,7 @@ testObserverFailure = do
     ran <- newIORef False
     cancelled <- timeout 20000 (withGraduationPhaseObserved GraduationLatest (const (threadDelay 1000000)) (writeIORef ran True))
     acted <- readIORef ran
-    check "observer cancellation swallowed" (cancelled == Nothing && not acted)
+    check "observer cancellation swallowed" (isNothing cancelled && not acted)
 
 testNestedQueries :: IO ()
 testNestedQueries = do

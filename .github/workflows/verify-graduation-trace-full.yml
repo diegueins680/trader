@@ -99,3 +99,5 @@ jobs:
           print('GRADUATION_RECEIPT_GZIP_BASE64='+base64.b64encode(gzip.compress(raw)).decode())
           PYRECEIPT
       - run: bash scripts/verify.sh full
+
+# Recheck after HLint cleanup of cancellation assertions.
