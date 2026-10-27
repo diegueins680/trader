@@ -1,0 +1,47 @@
+name: Record database read tracing source receipt
+
+on:
+  push:
+    branches: [perf/trace-db-read-wait]
+    paths:
+      - .github/workflows/record-db-read-receipt.yml
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20.19.0"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.3"
+      - uses: haskell/ghcup-setup@v1
+        with:
+          ghc: "9.4.8"
+          cabal: "3.12.1.0"
+      - run: >-
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
+      - name: Reproduce and record the exact reviewed source
+        run: |
+          if ! python3 scripts/formal/verify.py --record > /tmp/db-read-formal-record.log 2>&1; then
+            tail -60 /tmp/db-read-formal-record.log
+            exit 1
+          fi
+      - name: Export verified receipt
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, pathlib, zlib
+          raw = pathlib.Path('formal/research/results.json').read_bytes()
+          encoded = base64.b64encode(zlib.compress(raw)).decode('ascii')
+          print('DB_READ_RECEIPT_SHA256=' + hashlib.sha256(raw).hexdigest())
+          for offset in range(0, len(encoded), 4096):
+              print('DB_READ_RECEIPT_CHUNK=' + encoded[offset:offset+4096])
+          PY

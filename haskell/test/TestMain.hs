@@ -488,6 +488,8 @@ import Trader.TopCombosStore (
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
     TopCombosBuildGateEvent (..),
+    TopCombosDbReadEvent (..),
+    TopCombosDbReadStage (..),
     TopCombosStore (..),
     TopCombosSyncFingerprint (..),
     TopCombosSyncPhase (..),
@@ -530,8 +532,10 @@ import Trader.TopCombosStore (
     validateTopCombosReplicaPayload,
     withTopCombosBuildGate,
     withTopCombosBuildGateObserved,
+    withTopCombosDbReadObserved,
     withTopCombosSyncPhaseObserved,
     writeTopCombosBuildGateEvent,
+    writeTopCombosDbReadEvent,
     writeTopCombosSyncPhaseEvent,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
@@ -592,6 +596,8 @@ main = do
     testTopCombosBuildGateLogAtomicity
     testTopCombosSyncPhaseObservation
     testTopCombosSyncPhaseLog
+    testTopCombosDbReadObservation
+    testTopCombosDbReadLog
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
     testTradeMethodGateUsesResultEvidence
@@ -1188,6 +1194,88 @@ testTopCombosSyncPhaseLog =
             forM_ labels $ \label -> do
                 let matching = filter (\value -> textField "attemptId" value == Just label) decoded
                 assert "sync phase records retain their attempt identity and lifecycle" (map (textField "state") matching == [Just ("started" :: String), Just "finished"])
+
+testTopCombosDbReadObservation :: IO ()
+testTopCombosDbReadObservation = do
+    events <- newIORef []
+    calls <- newIORef (0 :: Int)
+    gate <- newEmptyMVar
+    putMVar gate ()
+    let collect event = modifyIORef' events (event :)
+        provide action = bracket_ (takeMVar gate) (putMVar gate ()) (action ())
+        stages = map (\event -> (tcdrStage event, tcdrQueryAttempt event)) . reverse <$> readIORef events
+        closed label = do
+            observed <- stages
+            assert label (observed == [(DbReadConnectionWait, 1), (DbReadQuery, 1)])
+            measured <- readIORef events
+            assert "DB read durations are finite and nonnegative" (all (\e -> tcdrElapsedMs e >= 0 && not (isNaN (tcdrElapsedMs e)) && not (isInfinite (tcdrElapsedMs e))) measured)
+    value <- withTopCombosDbReadObserved collect provide (const (pure (7 :: Int)))
+    assert "DB read observation preserves values" (value == 7)
+    closed "normal DB query closes"
+    writeIORef events []
+    failed <- try (withTopCombosDbReadObserved collect provide (const (ioError (userError "private-db-query")))) :: IO (Either IOException ())
+    assert "DB read observation preserves query exceptions" (either (isInfixOf "private-db-query" . show) (const False) failed)
+    closed "failed DB query closes"
+    writeIORef events []
+    cancelled <- timeout 20000 (withTopCombosDbReadObserved collect provide (const (threadDelay 1000000)))
+    assert "DB query remains cancellable" (isNothing cancelled)
+    closed "cancelled DB query closes"
+    released <- tryReadMVar gate
+    assert "DB observation preserves provider cleanup after cancellation" (released == Just ())
+    writeIORef events []
+    let retry action = do
+            first <- try (action ()) :: IO (Either IOException Int)
+            either (const (action ())) pure first
+        flaky _ = do
+            modifyIORef' calls (+ 1)
+            count <- readIORef calls
+            if count == 1 then ioError (userError "retry-fixture") else pure 9
+    retried <- withTopCombosDbReadObserved collect retry flaky
+    count <- readIORef calls
+    observed <- stages
+    assert "DB observation delegates retry policy without another acquisition record" (retried == 9 && count == 2 && observed == [(DbReadConnectionWait, 1), (DbReadQuery, 1), (DbReadQuery, 2)])
+    let unavailable _ = ioError (userError "private-db-observer")
+    unaffected <- withTopCombosDbReadObserved unavailable provide (const (pure (11 :: Int)))
+    assert "DB observer failure does not prevent a query" (unaffected == 11)
+    observerFailed <- try (withTopCombosDbReadObserved unavailable provide (const (ioError (userError "private-db-query")))) :: IO (Either IOException ())
+    assert "DB observer failure does not replace the query exception" (either (isInfixOf "private-db-query" . show) (const False) observerFailed)
+    ran <- newIORef False
+    let cancelObserver event = do
+            collect event
+            if tcdrStage event == DbReadConnectionWait then threadDelay 1000000 else pure ()
+    observerCancelled <- timeout 20000 (withTopCombosDbReadObserved cancelObserver provide (const (writeIORef ran True)))
+    queryRan <- readIORef ran
+    releasedAfterObserver <- tryReadMVar gate
+    assert "DB observer cancellation preserves admission and provider cleanup" (isNothing observerCancelled && not queryRan && releasedAfterObserver == Just ())
+    _ <- withTopCombosDbReadObserved collect provide (const (pure (error "DB result must remain lazy" :: Int)))
+    unmasked <- withTopCombosDbReadObserved collect provide (const getMaskingState)
+    inherited <- mask_ (withTopCombosDbReadObserved collect provide (const getMaskingState))
+    assert "DB observation preserves caller masking" (unmasked == Unmasked && inherited == MaskedInterruptible)
+
+testTopCombosDbReadLog :: IO ()
+testTopCombosDbReadLog =
+    bracket
+        (openTempFile "/tmp" "trader-db-read-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            _ <- withTopCombosDbReadObserved (writeTopCombosDbReadEvent handle "gate-attempt" 1000) (\action -> action ()) (const (pure ()))
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            values <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let valid value = case value of
+                    Aeson.Object obj ->
+                        Set.fromList (KM.keys obj) == Set.fromList ["event", "attemptId", "atMs", "stage", "queryAttempt", "elapsedMs"]
+                            && KM.lookup "event" obj == Just (Aeson.String "top_combos_db_read")
+                            && KM.lookup "attemptId" obj == Just (Aeson.String "gate-attempt")
+                            && KM.lookup "atMs" obj == Just (Aeson.toJSON (1000 :: Int))
+                            && KM.lookup "queryAttempt" obj == Just (Aeson.toJSON (1 :: Int))
+                            && KM.lookup "stage" obj `elem` [Just (Aeson.String "connection-wait"), Just (Aeson.String "query")]
+                    _ -> False
+            assert "DB read logs contain only fixed labels and numeric observations" (length values == 2 && all valid values)
 
 testPredictorLivenessDetectsDegenerateForecast :: IO ()
 testPredictorLivenessDetectsDegenerateForecast = do

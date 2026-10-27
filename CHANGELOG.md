@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Operations/Top Combos: correlate initial database-connection wait and each query-attempt lifetime with the existing sync gate. Preserve serialization, retries, lazy results, masking and cancellation; emit only fixed labels and numeric timings, without query text or payloads.
+
 - Trading/Live Fleet: refresh the raw OP pin using a fresh strict-tier candidate within runtime compute limits and retain every previous pin across both Hetzner roles and both Fly profiles (35 UUIDs). AAVE, ARB, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence. Preserve risk caps, startup pacing, admission checks and the graduation window.
 
 - Performance/Top Combos: share one retention-aware reference across replica comparisons in each sync pass, reducing repeated leaderboard normalization during planning.
