@@ -1,0 +1,94 @@
+name: Collect graduation holder and fleet evidence
+on:
+  push:
+    branches: [ops/graduation-runtime-20261027]
+    paths:
+      - .github/workflows/graduation-runtime.yml
+      - .github/fleet-diagnostic-runner.mjs
+      - .github/sync-phase-probe.py
+      - .github/arb-effective-risk.py
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect read-only benchmark and worker evidence
+        env:
+          PROBE_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          PROBE_HOST: ${{ secrets.HETZNER_TRADING_HOST }}
+          PROBE_HOST_KEYS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
+          PROBE_USER: ${{ secrets.HETZNER_SSH_USER }}
+          PROBE_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$PROBE_SSH_KEY"
+          test -n "$PROBE_HOST"
+          test -n "$PROBE_HOST_KEYS"
+          key_file="$(mktemp)"
+          host_keys="$(mktemp)"
+          trap 'rm -f "$key_file" "$host_keys"' EXIT
+          printf '%s\n' "$PROBE_SSH_KEY" > "$key_file"
+          printf '%s\n' "$PROBE_HOST_KEYS" > "$host_keys"
+          chmod 600 "$key_file" "$host_keys"
+          printf '%s  %s\n' '24a4e82e05fcd284020c36dc51f9137ec137dedb36059557976bdc704b566f70' scripts/benchmark-live-fleet.mjs | sha256sum -c -
+          cat scripts/benchmark-live-fleet.mjs .github/fleet-diagnostic-runner.mjs > live-diagnostic.mjs
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'docker exec -i trader-api-1 node --input-type=module' \
+            < live-diagnostic.mjs > evidence.json
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'python3 - 3bae81e520993c9a863246c50e29572d71b09fee' \
+            < .github/sync-phase-probe.py > phases.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('evidence.json').read_text())
+          print('GRADUATION_RUNTIME_JSON='+json.dumps(report,separators=(',',':')))
+          phases=json.loads(Path('phases.json').read_text())
+          print('GRADUATION_PHASE_JSON='+json.dumps(phases,separators=(',',':')))
+          assert phases['graduation']['malformedRecords']==0
+          assert phases['graduation']['overlappingGraduationConnectionPairs']==0
+          assert any(a['allQueriesCompleteAndOrdered'] for a in phases['graduation']['attempts'])
+          assert phases['malformedGateRecords']==0 and phases['orphanPhaseRecords']==0
+          assert phases['malformedDbReadRecords']==0 and phases['orphanDbReadRecords']==0
+          assert any(row['dbReadBreakdown']['consistent'] for row in phases['syncAttempts'])
+          assert any(row['complete'] and row['phasesComplete'] for row in phases['syncAttempts'])
+          assert report['commit']=='3bae81e520993c9a863246c50e29572d71b09fee'
+          assert report['canonicalSha256']=='24a4e82e05fcd284020c36dc51f9137ec137dedb36059557976bdc704b566f70'
+          assert report['configuration']['configured']==18
+          assert report['configuration']['reviewedPinCountAfterChange']==11
+          assert report['benchmark']['expectedWorkers']==18
+          assert report['benchmarkAcceptanceChanged'] is False
+          assert report['final']['ready'] is True
+          assert report['final']['botRecoveryReady'] is True
+          assert report['final']['draining'] is False
+          assert report['final']['allObservedWorkerIdentitiesVerified']
+          assert report['final']['workerCountAtLeastReviewed']
+          assert report['final']['allBaselineWorkersVerified']
+          assert report['final']['opWorkerVerified']
+          assert report['final']['arbWorkerVerified']
+          assert report['final']['arbReviewedPinRunning']
+          arb=next(row for row in report['pinAdmission'] if row['symbol']=='ARBUSDT')
+          assert arb['uuid']=='2f4ccff0-e4bd-123b-575d-fb490ecdff50'
+          assert arb['present'] and arb['tier']=='deployable' and arb['relaxed'] is False
+          assert report['final']['mode']=='shadow' and report['final']['reviewDecision']=='pending'
+          assert report['memoryEventsUnchanged']
+          # This job collects evidence; benchmark.passed remains the canonical verdict.
+          PY
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'python3 - 3bae81e520993c9a863246c50e29572d71b09fee' \
+            < .github/arb-effective-risk.py
