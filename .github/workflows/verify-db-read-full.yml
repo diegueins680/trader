@@ -25,7 +25,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      TRADER_FORMAL_PYTHON: "${{ runner.temp }}/db-read-formal/bin/python3"
       # Credentials belong only to this disposable CI service.
       TRADER_TEST_DB_URL: "host=127.0.0.1 port=5432 dbname=trader_test user=trader_test password=trader_test_only"
     steps:
@@ -85,6 +84,7 @@ jobs:
       - name: Install isolated formal and automation dependencies
         run: |
           python3 -m venv "$RUNNER_TEMP/db-read-formal"
+          echo "TRADER_FORMAL_PYTHON=$RUNNER_TEMP/db-read-formal/bin/python3" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/db-read-formal/bin/python3" -m pip install --require-hashes --only-binary=:all: -r scripts/formal/requirements.txt
           python3 -m pip install -r scripts/research/sequential-requirements.txt
       - run: npm --workspaces=false --prefix haskell/web ci
