@@ -439,6 +439,7 @@ import Trader.NeuralGovernor (
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Ops.ComboParameters (persistComboReplicas)
+import Trader.Ops.GraduationTrace (GraduationPhase (..), withLoggedGraduationConnection, withLoggedGraduationPhase)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
@@ -21480,115 +21481,121 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
             | null reviewedUuidValues -> pure (Left "automatic portfolio graduation requires at least one reviewed UUID")
             | reviewEndMs <= firstFullDayMs -> pure (Right emptyPortfolioGraduationEvidence)
             | otherwise ->
-                withOpsConnection store $ \conn -> do
-                    baselineRows <-
-                        query
-                            conn
-                            ( "SELECT combo_uuid, at_ms, equity FROM ("
-                                <> "SELECT combo_uuid, at_ms, equity, "
-                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? AND equity IS NOT NULL "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
-                                <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, baselineCutoffMs, firstFullDayMs) ::
-                            IO [(UUID.UUID, Int64, Double)]
-                    dailyRows <-
-                        query
-                            conn
-                            ( "WITH ranked AS ("
-                                <> "SELECT combo_uuid, (at_ms / 86400000) * 86400000 AS day_ms, equity, "
-                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid, (at_ms / 86400000) ORDER BY at_ms DESC, id DESC) AS rn "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
-                                <> ") SELECT day_ms, combo_uuid, equity FROM ranked WHERE rn = 1 "
-                                <> "ORDER BY day_ms, combo_uuid"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, UUID.UUID, Double)]
-                    orderRows <-
-                        query
-                            conn
-                            ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE result_json #>> '{event,order,sent}' = 'true') "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.order' AND at_ms >= ? AND at_ms < ?"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, Int64)]
-                    statusRows <-
-                        query
-                            conn
-                            ( "WITH bucketed_rows AS ("
-                                <> "SELECT combo_uuid, ((at_ms - ?) / ?) AS bucket_index, result_json "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ?"
-                                <> "), bucketed AS ("
-                                <> "SELECT combo_uuid, bucket_index, BOOL_AND("
-                                <> "COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
-                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
-                                <> "AND result_json->>'error' IS NULL) AS healthy "
-                                <> "FROM bucketed_rows GROUP BY combo_uuid, bucket_index"
-                                <> ") SELECT COUNT(*), COUNT(*) FILTER (WHERE healthy) FROM bucketed"
-                            )
-                            (firstFullDayMs, pgcStatusIntervalMs config, tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, Int64)]
-                    latestRows <-
-                        query
-                            conn
-                            ( "SELECT combo_uuid, at_ms, "
-                                <> "COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
-                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
-                                <> "AND result_json->>'error' IS NULL AS healthy "
-                                <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
-                                <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
-                            IO [(UUID.UUID, Int64, Bool)]
-                    pure $ do
-                        fleetEquities <-
-                            portfolioGraduationFleetEquities
-                                firstFullDayMs
-                                (pgcMaximumBaselineAgeMs config)
-                                reviewedUuids
-                                [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
-                                [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
-                        (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
-                        let (executionAttempts, executionSuccesses) = intPair orderRows
-                            statusCoverage =
-                                portfolioGraduationStatusCoverage
+                withOpsConnection store $ \conn ->
+                    withLoggedGraduationConnection stderr $ \attemptId -> do
+                        baselineRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationBaseline $
+                                query
+                                    conn
+                                    ( "SELECT combo_uuid, at_ms, equity FROM ("
+                                        <> "SELECT combo_uuid, at_ms, equity, "
+                                        <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? AND equity IS NOT NULL "
+                                        <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                        <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, baselineCutoffMs, firstFullDayMs) ::
+                                IO [(UUID.UUID, Int64, Double)]
+                        dailyRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationDaily $
+                                query
+                                    conn
+                                    ( "WITH ranked AS ("
+                                        <> "SELECT combo_uuid, (at_ms / 86400000) * 86400000 AS day_ms, equity, "
+                                        <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid, (at_ms / 86400000) ORDER BY at_ms DESC, id DESC) AS rn "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
+                                        <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                        <> ") SELECT day_ms, combo_uuid, equity FROM ranked WHERE rn = 1 "
+                                        <> "ORDER BY day_ms, combo_uuid"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, UUID.UUID, Double)]
+                        orderRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationOrders $
+                                query
+                                    conn
+                                    ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE result_json #>> '{event,order,sent}' = 'true') "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.order' AND at_ms >= ? AND at_ms < ?"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, Int64)]
+                        statusRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationStatus $
+                                query
+                                    conn
+                                    ( "WITH bucketed_rows AS ("
+                                        <> "SELECT combo_uuid, ((at_ms - ?) / ?) AS bucket_index, result_json "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ?"
+                                        <> "), bucketed AS ("
+                                        <> "SELECT combo_uuid, bucket_index, BOOL_AND("
+                                        <> "COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'running')::boolean, false) "
+                                        <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                        <> "AND result_json->>'error' IS NULL) AS healthy "
+                                        <> "FROM bucketed_rows GROUP BY combo_uuid, bucket_index"
+                                        <> ") SELECT COUNT(*), COUNT(*) FILTER (WHERE healthy) FROM bucketed"
+                                    )
+                                    (firstFullDayMs, pgcStatusIntervalMs config, tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, Int64)]
+                        latestRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationLatest $
+                                query
+                                    conn
+                                    ( "SELECT combo_uuid, at_ms, "
+                                        <> "COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'running')::boolean, false) "
+                                        <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                        <> "AND result_json->>'error' IS NULL AS healthy "
+                                        <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
+                                        <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
+                                IO [(UUID.UUID, Int64, Bool)]
+                        pure $ do
+                            fleetEquities <-
+                                portfolioGraduationFleetEquities
                                     firstFullDayMs
-                                    reviewEndMs
-                                    (pgcStatusIntervalMs config)
-                                    (length reviewedUuids)
-                                    (intPair statusRows)
-                            (statusSamples, healthyStatusSamples) = statusCoverage
-                            latestStatusesHealthy =
-                                portfolioGraduationLatestStatusesHealthy
-                                    now
-                                    (pgcMaximumLatestStatusAgeMs config)
+                                    (pgcMaximumBaselineAgeMs config)
                                     reviewedUuids
-                                    [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
-                        Right
-                            PortfolioGraduationEvidence
-                                { pgeDailyObservationCount = dailyObservationCount
-                                , pgeNetReturn = netReturn
-                                , pgeMaxDrawdown = maxDrawdown
-                                , pgeExecutionAttempts = executionAttempts
-                                , pgeExecutionSuccesses = executionSuccesses
-                                , pgeStatusSamples = statusSamples
-                                , pgeHealthyStatusSamples = healthyStatusSamples
-                                , pgeLatestStatusesHealthy = latestStatusesHealthy
-                                }
+                                    [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
+                                    [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
+                            (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
+                            let (executionAttempts, executionSuccesses) = intPair orderRows
+                                statusCoverage =
+                                    portfolioGraduationStatusCoverage
+                                        firstFullDayMs
+                                        reviewEndMs
+                                        (pgcStatusIntervalMs config)
+                                        (length reviewedUuids)
+                                        (intPair statusRows)
+                                (statusSamples, healthyStatusSamples) = statusCoverage
+                                latestStatusesHealthy =
+                                    portfolioGraduationLatestStatusesHealthy
+                                        now
+                                        (pgcMaximumLatestStatusAgeMs config)
+                                        reviewedUuids
+                                        [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
+                            Right
+                                PortfolioGraduationEvidence
+                                    { pgeDailyObservationCount = dailyObservationCount
+                                    , pgeNetReturn = netReturn
+                                    , pgeMaxDrawdown = maxDrawdown
+                                    , pgeExecutionAttempts = executionAttempts
+                                    , pgeExecutionSuccesses = executionSuccesses
+                                    , pgeStatusSamples = statusSamples
+                                    , pgeHealthyStatusSamples = healthyStatusSamples
+                                    , pgeLatestStatusesHealthy = latestStatusesHealthy
+                                    }
   where
     dayMs = 86400000
     reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
