@@ -438,7 +438,7 @@ import Trader.NeuralGovernor (
     parseNeuralGovernorRolloutMode,
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
-import Trader.Ops.ComboParameters (persistComboParameters)
+import Trader.Ops.ComboParameters (persistComboReplicas)
 import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
@@ -6459,10 +6459,11 @@ data BotController = BotController
     , bcRuntimeEpoch :: IORef Int
     , bcManualInFlight :: IORef Int
     , bcDrain :: DrainController
-    -- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
-    --     ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
-    --     ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
-    --     ^ Binance account UID per credential pair, resolved once for live ownership identity.
+    {- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
+    ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
+    ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
+    ^ Binance account UID per credential pair, resolved once for live ownership identity.
+    -}
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -14356,15 +14357,17 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcCandleQueue :: !(TBQueue ())
     , tcbcEnabled :: !Bool
     , tcbcMinTradesForAbort :: !Int
-    -- ^ Minimum trade count for a sub-threshold smoke backtest to be
-    --     treated as 'BacktestAbort'. Below this, the verdict is
-    --     'BacktestNoVerdict' (fail open, no prune). Tunable via
-    --     @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
-    --     'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
+    {- ^ Minimum trade count for a sub-threshold smoke backtest to be
+    treated as 'BacktestAbort'. Below this, the verdict is
+    'BacktestNoVerdict' (fail open, no prune). Tunable via
+    @TRADER_BOT_START_BACKTEST_MIN_TRADES@; defaults to
+    'defaultBotStartupBacktestMinTrades'. Closes H11 (2026-06-12).
+    -}
     , tcbcRefreshPolicy :: !ComboBacktestRefreshPolicy
-    -- ^ Policy for periodic top-combo backtest refresh selection and
-    --     pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
-    --     @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
+    {- ^ Policy for periodic top-combo backtest refresh selection and
+    pruning. Tunable via @TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS@ and
+    @TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR@.
+    -}
     }
 
 withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
@@ -17158,9 +17161,9 @@ runRestApi cliArgs mWebhook = do
     hFlush stdout
     res <-
         ( trySync
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
-                IO (Either IOException ())
-            )
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot botRecoveryReadyRef metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager requestProgressStore mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores drain projectRoot topCombosStore optimizerTmp)) ::
+            IO (Either IOException ())
+        )
             `finally` do
                 void (beginDrain drain)
                 runServeShutdown shutdownTimeoutSec port mJournal mOps workers asyncStores listenKeyManager mBotStateDir bot
@@ -20935,91 +20938,94 @@ persistTopCombosToDbBulk conn export =
         let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]
         opCountMap <- fetchTopComboOperationCounts conn (tceCombos export)
         now <- getTimestampMs
-        forM_ (tceCombos export) $ \combo -> do
-            case uuidFromText (topComboUuid combo) of
-                Nothing -> pure ()
-                Just comboUuid -> do
-                    let mStrategyId = HM.lookup (strategyCodeFromMethod (topComboParamString "method" combo)) strategyMap
-                        mSymbol = T.pack <$> topComboSymbol combo
-                        mInterval = T.pack <$> topComboParamString "interval" combo
-                        mObjective = T.pack <$> tcObjectiveLabel combo
-                        mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
-                        mAnnualized = topComboMetricDouble "annualizedReturn" combo
-                        paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
-                        metricsWithFreshness =
-                            maybe
-                                id
-                                (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
-                                (tcBacktestRefreshedAtMs combo)
-                                (fromMaybe KM.empty (tcMetrics combo))
-                        -- PostgreSQL is a full top-combo replica, not merely a
-                        -- ranking cache. Keep the top-level portfolio evidence
-                        -- in metrics_json so a DB fallback/replica union cannot
-                        -- silently discard the OOS return series required by
-                        -- canary portfolio selection.
-                        metricsObj =
-                            maybe
-                                metricsWithFreshness
-                                (\evidence -> KM.insert (AK.fromString "portfolioEvidence") (toJSON evidence) metricsWithFreshness)
-                                (tcPortfolioEvidence combo)
-                        metricsJson =
-                            if KM.null metricsObj
-                                then Nothing
-                                else encodeJsonTextMaybe (Just (Aeson.Object metricsObj))
-                        opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
-                        createdAtMs = tcCreatedAtMs combo
-                    void $
-                        execute
-                            conn
-                            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
-                                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
-                                <> "ON CONFLICT (combo_uuid) DO UPDATE "
-                                <> "SET strategy_id = EXCLUDED.strategy_id, "
-                                <> "symbol = EXCLUDED.symbol, "
-                                <> "interval = EXCLUDED.interval, "
-                                <> "objective = EXCLUDED.objective, "
-                                <> "source = EXCLUDED.source, "
-                                <> "final_equity = EXCLUDED.final_equity, "
-                                <> "annualized_return = EXCLUDED.annualized_return, "
-                                <> "score = EXCLUDED.score, "
-                                <> "open_threshold = EXCLUDED.open_threshold, "
-                                <> "close_threshold = EXCLUDED.close_threshold, "
-                                <> "params_json = EXCLUDED.params_json, "
-                                -- A payload combo must not erase or downgrade the live record
-                                -- accumulated in this DB from completed orders: a payload
-                                -- without live stats keeps the DB record, and a stale payload
-                                -- with fewer live operations loses to the richer DB record
-                                -- (same comparison as the in-memory annotation path).
-                                <> "metrics_json = CASE "
-                                <> "WHEN combos.metrics_json IS NOT NULL "
-                                <> "AND jsonb_exists(combos.metrics_json, 'live') "
-                                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live') "
-                                <> "OR COALESCE((EXCLUDED.metrics_json->'live'->>'operationCount')::numeric, 0) "
-                                <> "< COALESCE((combos.metrics_json->'live'->>'operationCount')::numeric, 0)) "
-                                <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
-                                <> "ELSE EXCLUDED.metrics_json END, "
-                                <> "operation_count = EXCLUDED.operation_count, "
-                                <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
-                                <> "updated_at_ms = EXCLUDED.updated_at_ms"
-                            )
-                            ( comboUuid
-                            , mStrategyId
-                            , mSymbol
-                            , mInterval
-                            , mObjective
-                            , mSource
-                            , tcFinalEquity combo
-                            , mAnnualized
-                            , tcScore combo
-                            , tcOpenThreshold combo
-                            , tcCloseThreshold combo
-                            , paramsJson
-                            , metricsJson
-                            , opCount
-                            , createdAtMs
-                            , now
-                            )
-                    persistComboParameters conn comboUuid mStrategyId (tcParams combo)
+        let replica combo = do
+                comboUuid <- uuidFromText (topComboUuid combo)
+                let mStrategyId = HM.lookup (strategyCodeFromMethod (topComboParamString "method" combo)) strategyMap
+                    mSymbol = T.pack <$> topComboSymbol combo
+                    mInterval = T.pack <$> topComboParamString "interval" combo
+                    mObjective = T.pack <$> tcObjectiveLabel combo
+                    mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
+                    mAnnualized = topComboMetricDouble "annualizedReturn" combo
+                    paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
+                    metricsWithFreshness =
+                        maybe
+                            id
+                            (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
+                            (tcBacktestRefreshedAtMs combo)
+                            (fromMaybe KM.empty (tcMetrics combo))
+                    -- PostgreSQL is a full top-combo replica, not merely a
+                    -- ranking cache. Keep the top-level portfolio evidence
+                    -- in metrics_json so a DB fallback/replica union cannot
+                    -- silently discard the OOS return series required by
+                    -- canary portfolio selection.
+                    metricsObj =
+                        maybe
+                            metricsWithFreshness
+                            (\evidence -> KM.insert (AK.fromString "portfolioEvidence") (toJSON evidence) metricsWithFreshness)
+                            (tcPortfolioEvidence combo)
+                    metricsJson =
+                        if KM.null metricsObj
+                            then Nothing
+                            else encodeJsonTextMaybe (Just (Aeson.Object metricsObj))
+                    opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
+                    createdAtMs = tcCreatedAtMs combo
+                pure
+                    ( comboUuid
+                    ,
+                        ( comboUuid
+                        , mStrategyId
+                        , mSymbol
+                        , mInterval
+                        , mObjective
+                        , mSource
+                        , tcFinalEquity combo
+                        , mAnnualized
+                        , tcScore combo
+                        , tcOpenThreshold combo
+                        , tcCloseThreshold combo
+                        , paramsJson
+                        , metricsJson
+                        , opCount
+                        , createdAtMs
+                        , now
+                        )
+                    , mStrategyId
+                    , tcParams combo
+                    )
+        persistComboReplicas
+            conn
+            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
+                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
+                <> "ON CONFLICT (combo_uuid) DO UPDATE "
+                <> "SET strategy_id = EXCLUDED.strategy_id, "
+                <> "symbol = EXCLUDED.symbol, "
+                <> "interval = EXCLUDED.interval, "
+                <> "objective = EXCLUDED.objective, "
+                <> "source = EXCLUDED.source, "
+                <> "final_equity = EXCLUDED.final_equity, "
+                <> "annualized_return = EXCLUDED.annualized_return, "
+                <> "score = EXCLUDED.score, "
+                <> "open_threshold = EXCLUDED.open_threshold, "
+                <> "close_threshold = EXCLUDED.close_threshold, "
+                <> "params_json = EXCLUDED.params_json, "
+                -- A payload combo must not erase or downgrade the live record
+                -- accumulated in this DB from completed orders: a payload
+                -- without live stats keeps the DB record, and a stale payload
+                -- with fewer live operations loses to the richer DB record
+                -- (same comparison as the in-memory annotation path).
+                <> "metrics_json = CASE "
+                <> "WHEN combos.metrics_json IS NOT NULL "
+                <> "AND jsonb_exists(combos.metrics_json, 'live') "
+                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live') "
+                <> "OR COALESCE((EXCLUDED.metrics_json->'live'->>'operationCount')::numeric, 0) "
+                <> "< COALESCE((combos.metrics_json->'live'->>'operationCount')::numeric, 0)) "
+                <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
+                <> "ELSE EXCLUDED.metrics_json END, "
+                <> "operation_count = EXCLUDED.operation_count, "
+                <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
+                <> "updated_at_ms = EXCLUDED.updated_at_ms"
+            )
+            (mapMaybe replica (tceCombos export))
 
 persistTopCombosHistoryMaybe :: FilePath -> S3State -> BL.ByteString -> IO ()
 persistTopCombosHistoryMaybe topJsonPath st contents = do
