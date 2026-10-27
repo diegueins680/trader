@@ -1,0 +1,39 @@
+name: Review fleet and strict admission follow-up
+on:
+  push:
+    branches: [ops/fleet-followup-20261027]
+    paths:
+      - .github/workflows/fleet-followup.yml
+      - .github/fleet-followup.cjs
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect read-only startup and worker evidence
+        env:
+          PROBE_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          PROBE_HOST: ${{ secrets.HETZNER_TRADING_HOST }}
+          PROBE_HOST_KEYS: ${{ secrets.HETZNER_TRADING_KNOWN_HOSTS }}
+          PROBE_USER: ${{ secrets.HETZNER_SSH_USER }}
+          PROBE_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$PROBE_SSH_KEY"
+          test -n "$PROBE_HOST"
+          test -n "$PROBE_HOST_KEYS"
+          key_file="$(mktemp)"
+          host_keys="$(mktemp)"
+          trap 'rm -f "$key_file" "$host_keys"' EXIT
+          printf '%s\n' "$PROBE_SSH_KEY" > "$key_file"
+          printf '%s\n' "$PROBE_HOST_KEYS" > "$host_keys"
+          chmod 600 "$key_file" "$host_keys"
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'docker exec -i trader-api-1 node' < .github/fleet-followup.cjs

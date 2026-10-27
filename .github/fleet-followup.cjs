@@ -1,0 +1,25 @@
+const e = process.env, c = require('crypto');
+(async () => {
+  const tenant = 'binance:' + c.createHash('sha256').update(e.BINANCE_API_KEY.trim()+':'+e.BINANCE_API_SECRET.trim()).digest('hex');
+  const get = async path => {
+    const r = await fetch('http://127.0.0.1:8080'+path,{headers:{authorization:'Bearer '+e.TRADER_API_TOKEN,'x-tenant-key':tenant},signal:AbortSignal.timeout(120000)});
+    if (!r.ok) throw Error();
+    return r.json();
+  };
+  const h=await get('/health');
+  if(h.commit!=='94353335fe5e71d0bfbd8a87f996ac60585461d5')throw Error();
+  const board=await get('/optimizer/combos'), s=await get('/bot/status?tail=1'), now=Date.now();
+  const symbols=e.TRADER_BOT_SYMBOLS.split(','), pins=e.TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS.split(',');
+  const symbolOf=q=>q.params?.binanceSymbol??q.params?.symbol;
+  const describe=q=>{
+    const p=q.params??{}, at=q.backtestRefreshedAtMs??q.metrics?.backtestRefreshedAtMs??q.createdAtMs;
+    const numbers=(o,keys)=>Object.fromEntries(keys.filter(k=>Number.isFinite(o?.[k])).map(k=>[k,o[k]]));
+    const marketOf=v=>["spot","margin","futures"].includes(v)?v:null;
+    return {paramNumbers:numbers(p,["bars","lookbackBars","lookbackWindow","valRatio","tuneRatio","backtestRatio","fee","slippage","spread","stopLoss","takeProfit","maxPositionSize","minPositionSize"]),metricNumbers:numbers(q.metrics,["annualizedReturn","maxDrawdown","sharpe","sortino","tradeCount","turnover","winRate","totalReturn"]),market:marketOf(p.market??p.binanceMarket),positioning:["long-flat","long-short"].includes(p.positioning)?p.positioning:null,portfolioEvidencePresent:!!q.portfolioEvidence,processingReasons:(q.processing?.reasons??[]).filter(v=>typeof v==="string"&&/^[a-z][a-z0-9-]{0,70}$/.test(v)),uuid:q.uuid,symbol:symbolOf(q),tier:['deployable','raw','quarantined'].includes(q.processing?.tier)?q.processing.tier:'other',relaxed:!!q.processing?.relaxed,source:['binance','db','s3','state-sync'].includes(q.source)?q.source:'other',platform:p.platform==='binance'?'binance':'other',interval: typeof p.interval === 'string' && ['1h','2h','4h','6h','8h','12h','1d'].includes(p.interval) ? p.interval : 'other', binanceFutures: typeof p.binanceFutures === 'boolean' ? p.binanceFutures : null, binanceMargin: typeof p.binanceMargin === 'boolean' ? p.binanceMargin : null, minEdge: Number.isFinite(p.minEdge) ? p.minEdge : null, method:['ta_regime_switch','ta_best','10','01'].includes(String(p.method))?String(p.method):'other',ageDays:Number.isFinite(at)?(now-at)/86400000:null,epochs:Number.isFinite(p.epochs)?p.epochs:null,hiddenSize:Number.isFinite(p.hiddenSize)?p.hiddenSize:null,finalEquity:Number.isFinite(q.finalEquity)?q.finalEquity:null,tradeCount:q.metrics?.tradeCount??q.metrics?.trades??null,gateReasons:Array.isArray(q.processing?.reasons)?q.processing.reasons.filter(v=>['live-quarantined','live-family-quarantined','stale','insufficient-trades'].includes(v)):[]};
+  };
+  const bots=s.multi?s.bots:[s];
+  const rows=symbols.map((symbol,i)=>{const q=board.combos.find(q=>q.uuid===pins[i]),b=bots.find(b=>b.symbol===symbol);return {symbol,pin:pins[i],candidate:q?describe(q):null,running:b?.running===true,starting:b?.starting===true,halted:b?.halted===true,hasError:!!b?.error,activeUuid:b?.performance?.closeTiming?.comboUuid??null,live:b?.live===true,tradeEnabled:b?.settings?.tradeEnabled===true,protectionOrders:b?.settings?.protectionOrders===true,strictCandidates:board.combos.filter(q=>symbolOf(q)===symbol&&q.processing?.tier==='deployable'&&!q.processing?.relaxed).length,alternatives:true?board.combos.filter(q=>symbolOf(q)===symbol&&q.processing?.tier==='deployable'&&!q.processing?.relaxed).slice(0,5).map(describe):[]};});
+  const sizes=board.combos.map(q=>({params:Buffer.byteLength(JSON.stringify(q.params??{})),metrics:Buffer.byteLength(JSON.stringify(q.metrics??{})),keys:Object.keys(q.params??{}).length}));
+  const summary=key=>({total:sizes.reduce((a,q)=>a+q[key],0),max:Math.max(0,...sizes.map(q=>q[key])),rows:sizes.length});
+  console.log('FLEET_FOLLOWUP_JSON='+JSON.stringify({payloadShape:{paramsBytes:summary("params"),metricsBytes:summary("metrics"),parameterKeys:summary("keys")},limits:{epochs:Number(e.TRADER_API_MAX_EPOCHS||100),hiddenSize:Number(e.TRADER_API_MAX_HIDDEN_SIZE||32)},positionCap:Number(e.TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP),startPacing:Number(e.TRADER_BOT_AUTOSTART_MAX_STARTS_PER_CYCLE),retainedCount:e.TRADER_TOP_COMBOS_RETAIN_UUIDS.split(',').length,at:new Date().toISOString(),commit:h.commit,ready:h.ready,botRecoveryReady:h.botRecoveryReady,reviewedCandidates:['2f4ccff0-e4bd-123b-575d-fb490ecdff50','df217cb8-9d2b-e886-eafb-58982b28d327','31477983-291a-ea9a-a1b8-c3fbcf68633c'].map(uuid=>{const q=board.combos.find(q=>q.uuid===uuid);return {uuid,present:!!q,candidate:q?describe(q):null};}),rows,mode:s.portfolioSelector?.mode,reviewDecision:s.portfolioSelector?.graduation?.review?.decision}));
+})().catch(()=>{console.log('WORKER_TRIAGE_UNAVAILABLE');process.exitCode=1;});
