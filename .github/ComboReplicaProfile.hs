@@ -18,6 +18,8 @@ import GHC.Clock (getMonotonicTimeNSec)
 import System.Environment (getEnv)
 import ComboUpsertSql (comboUpsertSql, batchedComboUpsertSql)
 import qualified PreviousComboParameters as Before
+import qualified Batch8ComboParameters as Batch8
+import qualified Batch25ComboParameters as Batch25
 import Trader.Ops.ComboParameters (persistComboReplicas)
 import Trader.Ops.Migrations (ensureOpsDbSchema)
 
@@ -56,7 +58,7 @@ main=do
        measure count pp mp mode=do
         void (execute_ conn "TRUNCATE combos CASCADE")
         before<-getMonotonicTimeNSec
-        withTransaction conn $ (if mode=="previous" then previous else persistComboReplicas conn batchedComboUpsertSql) (fixture count pp mp)
+        withTransaction conn $ (case mode of "previous" -> previous; "batch8" -> Batch8.persistComboReplicas conn batchedComboUpsertSql; "batch25" -> Batch25.persistComboReplicas conn batchedComboUpsertSql; _ -> fail "Unknown profile mode") (fixture count pp mp)
         after<-getMonotonicTimeNSec
         expected<-query_ conn "SELECT created_at_ms, (metrics_json->'live'->>'operationCount')::int FROM combos WHERE combo_uuid='00000000-0000-4000-8000-000000000001'" :: IO [(Maybe Int64,Maybe Int)]
         unless (expected==[(Just 7,Just 50)]) (fail "Creation or richer live evidence changed")
@@ -64,7 +66,7 @@ main=do
         pure (mode,fromIntegral (after-before)/1000000::Double,result)
    cases<-forM [(1038,3900,1000),(4544,8600,8700)] $ \(count,pp,mp)->do
     pairs<-forM [0..2::Int] $ \i->do
-     let modes=if even i then ["previous"::String,"batched"] else ["batched","previous"]
+     let modes=if even i then ["previous"::String,"batch8","batch25"] else ["batch25","batch8","previous"]
      results<-mapM (measure count pp mp) modes
      let states=[state|(_,_,state)<-results]
      unless (all (==head states) (tail states)) (fail "Exact replica state differed")
