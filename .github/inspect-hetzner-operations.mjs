@@ -6,7 +6,7 @@ import path from "node:path";
 
 const env = process.env;
 const secretValues = Object.entries(env)
-  .filter(([key, value]) => /secret|token|password|api_key|credential/i.test(key) && value.length >= 4)
+  .filter(([key, value]) => /secret|token|password|key|credential|db_url|database_url/i.test(key) && value.length >= 4)
   .map(([, value]) => value)
   .sort((a, b) => b.length - a.length);
 const safeText = value => {
@@ -79,7 +79,7 @@ await attempt("leaderboard", async () => {
   return {
     count: combos.length, tiers, generatedAtMs: board.generatedAtMs,
     newest: combos.slice().sort((a, b) => b.createdAtMs - a.createdAtMs).slice(0, 4).map(row),
-    pins: pins.filter(Boolean).map((uuid, i) => { const combo = combos.find(x => x.uuid === uuid); return { symbol: symbols[i], uuid, present: !!combo, processing: combo?.processing }; }),
+    pins: pins.filter(Boolean).map((uuid, i) => { const combo = combos.find(x => x.uuid === uuid); return { symbol: combo?.params?.binanceSymbol ?? combo?.params?.symbol ?? (env.TRADER_SERVER_ROLE === "trading" ? symbols[i] : null), uuid, present: !!combo, processing: combo?.processing }; }),
     replacements: missing.map(symbol => ({ symbol, strict: combos.filter(combo => (combo.params?.binanceSymbol ?? combo.params?.symbol) === symbol && combo.processing?.tier === "deployable" && !combo.processing?.relaxed).slice(0, 5).map(row) })),
   };
 });
@@ -130,5 +130,14 @@ await attempt("processes", async () => {
     } catch { /* Process exited. */ }
   }
   return matches;
+});
+await attempt("memory", async () => {
+  const current = Number((await readFile("/sys/fs/cgroup/memory.current", "utf8")).trim());
+  const limit = (await readFile("/sys/fs/cgroup/memory.max", "utf8")).trim();
+  const events = Object.fromEntries((await readFile("/sys/fs/cgroup/memory.events", "utf8")).trim().split("\n").map(line => {
+    const [name, count] = line.split(/\s+/);
+    return [name, Number(count)];
+  }));
+  return { currentBytes: current, limitBytes: limit === "max" ? null : Number(limit), events };
 });
 console.log(JSON.stringify(result));

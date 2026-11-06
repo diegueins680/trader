@@ -44,9 +44,10 @@ export function PortfolioGraduationStatus({ selector }: { selector: BotPortfolio
   );
   const reviewTimeValid = typeof review?.reviewedAtMs === "number" && Number.isSafeInteger(review.reviewedAtMs)
     && review.reviewedAtMs > 0 && review.reviewedAtMs <= Date.now() + 60_000;
+  const performanceUnavailable = matches && review?.evidenceError != null;
   const graduated = matches && reviewTimeValid && Array.isArray(review?.reasons) && review.reasons.length === 0
-    && review.decision === "graduated" && selector.mode === "enforce";
-  const dailyCount = matches && Number.isSafeInteger(review?.evidence?.dailyObservationCount) && review!.evidence.dailyObservationCount >= 0
+    && !performanceUnavailable && review.decision === "graduated" && selector.mode === "enforce";
+  const dailyCount = matches && !performanceUnavailable && Number.isSafeInteger(review?.evidence?.dailyObservationCount) && review!.evidence.dailyObservationCount >= 0
     ? review!.evidence.dailyObservationCount : null;
   const requiredDays = graduation.requirements?.minimumDailyObservations;
   const dayProgress = dailyCount !== null && Number.isSafeInteger(requiredDays) && requiredDays > 0
@@ -65,6 +66,11 @@ export function PortfolioGraduationStatus({ selector }: { selector: BotPortfolio
       {!matches ? <div>{review ? "The saved review does not match the current strategy set or configuration. Fresh review evidence is required." : "No saved review is available for this fleet."}</div> : (
         <div>Last review {utc(review?.reviewedAtMs)}.</div>
       )}
+      {performanceUnavailable ? (
+        <div>{review?.evidenceError === "graduation baseline is missing for a reviewed UUID"
+          ? "At least one reviewed strategy has no equity baseline at the review-window boundary."
+          : "Fleet performance evidence could not be calculated. Independent order and status measurements are retained."}</div>
+      ) : null}
       {!graduated && currentReasons.length > 0 ? <ul>{currentReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul> : null}
     </div>
   );

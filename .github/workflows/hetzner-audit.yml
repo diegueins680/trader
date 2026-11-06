@@ -53,6 +53,23 @@ jobs:
               < .github/inspect-graduation-evidence.py > graduation-evidence.json
             cat graduation-evidence.json
           fi
+          node - '${{ matrix.role }}' <<'JS'
+          const report=require('./evidence.json'), role=process.argv[2];
+          const config=report.configuration;
+          const checks={
+            ready:report.health?.ready===true && report.ready?.ready===true,
+            role:report.role===role,
+            leaderboard:!report.leaderboard?.error,
+            journal:!report.journal?.error,
+            fleet:!report.fleet?.error,
+            rolePolicy:role==='research'
+              ? config?.TRADER_BOT_TRADE==='false' && config?.TRADER_BINANCE_LIVE==='false' && config?.TRADER_BOT_AUTOSTART==='false' && config?.TRADER_OPTIMIZER_ENABLED==='true'
+              : config?.TRADER_BOT_TRADE==='true' && config?.TRADER_BINANCE_LIVE==='true' && config?.TRADER_OPTIMIZER_ENABLED==='false',
+            binanceTest:role!=='trading' || (report.binanceTest?.signed?.ok===true && report.binanceTest?.tradeTest?.ok===true),
+          };
+          console.log(JSON.stringify({checks}));
+          if(Object.values(checks).some(value=>value!==true))process.exitCode=1;
+          JS
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -498,12 +498,13 @@ import Trader.PortfolioSelection (
     defaultPortfolioSelectorConfig,
     parsePortfolioRolloutMode,
     portfolioFailureCacheLookup,
+    portfolioGraduationCollectedEvidence,
     portfolioGraduationConfigVersion,
     portfolioGraduationFleetEquities,
     portfolioGraduationLatestStatusesHealthy,
-    portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationReviewWithEvidenceError,
     portfolioGraduationStatusCoverage,
     portfolioRolloutModeCode,
     portfolioSelectionShouldRotate,
@@ -21473,13 +21474,13 @@ emptyPortfolioGraduationEvidence =
         , pgeLatestStatusesHealthy = False
         }
 
-fetchPortfolioGraduationEvidence :: OpsStore -> TenantKey -> PortfolioGraduationConfig -> [Text] -> Int64 -> IO (Either String PortfolioGraduationEvidence)
+fetchPortfolioGraduationEvidence :: OpsStore -> TenantKey -> PortfolioGraduationConfig -> [Text] -> Int64 -> IO (Either String (PortfolioGraduationEvidence, Maybe Text))
 fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
     case traverse uuidFromText reviewedUuids of
         Nothing -> pure (Left "automatic portfolio graduation requires valid reviewed UUIDs")
         Just reviewedUuidValues
             | null reviewedUuidValues -> pure (Left "automatic portfolio graduation requires at least one reviewed UUID")
-            | reviewEndMs <= firstFullDayMs -> pure (Right emptyPortfolioGraduationEvidence)
+            | reviewEndMs <= firstFullDayMs -> pure (Right (emptyPortfolioGraduationEvidence, Nothing))
             | otherwise ->
                 withOpsConnection store $ \conn ->
                     withLoggedGraduationConnection stderr $ \attemptId -> do
@@ -21561,41 +21562,27 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                                     )
                                     (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
                                 IO [(UUID.UUID, Int64, Bool)]
-                        pure $ do
-                            fleetEquities <-
+                        let fleetEquities =
                                 portfolioGraduationFleetEquities
                                     firstFullDayMs
                                     (pgcMaximumBaselineAgeMs config)
                                     reviewedUuids
                                     [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
                                     [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
-                            (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
-                            let (executionAttempts, executionSuccesses) = intPair orderRows
-                                statusCoverage =
-                                    portfolioGraduationStatusCoverage
-                                        firstFullDayMs
-                                        reviewEndMs
-                                        (pgcStatusIntervalMs config)
-                                        (length reviewedUuids)
-                                        (intPair statusRows)
-                                (statusSamples, healthyStatusSamples) = statusCoverage
-                                latestStatusesHealthy =
-                                    portfolioGraduationLatestStatusesHealthy
-                                        now
-                                        (pgcMaximumLatestStatusAgeMs config)
-                                        reviewedUuids
-                                        [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
-                            Right
-                                PortfolioGraduationEvidence
-                                    { pgeDailyObservationCount = dailyObservationCount
-                                    , pgeNetReturn = netReturn
-                                    , pgeMaxDrawdown = maxDrawdown
-                                    , pgeExecutionAttempts = executionAttempts
-                                    , pgeExecutionSuccesses = executionSuccesses
-                                    , pgeStatusSamples = statusSamples
-                                    , pgeHealthyStatusSamples = healthyStatusSamples
-                                    , pgeLatestStatusesHealthy = latestStatusesHealthy
-                                    }
+                            statusCoverage =
+                                portfolioGraduationStatusCoverage
+                                    firstFullDayMs
+                                    reviewEndMs
+                                    (pgcStatusIntervalMs config)
+                                    (length reviewedUuids)
+                                    (intPair statusRows)
+                            latestStatusesHealthy =
+                                portfolioGraduationLatestStatusesHealthy
+                                    now
+                                    (pgcMaximumLatestStatusAgeMs config)
+                                    reviewedUuids
+                                    [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
+                        pure (Right (portfolioGraduationCollectedEvidence fleetEquities (intPair orderRows) statusCoverage latestStatusesHealthy))
   where
     dayMs = 86400000
     reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
@@ -21634,14 +21621,19 @@ resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewe
                     case mOps of
                         Nothing -> pure (Left "operations database unavailable")
                         Just opsStore -> do
-                            result <- trySync (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String PortfolioGraduationEvidence))
+                            result <- trySync (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String (PortfolioGraduationEvidence, Maybe Text)))
                             pure $
                                 case result of
                                     Left ex -> Left (displayException ex)
                                     Right value -> value
                 case evidenceResult of
                     Left err -> persistPending emptyPortfolioGraduationEvidence "graduation-evidence-unavailable" (Just err)
-                    Right evidence -> do
+                    Right (evidence, Just evidenceError) ->
+                        persistReview
+                            PortfolioShadow
+                            (portfolioGraduationReviewWithEvidenceError graduationConfig now reviewedUuids evidence (Just evidenceError))
+                            (Just (T.unpack evidenceError))
+                    Right (evidence, Nothing) -> do
                         let liveReview = portfolioGraduationReview graduationConfig now reviewedUuids evidence
                         case pgrDecision liveReview of
                             PortfolioGraduationPending -> persistReview PortfolioShadow liveReview Nothing
