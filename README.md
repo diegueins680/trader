@@ -400,6 +400,8 @@ bodies; matching hashes alone do not certify correctness. Run checks against
 a stable checkout. This preflight is not a Git revision attestation or a proof
 of runtime behavior.
 
+The formal GitHub Actions job uses Ubuntu 24.04 because the reviewed Python 3.13.3 build is unavailable on Ubuntu 26.04. Keep that runner pin aligned with the formal toolchain when updating CI.
+
 ## Alternative data
 
 The research pipeline can ingest non-exchange CSV, JSON, and RSS feeds for macro data, policy releases, news, company fundamentals and filings, on-chain activity, stablecoins, institutional/custody flows, miner and validator activity, developer activity, governance and token supply, search/web attention, social activity, prediction markets, real-world operations, security incidents, CFTC positioning, options volatility, and archival microstructure. The checked-in [source configuration](scripts/research/alternative-data.example.json) contains a disabled example for every family; enable only feeds whose timestamps, licenses, and credentials you have verified.

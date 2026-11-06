@@ -7,7 +7,9 @@ on:
 
 jobs:
   formal:
-    runs-on: ubuntu-latest
+    # Python 3.13.3 is pinned by the reviewed formal toolchain and has no
+    # setup-python build for Ubuntu 26.04. Keep its supported runner image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
