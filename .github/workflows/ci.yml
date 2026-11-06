@@ -27,7 +27,8 @@ jobs:
       - run: bash scripts/verify.sh formal
 
   haskell:
-    runs-on: ubuntu-latest
+    # Keep GHC 9.4.8 on the established compiler/linker environment.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16

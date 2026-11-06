@@ -400,7 +400,7 @@ bodies; matching hashes alone do not certify correctness. Run checks against
 a stable checkout. This preflight is not a Git revision attestation or a proof
 of runtime behavior.
 
-The formal GitHub Actions job uses Ubuntu 24.04 because the reviewed Python 3.13.3 build is unavailable on Ubuntu 26.04. Keep that runner pin aligned with the formal toolchain when updating CI.
+The formal GitHub Actions job uses Ubuntu 24.04 because the reviewed Python 3.13.3 build is unavailable on Ubuntu 26.04. The Haskell job uses the same established image for its GHC 9.4.8 compiler/linker environment. Keep these runner pins aligned with the reviewed toolchains when updating CI.
 
 ## Alternative data
 
