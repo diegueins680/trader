@@ -115,6 +115,7 @@ await attempt("journal", async () => {
       }
     } finally { await handle.close(); }
   }
+  rows.sort((a, b) => (a.atMs ?? 0) - (b.atMs ?? 0));
   return { files: files.slice(0, 3).map(file => ({ name: path.basename(file.name), mtime: new Date(file.mtime).toISOString(), size: file.size })), counts, recent: rows.slice(-35) };
 });
 await attempt("processes", async () => {
