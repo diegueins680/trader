@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Trading/Live Fleet: refresh SOL after its recovery pin became raw, selecting a newer strict-tier candidate verified on both Hetzner roles. Retain the adverse predecessor across both Hetzner and Fly profiles (44 UUIDs); preserve risk caps, startup pacing, admission checks and the graduation window.
+
 - Trading/Live Fleet: replace the unavailable ETH recovery pin and newly relaxed DOGE pin with current strict-tier candidates verified on both Hetzner roles. Retain their predecessors across both Hetzner and Fly profiles (43 UUIDs); preserve all risk, admission and graduation settings.
 
 - Operations/Portfolio: retain independently collected execution and status evidence when a fleet equity baseline is missing. Persist the specific performance-evidence error, display unavailable daily progress, and keep graduation pending without changing its review window or requirements.
