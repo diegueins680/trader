@@ -704,6 +704,7 @@ export type BotPortfolioSelector = {
       decision: "pending" | "graduated";
       reasons: string[];
       configVersion: string;
+      evidenceError?: string | null;
       evidence: {
         dailyObservationCount: number;
         netReturn: number;

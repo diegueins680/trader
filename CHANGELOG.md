@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Operations/Portfolio: retain independently collected execution and status evidence when a fleet equity baseline is missing. Persist the specific performance-evidence error, display unavailable daily progress, and keep graduation pending without changing its review window or requirements.
+- Trading/Live Fleet: replace missing AAVE, DOGE, ETH, FIL and SOL pins with current strict-tier candidates, retaining all previous pins across the Hetzner and Fly profiles (41 UUIDs). ATOM and LINK remain idle pending qualifying evidence; the 1% adoption cap and startup pacing are unchanged.
+- Operations: add a manual Hetzner inspection workflow using the pinned deployment SSH connection to inspect both roles, optimizer activity, strategy admission and graduation coverage, and run the trading server's Binance test-order permission check.
+- CI/Toolchain: pin the formal and Haskell jobs to Ubuntu 24.04 so the reviewed Python 3.13.3 and GHC 9.4.8 compiler/linker environments remain available after `ubuntu-latest` moves to Ubuntu 26.04.
+
 - Operations/Portfolio: trace the shared graduation-review connection interval and its five query lifetimes, using fixed labels and numeric timings. Preserve query order, retries, cancellation, graduation criteria and the review window.
 
 - Trading/Live Fleet: refresh the unavailable ARB pin with a fresh strict-tier candidate within runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (36 UUIDs). AAVE, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence; risk caps, startup pacing, admission checks and graduation settings are unchanged.

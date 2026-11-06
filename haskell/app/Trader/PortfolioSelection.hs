@@ -20,10 +20,12 @@ module Trader.PortfolioSelection (
     portfolioGraduationConfigVersion,
     portfolioGraduationDecisionCode,
     portfolioGraduationExecutionReliability,
+    portfolioGraduationCollectedEvidence,
     portfolioGraduationFleetEquities,
     portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
+    portfolioGraduationReviewWithEvidenceError,
     portfolioGraduationReviewApplies,
     portfolioGraduationStatusCoverage,
     portfolioGraduationStatusReliability,
@@ -43,9 +45,11 @@ import Control.Monad (foldM, replicateM, unless, when)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import Data.Char (ord, toLower)
+import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.List (foldl', insertBy, nub, sort, sortOn, tails)
 import qualified Data.Map.Strict as M
+import Data.Maybe (isNothing)
 import qualified Data.Ord as Ord
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -348,6 +352,7 @@ data PortfolioGraduationReview = PortfolioGraduationReview
     , pgrReasons :: ![Text]
     , pgrEvidence :: !PortfolioGraduationEvidence
     , pgrConfigVersion :: !Text
+    , pgrEvidenceError :: !(Maybe Text)
     }
     deriving (Eq, Show, Generic)
 
@@ -360,6 +365,7 @@ instance ToJSON PortfolioGraduationReview where
             , "reasons" .= pgrReasons value
             , "evidence" .= pgrEvidence value
             , "configVersion" .= pgrConfigVersion value
+            , "evidenceError" .= pgrEvidenceError value
             ]
 
 instance FromJSON PortfolioGraduationReview where
@@ -371,6 +377,7 @@ instance FromJSON PortfolioGraduationReview where
             <*> obj .: "reasons"
             <*> obj .: "evidence"
             <*> obj .: "configVersion"
+            <*> obj .:? "evidenceError"
 
 defaultPortfolioGraduationConfig :: PortfolioGraduationConfig
 defaultPortfolioGraduationConfig =
@@ -520,6 +527,26 @@ portfolioGraduationPerformance equities
                 let returns = zipWith (\previous current -> current / previous - 1) (1 : equities) equities
                  in Right (length equities, last equities - 1, portfolioMaxDrawdown returns)
 
+-- Preserve independently collected operational evidence when fleet performance
+-- cannot be calculated. The error must keep the review pending.
+portfolioGraduationCollectedEvidence :: Either String [Double] -> (Int, Int) -> (Int, Int) -> Bool -> (PortfolioGraduationEvidence, Maybe Text)
+portfolioGraduationCollectedEvidence fleetEquities (attempts, successes) (samples, healthy) latestHealthy =
+    ( PortfolioGraduationEvidence
+        { pgeDailyObservationCount = observations
+        , pgeNetReturn = netReturn
+        , pgeMaxDrawdown = drawdown
+        , pgeExecutionAttempts = attempts
+        , pgeExecutionSuccesses = successes
+        , pgeStatusSamples = samples
+        , pgeHealthyStatusSamples = healthy
+        , pgeLatestStatusesHealthy = latestHealthy
+        }
+    , either (Just . T.pack) (const Nothing) performance
+    )
+  where
+    performance = fleetEquities >>= portfolioGraduationPerformance
+    (observations, netReturn, drawdown) = fromRight (0, 0, 0) performance
+
 portfolioGraduationReview :: PortfolioGraduationConfig -> Int64 -> [Text] -> PortfolioGraduationEvidence -> PortfolioGraduationReview
 portfolioGraduationReview config now reviewedUuidsRaw evidence =
     PortfolioGraduationReview
@@ -529,6 +556,7 @@ portfolioGraduationReview config now reviewedUuidsRaw evidence =
         , pgrReasons = reasons
         , pgrEvidence = evidence
         , pgrConfigVersion = portfolioGraduationConfigVersion config
+        , pgrEvidenceError = Nothing
         }
   where
     reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))
@@ -567,11 +595,25 @@ portfolioGraduationReview config now reviewedUuidsRaw evidence =
                | not (pgeLatestStatusesHealthy evidence)
                ]
 
+portfolioGraduationReviewWithEvidenceError :: PortfolioGraduationConfig -> Int64 -> [Text] -> PortfolioGraduationEvidence -> Maybe Text -> PortfolioGraduationReview
+portfolioGraduationReviewWithEvidenceError config now reviewedUuids evidence evidenceError =
+    case evidenceError of
+        Nothing -> review
+        Just err ->
+            review
+                { pgrDecision = PortfolioGraduationPending
+                , pgrReasons = nub (pgrReasons review ++ ["graduation-evidence-unavailable"])
+                , pgrEvidenceError = Just err
+                }
+  where
+    review = portfolioGraduationReview config now reviewedUuids evidence
+
 portfolioGraduationReviewApplies :: PortfolioGraduationConfig -> [Text] -> PortfolioGraduationReview -> Bool
 portfolioGraduationReviewApplies config reviewedUuidsRaw review =
     pgcEnabled config
         && pgrDecision review == PortfolioGraduated
         && pgrConfigVersion review == portfolioGraduationConfigVersion config
+        && isNothing (pgrEvidenceError review)
         && pgrReviewedUuids review == reviewedUuids
   where
     reviewedUuids = nub (sort (map (T.toLower . T.strip) reviewedUuidsRaw))

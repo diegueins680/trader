@@ -58,3 +58,19 @@ test("missing and malformed supplemental review details render conservatively wi
   assert.match(html, /Another review requirement/);
   assert.match(html, /Daily evidence count unavailable/);
 });
+
+test("a missing baseline displays unavailable performance and cannot display graduation", () => {
+  const selector = fixture();
+  selector.mode = "enforce";
+  selector.graduation.review.decision = "graduated";
+  selector.graduation.review.reasons = [];
+  selector.graduation.review.evidence.dailyObservationCount = 0;
+  selector.graduation.review.evidenceError = "graduation baseline is missing for a reviewed UUID";
+  const html = render(selector);
+  assert.doesNotMatch(html, />Graduated|0\/10 complete/);
+  assert.match(html, /Daily evidence count unavailable/);
+  assert.match(html, /no equity baseline/);
+  selector.graduation.review.evidenceError = "private-error-canary";
+  assert.doesNotMatch(render(selector), /private-error-canary/);
+  assert.match(render(selector), /Independent order and status measurements are retained/);
+});

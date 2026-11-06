@@ -259,11 +259,13 @@ import Trader.PortfolioSelection (
     defaultPortfolioSelectorConfig,
     portfolioAnnualizedReturn,
     portfolioFailureCacheLookup,
+    portfolioGraduationCollectedEvidence,
     portfolioGraduationFleetEquities,
     portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationReviewWithEvidenceError,
     portfolioGraduationStatusCoverage,
     portfolioMaxDrawdown,
     portfolioMembersRemainAdmitted,
@@ -7902,6 +7904,48 @@ testPortfolioGraduationPerformanceAndPersistence = do
     let review = portfolioGraduationReview portfolioGraduationConfigForTest 2000 ["uuid-a"] passingPortfolioGraduationEvidence
         decoded = Aeson.eitherDecode (Aeson.encode review) :: Either String PortfolioGraduationReview
     assert "portfolio graduation reviews round-trip through their durable JSON marker" (decoded == Right review)
+    let legacyValue =
+            case Aeson.toJSON review of
+                Aeson.Object obj -> Aeson.Object (KM.delete "evidenceError" obj)
+                value -> value
+    assert
+        "graduation reviews written before evidence diagnostics remain readable"
+        ((Aeson.eitherDecode (Aeson.encode legacyValue) :: Either String PortfolioGraduationReview) == Right review)
+    let (partialEvidence, evidenceError) =
+            portfolioGraduationCollectedEvidence
+                (Left "graduation baseline is missing for a reviewed UUID")
+                (20, 19)
+                (1000, 990)
+                True
+        partialReview = portfolioGraduationReviewWithEvidenceError portfolioGraduationConfigForTest 2000 ["uuid-a"] partialEvidence evidenceError
+        otherwisePassing = portfolioGraduationReviewWithEvidenceError portfolioGraduationConfigForTest 2000 ["uuid-a"] passingPortfolioGraduationEvidence evidenceError
+    assert
+        "a missing graduation baseline preserves independent execution and status evidence"
+        ( pgeExecutionAttempts partialEvidence == 20
+            && pgeExecutionSuccesses partialEvidence == 19
+            && pgeStatusSamples partialEvidence == 1000
+            && pgeHealthyStatusSamples partialEvidence == 990
+            && pgeLatestStatusesHealthy partialEvidence
+        )
+    assert
+        "unavailable graduation performance remains pending with its specific evidence error"
+        ( pgrDecision partialReview == PortfolioGraduationPending
+            && pgrEvidenceError partialReview == evidenceError
+            && "graduation-evidence-unavailable" `elem` pgrReasons partialReview
+            && pgeDailyObservationCount partialEvidence == 0
+        )
+    assert
+        "an evidence error prevents graduation even if every numerical gate passes"
+        ( pgrDecision otherwisePassing == PortfolioGraduationPending
+            && not (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a"] otherwisePassing{pgrDecision = PortfolioGraduated})
+        )
+    assert
+        "graduation evidence errors persist across review JSON round trips"
+        ((Aeson.eitherDecode (Aeson.encode partialReview) :: Either String PortfolioGraduationReview) == Right partialReview)
+    let (completeEvidence, completeError) = portfolioGraduationCollectedEvidence (Right [1.01, 1.02]) (20, 19) (1000, 990) True
+    assert
+        "complete graduation performance preserves calculated observations and has no collection error"
+        (pgeDailyObservationCount completeEvidence == 2 && abs (pgeNetReturn completeEvidence - 0.02) < 1.0e-12 && isNothing completeError)
 
 testPortfolioSelectionRejectsSparseWinner :: IO ()
 testPortfolioSelectionRejectsSparseWinner = do
