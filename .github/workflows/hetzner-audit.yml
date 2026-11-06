@@ -1,0 +1,52 @@
+name: Inspect Hetzner operations
+on:
+  workflow_dispatch:
+  push:
+    branches: [ops/hetzner-recovery-20261105]
+    paths:
+      - .github/workflows/hetzner-audit.yml
+      - .github/inspect-hetzner-operations.mjs
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [trading, research]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Inspect server through the pinned deployment connection
+        env:
+          PROBE_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          PROBE_HOST: ${{ matrix.role == 'trading' && secrets.HETZNER_TRADING_HOST || secrets.HETZNER_RESEARCH_HOST }}
+          PROBE_HOST_KEYS: ${{ matrix.role == 'trading' && secrets.HETZNER_TRADING_KNOWN_HOSTS || secrets.HETZNER_RESEARCH_KNOWN_HOSTS }}
+          PROBE_USER: ${{ secrets.HETZNER_SSH_USER }}
+          PROBE_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$PROBE_SSH_KEY"
+          test -n "$PROBE_HOST"
+          test -n "$PROBE_HOST_KEYS"
+          key_file="$(mktemp)"
+          host_keys="$(mktemp)"
+          trap 'rm -f "$key_file" "$host_keys"' EXIT
+          printf '%s\n' "$PROBE_SSH_KEY" > "$key_file"
+          printf '%s\n' "$PROBE_HOST_KEYS" > "$host_keys"
+          chmod 600 "$key_file" "$host_keys"
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'docker exec -i trader-api-1 node --input-type=module' \
+            < .github/inspect-hetzner-operations.mjs > evidence.json
+          node -e 'const r=require("./evidence.json"); console.log(JSON.stringify(r,null,2)); if(r.error) process.exitCode=1;'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: hetzner-${{ matrix.role }}-operations
+          path: evidence.json
+          retention-days: 7
