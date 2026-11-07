@@ -211,3 +211,41 @@ Deliberately NOT changed, with reasons:
 - **§1.1.4 multiple-testing haircut, §1.3 net-of-cost objective, §2.2 indicator
   staleness cap** — each changes scoring or signal semantics and must be
   validated as separate optimizer/signal work before deployment.
+
+## 7. Follow-up status (2026-11-07)
+
+Landed after the original change (#310):
+
+- **#377** — `scripts/verify.sh` pins a UTF-8 locale (the test suite aborted
+  decoding `Main.hs` under a bare locale) and 116 stale `tmp/` fixtures that
+  predate the walk-forward-summary feature are untracked. The "0/500 combos
+  carry a `walkForwardSummary`" figure quoted above came from those stale
+  snapshots, not from a plumbing defect: current runs emit the summary and the
+  adoption gate already rejects candidates without one (`walk-forward-missing`).
+- **#378 — §1.1.4 multiple-testing haircut** (opt-in). `optimize-equity
+  --wf-sharpe-trials-haircut SCALE` / `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`
+  deflates each trial's walk-forward Sharpe mean by
+  `SCALE·√(2 ln trials)·sharpeStd/√evaluatedFolds` before the
+  `--min-wf-sharpe-mean` gate. Default `0` leaves production unchanged; `1.0`
+  is the recommended starting point once its effect on the leaderboard has
+  been observed.
+- **#379 — §2.2 indicator staleness cap.** `latestJust`/`laggedJust` reject
+  readings older than `defaultMaxIndicatorStaleBars` (2) and fail closed; the
+  bounded primitives expose the reading's age for telemetry.
+
+Verified against the source and closed without a code change:
+
+- **§1.2 threshold sweep is fold-local.** The CLI tunes on
+  `tunePrices = drop fitSize trainPrices` (the trailing `--tune-ratio` share of
+  `splitTrain`), and the walk-forward report simulates the frozen thresholds
+  over `splitBacktest` fold by fold (`mkFold` in `Main.hs`). The sweep never
+  receives a backtest bar. `testSplitKeepsTuneWindowOutOfBacktest` pins the
+  split contract (ordered partition, tune window ending at `splitTrainEnd`,
+  every tune bar before every backtest bar). The live re-tune path hands the
+  sweep the trailing live window, where the "test fold" is the future.
+- **§1.3 net-of-cost objective.** Fees, slippage, spread and impact are applied
+  inside the simulator, so every tune/backtest metric the sweep ranks on is
+  already net of cost, and `minEdge` is floored at `venueMinEdgeFloor`.
+
+Still open (documentation/calibration, no behavior defect): §2.4 magic numbers
+and §2.5 epsilon consolidation.
