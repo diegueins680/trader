@@ -13637,6 +13637,7 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                     maxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_WF_SHARPE_STD"
                                     searchMaxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_SEARCH_MAX_WF_SHARPE_STD"
                                     wfSharpeStdScorePenaltyEnv <- lookupEnv "TRADER_OPTIMIZER_WF_SHARPE_STD_SCORE_PENALTY"
+                                    wfSharpeTrialsHaircutEnv <- lookupEnv "TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT"
                                     discoveryRecoveryEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_ENABLED"
                                     discoveryRecoveryTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS"
                                     discoveryRecoveryTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TIMEOUT_SEC"
@@ -13791,6 +13792,8 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                              in if raw <= 0 then maxWfSharpeStd else max maxWfSharpeStd raw
                                         wfSharpeStdScorePenalty :: Double
                                         wfSharpeStdScorePenalty = readNonNegativeDouble wfSharpeStdScorePenaltyEnv 0.05
+                                        wfSharpeTrialsHaircut :: Double
+                                        wfSharpeTrialsHaircut = readNonNegativeDouble wfSharpeTrialsHaircutEnv 0
                                         epochsMax :: Int
                                         epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
                                         hiddenSizeMax :: Int
@@ -14097,6 +14100,8 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                                                                                , show searchMaxWfSharpeStd
                                                                                                , "--wf-sharpe-std-score-penalty"
                                                                                                , show wfSharpeStdScorePenalty
+                                                                                               , "--wf-sharpe-trials-haircut"
+                                                                                               , show wfSharpeTrialsHaircut
                                                                                                , "--binary"
                                                                                                , exePath
                                                                                                , "--disable-lstm-persistence"

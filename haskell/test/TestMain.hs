@@ -199,9 +199,11 @@ import Trader.Optimizer.Optimize (
     dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
+    deflatedWfSharpeMean,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
     extractPortfolioEvidence,
+    extractWalkForwardFoldCount,
     kellyLiteExposureContractReason,
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
@@ -219,6 +221,8 @@ import Trader.Optimizer.Optimize (
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
+    wfEvaluatedFolds,
+    wfSharpeTrialsHaircut,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
@@ -852,6 +856,8 @@ main = do
     testAutoOptimizerObjectiveAlignment
     testOptimizerAdmissionStats
     testSweepThresholdMinRoundTripsFallback
+    testWfSharpeTrialsHaircutProperties
+    testWfSharpeHaircutUsesEvaluatedFolds
     testSweepThresholdZeroCandidatesKeepsBasePair
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
@@ -9778,6 +9784,48 @@ testThresholdFactorChangesSimulatorAdmission = do
                 (maxAbsPosition enabled == 0 && null (brTrades enabled))
         (Left err, _) -> ioError (userError ("disabled threshold-factor regression failed to simulate: " ++ err))
         (_, Left err) -> ioError (userError ("enabled threshold-factor regression failed to simulate: " ++ err))
+
+-- Multiple-testing haircut invariants: zero for a single trial, when disabled,
+-- or without fold dispersion; grows with the trial count, shrinks with more
+-- folds, never goes negative, and matches the closed form.
+testWfSharpeTrialsHaircutProperties :: IO ()
+testWfSharpeTrialsHaircutProperties = do
+    let eps = 1e-9
+        near a b = abs (a - b) < eps
+    assert "haircut is zero for a single trial" (near (wfSharpeTrialsHaircut 1.0 1 5 0.8) 0)
+    assert "haircut is zero when disabled (scale 0)" (near (wfSharpeTrialsHaircut 0 300 5 0.8) 0)
+    assert "haircut is zero without fold dispersion" (near (wfSharpeTrialsHaircut 1.0 300 5 0) 0)
+    assert "haircut is never negative" (wfSharpeTrialsHaircut 1.0 300 5 0.8 >= 0)
+    assert "haircut grows with the trial count" (wfSharpeTrialsHaircut 1.0 300 5 0.8 > wfSharpeTrialsHaircut 1.0 30 5 0.8)
+    assert "haircut shrinks as more folds are averaged" (wfSharpeTrialsHaircut 1.0 300 5 0.8 < wfSharpeTrialsHaircut 1.0 300 2 0.8)
+    -- closed form: scale * sqrt (2 ln 100) * (1 / sqrt 4)
+    assert "haircut matches the closed form" (near (wfSharpeTrialsHaircut 1.0 100 4 1.0) (0.5 * sqrt (2 * log 100)))
+    assert "non-finite dispersion is treated as zero" (near (wfSharpeTrialsHaircut 1.0 300 5 (0 / 0)) 0)
+    assert "deflated mean subtracts the haircut" (near (deflatedWfSharpeMean 1.0 100 4 2.0 1.0) (2.0 - 0.5 * sqrt (2 * log 100)))
+    assert "deflation is a no-op when disabled" (near (deflatedWfSharpeMean 0 300 5 1.3 0.8) 1.3)
+
+-- The haircut must divide by the folds the walk-forward report actually
+-- evaluated, not the requested count: short windows and the embargo shrink the
+-- evaluated count, and a larger divisor understates the standard error.
+-- Reproduces the reviewed case: 7 requested folds, 2 evaluated, scale 1,
+-- 100 trials, mean 2, std 1 -> deflated -0.146 (rejected at 0.3) rather than
+-- 0.853 (wrongly admitted).
+testWfSharpeHaircutUsesEvaluatedFolds :: IO ()
+testWfSharpeHaircutUsesEvaluatedFolds = do
+    let summary = Aeson.object ["sharpeMean" Aeson..= (2.0 :: Double), "sharpeStd" Aeson..= (1.0 :: Double)]
+        walkForward = Aeson.object ["foldCount" Aeson..= (2 :: Int), "summary" Aeson..= summary]
+        report = Aeson.object ["backtest" Aeson..= Aeson.object ["walkForward" Aeson..= walkForward]]
+        eps = 1e-9
+        near a b = abs (a - b) < eps
+        deflatedEvaluated = deflatedWfSharpeMean 1.0 100 (wfEvaluatedFolds (Just report) 7) 2.0 1.0
+        deflatedRequested = deflatedWfSharpeMean 1.0 100 7 2.0 1.0
+    assert "evaluated fold count is read from the report" (extractWalkForwardFoldCount (Just report) == Just 2)
+    assert "evaluated folds prefer the report over the requested count" (wfEvaluatedFolds (Just report) 7 == 2)
+    assert "evaluated folds fall back to the requested count without a report" (wfEvaluatedFolds Nothing 7 == 7)
+    assert "evaluated folds never drop below one" (wfEvaluatedFolds Nothing 0 == 1)
+    assert "deflating by evaluated folds matches the closed form" (near deflatedEvaluated (2.0 - sqrt (2 * log 100) / sqrt 2))
+    assert "evaluated folds reject the reviewed case at a 0.3 floor" (deflatedEvaluated < 0.3)
+    assert "the requested count would have wrongly admitted it" (deflatedRequested > 0.3)
 
 testSweepThresholdMinRoundTripsFallback :: IO ()
 testSweepThresholdMinRoundTripsFallback = do
