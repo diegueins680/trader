@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+# The Haskell test suite reads UTF-8 source files (e.g. app/Main.hs) via
+# hGetContents; under a bare ASCII/POSIX locale that aborts with
+# "invalid argument (cannot decode byte sequence)" before any test runs.
+# Minimal containers (debian-slim, cloud sandboxes) ship no locale, so pin
+# a UTF-8 one here to keep verification host-independent.
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HASKELL_DIR="${ROOT_DIR}/haskell"
 WEB_DIR="${HASKELL_DIR}/web"

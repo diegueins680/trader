@@ -4455,7 +4455,7 @@
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/research/summarize_sequential_screen.py": "64963b746e913063472aa2bb4e898770916a4edc37813e32ab79d20d1dda46aa",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
-    "scripts/verify.sh": "97acddab4502ef8c96e03f18d246ef1baaac15ab6d33ea8a98396a0595770ad8",
+    "scripts/verify.sh": "0f7fda61f89e03259ef6a4361bb98c64074763849bfad5574c1419841cf0c127",
     "test/causal-ppo.test.mjs": "a0ca9964dfc920618333b20653a3e378c9dff65ec86ca4afbd59513d872413fa",
     "test/causal-transition.test.mjs": "1264890bb61a0463ba96f9fa4f8a5ee6c247281e5078c433a16d4841f1847e12",
     "test/causal_ppo_test.py": "eb8006f5784b6242d46774dc002cf56fcc0548b07693a15ad0b73600170d0611",
