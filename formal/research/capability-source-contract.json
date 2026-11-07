@@ -174,7 +174,7 @@
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "haskell/app/Main.hs": "0dfa2b57627183453f374f8f98b2ef2920aae5f1c54076f706f9d922a1c82cd3",
-    "haskell/app/Trader/Optimizer/Optimize.hs": "2f56433a2e9285545404580610693b9f2dfa57bf9cfbdd431116bd80ab1cc306",
+    "haskell/app/Trader/Optimizer/Optimize.hs": "806f5797ae53429db9aa6863e134f41b4295a14bfde9661d0a21e3ba1b584bdc",
     "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",

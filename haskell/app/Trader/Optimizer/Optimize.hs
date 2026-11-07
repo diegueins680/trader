@@ -14,6 +14,8 @@ module Trader.Optimizer.Optimize (
     applyWalkForwardSummaryMetrics,
     closeTimingReportFromBacktest,
     deflatedWfSharpeMean,
+    extractWalkForwardFoldCount,
+    wfEvaluatedFolds,
     wfSharpeTrialsHaircut,
     applyQualityPreset,
     defaultOptimizerEdgeScoreConfig,
@@ -1530,6 +1532,25 @@ extractWalkForwardSummary raw = do
     bt <- valueObjectAt v "backtest"
     wf <- valueObjectAt (Object bt) "walkForward"
     valueObjectAt (Object wf) "summary"
+
+{- | Folds the walk-forward report actually evaluated, read from
+@backtest.walkForward.foldCount@. The backtest caps the requested fold count
+to the available steps and drops ranges consumed by the embargo, so the
+requested 'tpWalkForwardFolds' can overstate it; the haircut's standard
+error must use the evaluated count or it is understated.
+-}
+extractWalkForwardFoldCount :: Maybe Value -> Maybe Int
+extractWalkForwardFoldCount raw = do
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    wf <- valueObjectAt (Object bt) "walkForward"
+    let n = metricFloat (Just wf) "foldCount" 0
+    if n >= 1 then Just (round n) else Nothing
+
+-- | The evaluated fold count when the report carries one, else the requested
+-- count; never below 1.
+wfEvaluatedFolds :: Maybe Value -> Int -> Int
+wfEvaluatedFolds raw requested = max 1 (fromMaybe requested (extractWalkForwardFoldCount raw))
 
 valueObjectAt :: Value -> String -> Maybe (KM.KeyMap Value)
 valueObjectAt val key =
@@ -7127,7 +7148,7 @@ runOptimizer args0 = do
                                                                                                                                                                                                                                     Just wfSummary ->
                                                                                                                                                                                                                                         let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
                                                                                                                                                                                                                                             wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                                                                                                                                                         in if minWfSharpeMean > 0 && deflatedWfSharpeMean wfSharpeTrialsHaircut trials (max 1 (tpWalkForwardFolds (trParams tr0))) wfSharpeMean wfSharpeStd < minWfSharpeMean
+                                                                                                                                                                                                                                         in if minWfSharpeMean > 0 && deflatedWfSharpeMean wfSharpeTrialsHaircut trials (wfEvaluatedFolds (trStdoutJson tr0) (tpWalkForwardFolds (trParams tr0))) wfSharpeMean wfSharpeStd < minWfSharpeMean
                                                                                                                                                                                                                                                 then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
                                                                                                                                                                                                                                                 else
                                                                                                                                                                                                                                                     if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
