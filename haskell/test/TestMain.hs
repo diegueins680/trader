@@ -196,6 +196,8 @@ import Trader.Optimizer.Optimize (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
+    deflatedWfSharpeMean,
+    wfSharpeTrialsHaircut,
     dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
@@ -852,6 +854,7 @@ main = do
     testAutoOptimizerObjectiveAlignment
     testOptimizerAdmissionStats
     testSweepThresholdMinRoundTripsFallback
+    testWfSharpeTrialsHaircutProperties
     testSweepThresholdZeroCandidatesKeepsBasePair
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
@@ -9778,6 +9781,25 @@ testThresholdFactorChangesSimulatorAdmission = do
                 (maxAbsPosition enabled == 0 && null (brTrades enabled))
         (Left err, _) -> ioError (userError ("disabled threshold-factor regression failed to simulate: " ++ err))
         (_, Left err) -> ioError (userError ("enabled threshold-factor regression failed to simulate: " ++ err))
+
+-- Multiple-testing haircut invariants: zero for a single trial, when disabled,
+-- or without fold dispersion; grows with the trial count, shrinks with more
+-- folds, never goes negative, and matches the closed form.
+testWfSharpeTrialsHaircutProperties :: IO ()
+testWfSharpeTrialsHaircutProperties = do
+    let eps = 1e-9
+        near a b = abs (a - b) < eps
+    assert "haircut is zero for a single trial" (near (wfSharpeTrialsHaircut 1.0 1 5 0.8) 0)
+    assert "haircut is zero when disabled (scale 0)" (near (wfSharpeTrialsHaircut 0 300 5 0.8) 0)
+    assert "haircut is zero without fold dispersion" (near (wfSharpeTrialsHaircut 1.0 300 5 0) 0)
+    assert "haircut is never negative" (wfSharpeTrialsHaircut 1.0 300 5 0.8 >= 0)
+    assert "haircut grows with the trial count" (wfSharpeTrialsHaircut 1.0 300 5 0.8 > wfSharpeTrialsHaircut 1.0 30 5 0.8)
+    assert "haircut shrinks as more folds are averaged" (wfSharpeTrialsHaircut 1.0 300 5 0.8 < wfSharpeTrialsHaircut 1.0 300 2 0.8)
+    -- closed form: scale * sqrt (2 ln 100) * (1 / sqrt 4)
+    assert "haircut matches the closed form" (near (wfSharpeTrialsHaircut 1.0 100 4 1.0) (0.5 * sqrt (2 * log 100)))
+    assert "non-finite dispersion is treated as zero" (near (wfSharpeTrialsHaircut 1.0 300 5 (0 / 0)) 0)
+    assert "deflated mean subtracts the haircut" (near (deflatedWfSharpeMean 1.0 100 4 2.0 1.0) (2.0 - 0.5 * sqrt (2 * log 100)))
+    assert "deflation is a no-op when disabled" (near (deflatedWfSharpeMean 0 300 5 1.3 0.8) 1.3)
 
 testSweepThresholdMinRoundTripsFallback :: IO ()
 testSweepThresholdMinRoundTripsFallback = do

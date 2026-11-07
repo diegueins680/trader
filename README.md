@@ -478,6 +478,8 @@ cabal run trader-hs -- --help
 cabal run optimize-equity -- --help
 ```
 
+`optimize-equity --wf-sharpe-trials-haircut SCALE` (default `0`, disabled) applies a multiple-testing haircut to the walk-forward Sharpe gate: each trial's mean Sharpe is reduced by `SCALE × √(2 ln trials) × sharpeStd/√folds` before the `--min-wf-sharpe-mean` comparison, so promoting the best of N candidates does not reward a lucky draw. The background optimizer reads the same value from `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`; `1.0` is a reasonable starting point.
+
 Serve mode requires `TRADER_DB_URL` or `DATABASE_URL`. The local wrapper supplies the conventional local PostgreSQL URL when possible.
 
 Startup applies schema migration 6 to backfill PostgreSQL-maintained `params_json_md5` and `metrics_json_md5` columns on `combos`. Fingerprint reads use those stored digests instead of hashing every JSON payload again. Payload edits, inserts, deletes and transaction rollbacks retain the existing fingerprint behavior; bookkeeping updates retain the same ETag. The migration performs a table rewrite under a database lock, so allow for that one-time startup work when upgrading an existing database.

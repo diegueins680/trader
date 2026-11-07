@@ -13,6 +13,8 @@ module Trader.Optimizer.Optimize (
     applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
     closeTimingReportFromBacktest,
+    deflatedWfSharpeMean,
+    wfSharpeTrialsHaircut,
     applyQualityPreset,
     defaultOptimizerEdgeScoreConfig,
     dedupeFirstByKey,
@@ -1492,6 +1494,35 @@ finiteDoubleMaybe raw =
     case raw of
         Just d | not (isInfinite d || isNaN d) -> Just d
         _ -> Nothing
+
+{- | Multiple-testing haircut for a walk-forward Sharpe mean.
+
+When @trials@ candidates are evaluated and the best is promoted, the winner's
+mean Sharpe is biased upward by selection: the expected maximum of @trials@
+independent noisy estimates exceeds any single true value. This returns the
+amount to subtract so the gate compares a selection-aware ("deflated") Sharpe:
+
+> haircut = scale * sqrt (2 * ln trials) * (sharpeStd / sqrt folds)
+
+@sqrt (2 ln n)@ is the classic expected maximum of @n@ standard normals, and
+@sharpeStd / sqrt folds@ is the standard error of the per-fold mean. The
+haircut is 0 for a single trial, when the scale is 0 (disabled), or when the
+folds show no dispersion; it grows with the trial count and shrinks as more
+folds are averaged. Non-finite or negative inputs are treated as 0.
+-}
+wfSharpeTrialsHaircut :: Double -> Int -> Int -> Double -> Double
+wfSharpeTrialsHaircut scale trials folds sharpeStd =
+    let finiteD x = not (isNaN x || isInfinite x)
+        c = if finiteD scale && scale > 0 then scale else 0
+        s = if finiteD sharpeStd && sharpeStd > 0 then sharpeStd else 0
+        n = fromIntegral (max 1 trials) :: Double
+        k = fromIntegral (max 1 folds) :: Double
+     in c * sqrt (2 * log n) * (s / sqrt k)
+
+-- | A walk-forward Sharpe mean after 'wfSharpeTrialsHaircut' is applied.
+deflatedWfSharpeMean :: Double -> Int -> Int -> Double -> Double -> Double
+deflatedWfSharpeMean scale trials folds sharpeMean sharpeStd =
+    sharpeMean - wfSharpeTrialsHaircut scale trials folds sharpeStd
 
 extractWalkForwardSummary :: Maybe Value -> Maybe (KM.KeyMap Value)
 extractWalkForwardSummary raw = do
@@ -2977,6 +3008,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMaxWfSharpeStd :: !Double
     , oaSearchMaxWfSharpeStd :: !Double
     , oaWfSharpeStdScorePenalty :: !Double
+    , oaWfSharpeTrialsHaircut :: !Double
     , oaTuneObjective :: !String
     , oaTunePenaltyMaxDrawdown :: !Double
     , oaTunePenaltyTurnover :: !Double
@@ -6579,6 +6611,7 @@ runOptimizer args0 = do
                                                                                     then maxWfSharpeStd
                                                                                     else max maxWfSharpeStd raw
                                                                         wfSharpeStdScorePenalty = max 0 (oaWfSharpeStdScorePenalty args)
+                                                                        wfSharpeTrialsHaircut = max 0 (oaWfSharpeTrialsHaircut args)
                                                                         priorTrials =
                                                                             selectOptimizerPriorTrials
                                                                                 args
@@ -7094,7 +7127,7 @@ runOptimizer args0 = do
                                                                                                                                                                                                                                     Just wfSummary ->
                                                                                                                                                                                                                                         let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
                                                                                                                                                                                                                                             wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                                                                                                                                                         in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                                                                                                                                                         in if minWfSharpeMean > 0 && deflatedWfSharpeMean wfSharpeTrialsHaircut trials (max 1 (tpWalkForwardFolds (trParams tr0))) wfSharpeMean wfSharpeStd < minWfSharpeMean
                                                                                                                                                                                                                                                 then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
                                                                                                                                                                                                                                                 else
                                                                                                                                                                                                                                                     if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd

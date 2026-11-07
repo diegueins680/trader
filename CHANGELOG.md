@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Optimizer/Walk-Forward: add an opt-in multiple-testing haircut (`--wf-sharpe-trials-haircut`, env `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`) to the walk-forward Sharpe promotion gate. Each trial's mean Sharpe is deflated by scale × √(2 ln trials) × sharpeStd/√folds before it is compared to `--min-wf-sharpe-mean`, so selecting the best of N candidates cannot promote a lucky draw. Disabled by default (0); scoring, filter-reason counters and all other gates are unchanged.
+
 - Trading/Live Fleet: refresh SOL after its recovery pin became raw, selecting a newer strict-tier candidate verified on both Hetzner roles. Retain the adverse predecessor across both Hetzner and Fly profiles (44 UUIDs); preserve risk caps, startup pacing, admission checks and the graduation window.
 
 - Trading/Live Fleet: replace the unavailable ETH recovery pin and newly relaxed DOGE pin with current strict-tier candidates verified on both Hetzner roles. Retain their predecessors across both Hetzner and Fly profiles (43 UUIDs); preserve all risk, admission and graduation settings.
