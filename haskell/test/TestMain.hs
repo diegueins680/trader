@@ -196,11 +196,10 @@ import Trader.Optimizer.Optimize (
     appliedCloseTimingMaxHoldBars,
     applyCloseTimingMetrics,
     applyWalkForwardSummaryMetrics,
-    deflatedWfSharpeMean,
-    wfSharpeTrialsHaircut,
     dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
+    deflatedWfSharpeMean,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
     extractPortfolioEvidence,
@@ -221,6 +220,7 @@ import Trader.Optimizer.Optimize (
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
+    wfSharpeTrialsHaircut,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
