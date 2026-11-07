@@ -1547,8 +1547,9 @@ extractWalkForwardFoldCount raw = do
     let n = metricFloat (Just wf) "foldCount" 0
     if n >= 1 then Just (round n) else Nothing
 
--- | The evaluated fold count when the report carries one, else the requested
--- count; never below 1.
+{- | The evaluated fold count when the report carries one, else the requested
+count; never below 1.
+-}
 wfEvaluatedFolds :: Maybe Value -> Int -> Int
 wfEvaluatedFolds raw requested = max 1 (fromMaybe requested (extractWalkForwardFoldCount raw))
 
