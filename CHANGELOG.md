@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Trading/Signals: bound how far "latest indicator" lookups may fall back past missing readings. `latestJust`/`laggedJust` scanned back without limit, so during flat or illiquid stretches a technical signal could fire on an indicator reading from an arbitrarily old bar; they now reject readings older than `defaultMaxIndicatorStaleBars` (2) and fail closed, matching the strict precomputed per-bar paths. New `laggedJustAgeWithin`/`laggedJustWithin`/`latestJustWithin` expose the reading's age and an explicit cap.
 - Optimizer/Walk-Forward: add an opt-in multiple-testing haircut (`--wf-sharpe-trials-haircut`, env `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`) to the walk-forward Sharpe promotion gate. Each trial's mean Sharpe is deflated by scale × √(2 ln trials) × sharpeStd/√folds before it is compared to `--min-wf-sharpe-mean`, so selecting the best of N candidates cannot promote a lucky draw. Disabled by default (0); scoring, filter-reason counters and all other gates are unchanged.
 
 - Trading/Live Fleet: refresh SOL after its recovery pin became raw, selecting a newer strict-tier candidate verified on both Hetzner roles. Retain the adverse predecessor across both Hetzner and Fly profiles (44 UUIDs); preserve risk caps, startup pacing, admission checks and the graduation window.
