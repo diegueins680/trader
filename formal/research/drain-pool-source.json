@@ -7,7 +7,7 @@
     "haskell/app/Trader/App/BacktestGate.hs": "b5a29c188b465fb6a1d7b94b53d958369405045733f45ce430a8a013496bade0",
     "haskell/app/Main.hs": "0dfa2b57627183453f374f8f98b2ef2920aae5f1c54076f706f9d922a1c82cd3",
     "haskell/trader.cabal": "6549d2da5f464e77d597b2dddcf883a943d3d8b545db6dfc8b32527e64c8edfe",
-    "haskell/test/TestMain.hs": "917edbf4bdf83b2042b8643f9b25b5dfd37e1c02fd99210f12d881805a108f70",
+    "haskell/test/TestMain.hs": "a0a43b2115406ccbff7ff0edc92ad4e2ff3ec319704c2a11eda6eb07ff69b98a",
     "haskell/test/Trader/Test/DrainPool.hs": "80c310115e97a338062f02bb0176e85c100b79a33d886653f78bddd7a4186430",
     "scripts/formal/drain_pool.py": "62b678273412f6b694b5bf6781619d951b228d2119fd2023ad8088e0a363bb46",
     "formal/research/DrainPool.hs": "6cfc98bba07d89093360b1d0df08532201105c650dd802ce070fc5599d4a13e4",

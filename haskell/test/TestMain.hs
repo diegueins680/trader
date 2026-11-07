@@ -444,6 +444,7 @@ import Trader.SignalGates (
     signalTrendSmaConfirmed,
     signalTrendSmaConfirmedWithConfig,
  )
+import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Test.GraduationTrace (graduationTraceSuite)
 import Trader.Test.OpsMigrations (testOpsMigrations)
 
@@ -859,6 +860,7 @@ main = do
     testWfSharpeTrialsHaircutProperties
     testWfSharpeHaircutUsesEvaluatedFolds
     testSweepThresholdZeroCandidatesKeepsBasePair
+    testSplitKeepsTuneWindowOutOfBacktest
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
@@ -9884,6 +9886,54 @@ testSweepThresholdZeroCandidatesKeepsBasePair = do
             assert "zero dynamic threshold candidates keep the configured open threshold" (abs (openThr - 0.01) < 1e-12)
             assert "zero dynamic threshold candidates keep the configured close threshold" (abs (closeThr - 0.03) < 1e-12)
             assert "zero dynamic threshold candidates still report tune stats" (tsFoldCount stats > 0)
+
+{- | The threshold sweep (`sweepThresholdWithHLWith`) only ever sees the tune
+window that `Main.hs` carves out of `splitTrain`, while the walk-forward report
+simulates the frozen thresholds over `splitBacktest`. This pins the contract
+that makes the sweep fold-local: train and backtest partition the series in
+order, the tune window (the trailing `tuneRatio` share of the train slice) ends
+exactly at `splitTrainEnd`, and every tune bar strictly precedes every backtest
+bar, so a swept threshold can never have seen the data it is later tested on.
+-}
+testSplitKeepsTuneWindowOutOfBacktest :: IO ()
+testSplitKeepsTuneWindowOutOfBacktest = do
+    let prices :: [Double]
+        prices = map fromIntegral [1 .. 100 :: Int]
+        lookback = 10 :: Int
+        tuneWindow :: Double -> [Double] -> [Double]
+        tuneWindow tuneRatio train =
+            let trainSize = length train
+                tuneSize = max 0 (min trainSize (floor (fromIntegral trainSize * tuneRatio)))
+                fitSize = max 0 (trainSize - tuneSize)
+             in drop fitSize train
+    case splitTrainBacktest lookback 0.3 prices of
+        Left err -> assert ("train/backtest split rejected a valid series: " ++ err) False
+        Right split -> do
+            let train = splitTrain split
+                backtest = splitBacktest split
+                trainEnd = splitTrainEnd split
+                tune = tuneWindow 0.5 train
+            assert "train and backtest partition the series in order" (train ++ backtest == prices)
+            assert "train slice is exactly the first trainEnd prices" (length train == trainEnd && take trainEnd prices == train)
+            assert "raw and effective train end agree" (splitTrainEndRaw split == trainEnd)
+            assert "train slice covers the lookback plus one bar" (trainEnd >= lookback + 1)
+            assert "backtest slice keeps at least two prices" (length backtest >= 2)
+            assert "tune window is non-empty" (not (null tune))
+            assert "tune window ends exactly at the train end" (last tune == last train)
+            assert "every tune bar strictly precedes every backtest bar" (maximum tune < minimum backtest)
+            assert "a full-ratio tune window is still confined to the train slice" (maximum (tuneWindow 0.999999 train) < minimum backtest)
+    case splitTrainBacktest lookback 0.0 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a zero backtest ratio must be rejected" False
+    case splitTrainBacktest lookback 1.0 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a unit backtest ratio must be rejected" False
+    case splitTrainBacktest lookback (0 / 0) prices of
+        Left _ -> pure ()
+        Right _ -> assert "a NaN backtest ratio must be rejected" False
+    case splitTrainBacktest 98 0.3 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a lookback that leaves no training bars must be rejected" False
 
 -- Fresh-entry sizing-validity regression: malformed cap/floor evidence must
 -- fail closed before a new position can open, while valid zero and minimum
