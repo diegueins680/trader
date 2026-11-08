@@ -1,0 +1,157 @@
+- generic [active] [ref=e1]:
+  - link "Saltar al contenido principal" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e4]:
+    - link "Saltar al contenido principal" [ref=e5] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=e6]:
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - link "Ir a TDF" [ref=e10] [cursor=pointer]:
+            - /url: /tdf
+            - img "TDF Records logo"
+          - navigation "Navegación principal" [ref=e11]:
+            - link "Buscar" [ref=e12] [cursor=pointer]:
+              - /url: /buscar
+            - link "TDF" [ref=e13] [cursor=pointer]:
+              - /url: /tdf
+            - link "Servicios" [ref=e14] [cursor=pointer]:
+              - /url: /comercio
+            - link "Comunidad" [ref=e15] [cursor=pointer]:
+              - /url: /fans
+            - link "Tienda" [ref=e16] [cursor=pointer]:
+              - /url: /marketplace
+            - link "Domo" [ref=e17] [cursor=pointer]:
+              - /url: /domo-del-pululahua
+            - link "Reservar" [ref=e18] [cursor=pointer]:
+              - /url: /reservar
+            - link "DJ Booth" [ref=e19] [cursor=pointer]:
+              - /url: /dj-booth
+            - link "Lanzamientos" [ref=e20] [cursor=pointer]:
+              - /url: /records
+        - generic [ref=e21]:
+          - link "Ingresar" [ref=e22] [cursor=pointer]:
+            - /url: /login?redirect=%2Ffans
+          - button "Más opciones" [ref=e23] [cursor=pointer]
+    - main [ref=e26]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "Comunidad — Conecta con tus artistas" [level=3] [ref=e30]
+          - paragraph [ref=e31]: Sigue a tus artistas favoritos, recibe lanzamientos y escucha sus playlists oficiales en Spotify y YouTube.
+          - paragraph [ref=e32]:
+            - text: ¿Quieres guardar tus artistas?
+            - link "Inicia sesión o crea una cuenta" [ref=e33] [cursor=pointer]:
+              - /url: /login?redirect=%2Ffans
+            - text: .
+        - generic [ref=e34]:
+          - generic [ref=e37]:
+            - heading "Experiencias y reservas" [level=6] [ref=e41]
+            - paragraph [ref=e42]: Agenda sesiones privadas, escuchas guiadas o transmisiones con tus artistas favoritos.
+            - generic [ref=e43]:
+              - link "Reservar ahora" [ref=e44] [cursor=pointer]:
+                - /url: /reservar
+              - link "DJ Booth" [ref=e45] [cursor=pointer]:
+                - /url: /dj-booth
+              - link "Sesión en vivo" [ref=e46] [cursor=pointer]:
+                - /url: /live-sessions/registro
+          - generic [ref=e49]:
+            - heading "Membresías y niveles" [level=6] [ref=e53]
+            - paragraph [ref=e54]: Accede a beneficios, lanzamientos anticipados y contenido exclusivo por artista.
+            - generic [ref=e55]:
+              - link "Ver membresías" [ref=e56] [cursor=pointer]:
+                - /url: /marketplace?category=packages
+              - link "Explorar catálogo" [ref=e57] [cursor=pointer]:
+                - /url: /marketplace
+          - generic [ref=e60]:
+            - heading "Tienda" [level=6] [ref=e64]
+            - paragraph [ref=e65]: Compra merch, paquetes digitales y ediciones limitadas directo del artista o del sello.
+            - generic [ref=e66]:
+              - link "Abrir tienda" [ref=e67] [cursor=pointer]:
+                - /url: /marketplace
+              - link "Lanzamientos del sello" [ref=e68] [cursor=pointer]:
+                - /url: /records
+          - generic [ref=e71]:
+            - heading "Radio y audio" [level=6] [ref=e75]
+            - paragraph [ref=e76]: Únete a transmisiones en vivo o escucha la radio curada mientras sigues artistas.
+            - link "Abrir radio" [ref=e78] [cursor=pointer]:
+              - /url: /fans#radio
+        - generic [ref=e79]:
+          - generic [ref=e81]:
+            - paragraph [ref=e82]: Feed de lanzamientos listo.
+            - generic [ref=e84]:
+              - heading "Novedades de tus artistas" [level=6] [ref=e85]
+              - paragraph [ref=e86]: Escucha novedades y abre videos sin salir del hub.
+            - alert [ref=e87]:
+              - generic [ref=e91]: Ingresa con tu cuenta para ver lanzamientos personalizados y seguir artistas.
+              - generic [ref=e93]:
+                - link "Inicia sesión" [ref=e94] [cursor=pointer]:
+                  - /url: /login?redirect=%2Ffans
+                - link "Crear cuenta fan" [ref=e95] [cursor=pointer]:
+                  - /url: /login?signup=1&intent=follow_artists&redirect=/fans
+          - generic [ref=e97]:
+            - generic [ref=e99]:
+              - heading "Empieza aquí" [level=6] [ref=e100]
+              - generic [ref=e102]:
+                - text: Artistas que sigues
+                - heading "0" [level=6] [ref=e103]
+              - paragraph [ref=e104]: Explora artistas, guarda favoritos al crear tu cuenta y vuelve para seguir sus lanzamientos.
+              - generic [ref=e105]:
+                - link "Crear cuenta fan" [ref=e106] [cursor=pointer]:
+                  - /url: /login?signup=1&intent=follow_artists&redirect=/fans
+                - link "Ver lanzamientos" [ref=e107] [cursor=pointer]:
+                  - /url: /records
+            - generic [ref=e109]:
+              - heading "Artistas destacados" [level=6] [ref=e110]
+              - paragraph [ref=e111]: Inicia sesión para guardar favoritos y recibir nuevos lanzamientos aquí.
+        - generic [ref=e113]:
+          - progressbar "Cargando artistas" [ref=e114]
+          - heading "Cargando catálogo de artistas" [level=6] [ref=e117]
+          - paragraph [ref=e118]: Estamos trayendo perfiles, géneros y lanzamientos para este hub.
+          - link "Ver lanzamientos mientras tanto" [ref=e119] [cursor=pointer]:
+            - /url: /records
+        - alert [ref=e120]:
+          - generic [ref=e124]: Pronto encontrarás artistas disponibles para seguir.
+    - contentinfo [ref=e125]:
+      - generic [ref=e127]:
+        - generic [ref=e128]:
+          - heading "TDF Records" [level=6] [ref=e129]
+          - paragraph [ref=e130]: Si te atoras, te dejamos una salida clara desde esta página para que sigas avanzando.
+          - generic [ref=e131]:
+            - link "Ver lanzamientos" [ref=e132] [cursor=pointer]:
+              - /url: /records
+            - link "Reservar estudio" [ref=e133] [cursor=pointer]:
+              - /url: /reservar
+        - navigation "Explorar TDF" [ref=e134]:
+          - generic [ref=e135]: Explorar
+          - generic [ref=e136]:
+            - link "Buscar" [ref=e137] [cursor=pointer]:
+              - /url: /buscar
+            - link "TDF" [ref=e138] [cursor=pointer]:
+              - /url: /tdf
+            - link "Servicios" [ref=e139] [cursor=pointer]:
+              - /url: /comercio
+            - link "Comunidad" [ref=e140] [cursor=pointer]:
+              - /url: /fans
+            - link "Tienda" [ref=e141] [cursor=pointer]:
+              - /url: /marketplace
+            - link "Domo" [ref=e142] [cursor=pointer]:
+              - /url: /domo-del-pululahua
+            - link "Reservar" [ref=e143] [cursor=pointer]:
+              - /url: /reservar
+            - link "DJ Booth" [ref=e144] [cursor=pointer]:
+              - /url: /dj-booth
+            - link "Lanzamientos" [ref=e145] [cursor=pointer]:
+              - /url: /records
+            - link "Sugerencias" [ref=e146] [cursor=pointer]:
+              - /url: /feedback
+            - link "Donar" [ref=e147] [cursor=pointer]:
+              - /url: /donar
+        - generic [ref=e148]:
+          - generic [ref=e149]: Gestión de mensajes
+          - generic [ref=e150]:
+            - link "Consentimiento WhatsApp" [ref=e151] [cursor=pointer]:
+              - /url: /whatsapp/consentimiento
+            - link "Confirmación WhatsApp" [ref=e152] [cursor=pointer]:
+              - /url: /whatsapp/ok
+        - link "Ir a login" [ref=e154] [cursor=pointer]:
+          - /url: /login?redirect=%2Ffans

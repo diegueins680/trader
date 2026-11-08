@@ -1,0 +1,8 @@
+[    5383ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[    6286ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[    6717ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ https://github.com/diegueins680/tdf-app/pull/453/changes:0
+[    7619ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/copilot/chat/reference/diegueins680/tdf-app/pull_request/453:0
+[   15665ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[   16633ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[   22432ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/diegueins680/tdf-app/pull/453/partials/unread_timeline?since=2026-09-20T21%3A18%3A35.000000000-05%3A00:0
+[   23912ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/diegueins680/tdf-app/pull/453/partials/unread_timeline?since=2026-09-20T21%3A18%3A35.000000000-05%3A00:0

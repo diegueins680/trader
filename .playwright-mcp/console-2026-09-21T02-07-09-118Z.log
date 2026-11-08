@@ -1,0 +1,7 @@
+[    6723ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[    7699ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[   12637ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/copilot/chat/reference/diegueins680/tdf-app/pull_request/453:0
+[   26675ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[   27540ms] [INFO] Autofocus processing was blocked because a document's URL has a fragment '#pullrequestreview-5262581009'. @ https://github.com/diegueins680/tdf-app/pull/453#pullrequestreview-5262581009:0
+[   27547ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/diegueins680/tdf-app/pull/453/partials/unread_timeline?since=2026-09-20T21%3A07%3A33.000000000-05%3A00:0
+[   27697ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0

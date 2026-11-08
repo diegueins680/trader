@@ -524,3 +524,52 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate flag 
 - Next owner: trader-firm-engineering (wire `argVolConfGate` into Main.hs sizing pipeline) → then trader-firm-qa (add TestMain.hs preset round-trip)
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof (Args.hs L83-84/314/1332-1358; Main.hs+TestMain.hs 0 matches)
+
+## 2026-11-07 18:55 UTC — Data Director: vol-conf-gate seam probe
+- Scope: `--vol-conf-gate <preset>` callable slice in Args.hs/Main.hs/TestMain.hs.
+- Git status: clean (no modifications on probed files).
+- Args.hs:84-85 exports `VolConfGatePreset(..)`, `parseVolConfGatePreset`.
+- Args.hs:316 field `argVolConfGate :: VolConfGatePreset` wired on `App` args.
+- Args.hs:1335-1340 CLI flag `--vol-conf-gate` uses `eitherReader parseVolConfGatePreset`; `volConfGateChoicesCsv` surfaced in help.
+- Args.hs:1349-1361 seven override flags (weak/strong confidence thresholds + five cell size multipliers) present as `optional`.
+- No matches in Main.hs or TestMain.hs for the probed tokens → preset consumption lives downstream of Args; no test seam here.
+- Confidence/realized tokens elsewhere are unrelated (LSTM/TA/meta-label/vol-lookback).
+- Status: `no-existing-data-validation-seam`
+- Next owner/consumer: trader-firm-research (map preset → sizer/gate module) then trader-firm-qa (add TestMain coverage).
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate seam probe block
+
+### Finished — vol-conf-gate seam check (2026-11-07 17:55 -05)
+- Scope: proof command on Args.hs / Main.hs / TestMain.hs.
+- git status: all three tracked clean (no porcelain output on these paths).
+- Args.hs confirms callable seam: `--vol-conf-gate` (L1336) via `parseVolConfGatePreset` (eitherReader, L1335), stored as `argVolConfGate :: VolConfGatePreset` (L316); re-exports `VolConfGatePreset(..)`, `parseVolConfGatePreset` (L84–85).
+- Override knobs present (L1349–1361): weak/strong confidence thresholds + 5 size cells (low/med/high × med/strong).
+- Related confidence surface in Args.hs only (meta-label, LSTM soft/hard, protection-min, confidence-sizing, TA-*); no `vol-conf-gate`/`realized` hits in Main.hs or TestMain.hs — gate is wiring only, no validation seam here.
+- Status: no-existing-data-validation-seam
+- Next owner: trader-firm-research (define vol/conf gate validation seam + realized-vol feed); consumer: trader-firm-backtest.
+
+FINAL_STATUS: done — grep+git evidence from app/Trader/App/Args.hs (L84–85, 316, 1335–1361); Main.hs/TestMain.hs silent on gate.
+
+## 2026-11-07 22:09 — vol-conf-gate data seam probe
+- Proof: `grep -nE 'vol-conf-gate|VolConfGatePreset|argVolConfGate' app/Trader/App/Args.hs app/Main.hs test/TestMain.hs`
+- Git porcelain for Args.hs/Main.hs/TestMain.hs: clean (no output).
+- Args.hs confirms callable seam: imports `VolConfGatePreset`, `parseVolConfGatePreset`; `argVolConfGate :: VolConfGatePreset` (line 316); `--vol-conf-gate` option wired via `eitherReader parseVolConfGatePreset` (1335–1340) with override knobs `--vol-conf-weak-confidence-threshold`, `--vol-conf-strong-confidence-threshold`, and low/med/high size overrides (1349–1361).
+- Main.hs / TestMain.hs: no `vol-conf-gate` / `VolConfGatePreset` hits — no entrypoint dispatch or test coverage for the preset at this seam.
+- Realized-vol surface: only `--vol-lookback` (1319) referenced here; no realized-vol data validator at the CLI boundary.
+- Data seam: CLI parse + preset enum exists in Args.hs; downstream consumer and preset-level validation live outside these three files.
+- Next owner/consumer: trader-firm-research (sizing/vol gate consumer modules) and trader-firm-qa for TestMain.hs coverage of `--vol-conf-gate`.
+- Status: data-not-blocking
+
+FINAL_STATUS: done — appended result block to reports/trader-firm-data.md citing Args.hs:84,316,1335-1361 with vol-conf-gate seam present and clean porcelain
+
+---
+### Result — 2026-11-08 06:55 UTC (vol-conf-gate slice)
+- Scope: `--vol-conf-gate <preset>` callable seam in Args/Main/Tests.
+- Git: no pending changes in Args.hs/Main.hs/TestMain.hs.
+- Evidence: `app/Trader/App/Args.hs` exports `VolConfGatePreset(..)`, `parseVolConfGatePreset`; `argVolConfGate :: VolConfGatePreset` (L316); option `--vol-conf-gate` wired via `eitherReader parseVolConfGatePreset` (L1335–1340) with override knobs `--vol-conf-weak/strong-confidence-threshold`, `--vol-conf-{low,medium,high}-{medium,strong}-size` (L1349–1361).
+- Confidence/realized surfaces present in Args (meta-label, LSTM, protection, kalman z, TA confidence) — all parser-level.
+- No matches found in `app/Main.hs` or `test/TestMain.hs` for the probed tokens → no runtime wiring or test coverage for the gate slice in those files.
+- Status: `data-blocking: app/Main.hs + test/TestMain.hs (no vol-conf-gate consumer/validation seam)`
+- Next owner: trader-firm-backend (wire `argVolConfGate` into Main execution path); consumer: trader-firm-qa (add TestMain coverage for `parseVolConfGatePreset` + override knobs).
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice evidence

@@ -1,0 +1,37 @@
+[    5792ms] [WARNING] Manifest: property 'migrate_from' ignored, manifest must specify an 'id' property in order to receive a migration. @ https://mail.google.com/mail/u/0/manifest.json:0
+[    5969ms] [WARNING] Deprecated API for given entry type. @ https://mail.google.com/_/scs/mail-static/_/js/k=gmail.main.es_419.tfTI6S5BNUc.es5.OL/am=QAEAAABg-4fC-X9PDwsgcOBfDn--D_y10P3_H4Kf8ENAkjXQA6Bk5TL__9_Nr_n_3WIV4_NHAgABraNb7fCQ4arGZ30BhPdr020GAAAAAAAAAAAAAAAAAAAA_Jk2JQED/d=1/exm=b/ed=1/im=1/dg=0/br=1/wt=1/rs=AHGWq9C8X0b21JZwFWvcVfbtZnlPcNCewg/cb=loaded_1/m=a?cb=ff466e08:3005
+[    6301ms] [WARNING] Unrecognized feature: 'attribution-reporting'. @ https://mail.google.com/_/scs/mail-static/_/js/k=gmail.main.es_419.tfTI6S5BNUc.es5.OL/am=QAEAAABg-4fC-X9PDwsgcOBfDn--D_y10P3_H4Kf8ENAkjXQA6Bk5TL__9_Nr_n_3WIV4_NHAgABraNb7fCQ4arGZ30BhPdr020GAAAAAAAAAAAAAAAAAAAA_Jk2JQED/d=1/exm=a,b,m,m_i/ed=1/im=1/dg=0/br=1/wt=1/rs=AHGWq9C8X0b21JZwFWvcVfbtZnlPcNCewg/cb=loaded_3/m=ebdd,sps,nsYuae,LkcS4,fYVVAd,UCS7w,l,spit,t,it,anc?cb=ff466e08:4504
+[    7778ms] [ERROR] Blocked attempt to show a 'beforeunload' confirmation panel for a frame that never had a user gesture since its load. https://www.chromestatus.com/feature/5082396709879808 @ https://mail.google.com/mail/u/0/#inbox:156
+[    8096ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://mail.google.com/mail/u/0/?ui=2&ik=ef8c81f9bf&jsver=tfTI6S5BNUc.es_419.L.es5&cbl=gmail.pinto-server_20260916.17_p0&rid=mail%3Ai.aa18.1.0&view=up&act=oetsha&_reqid=175219&at&nsc=1&mb=0&rt=j:0
+[   10369ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[   11802ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  813561ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  814612ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  853693ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  854383ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  894813ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  895379ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  939221ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  939877ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  974368ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  975094ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  977264ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/copilot/chat/reference/diegueins680/tdf-app/pull_request/453:0
+[  979705ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/copilot/chat/reference/diegueins680/tdf-app/pull_request/453:0
+[  989198ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[  989922ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1085350ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1085862ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1173399ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1174116ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1399401ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1400210ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1441551ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1442209ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1463107ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1463706ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1490772ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 1491316ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 2255136ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 2256085ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 4409691ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0
+[ 4410407ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://github.com/github-copilot/chat/entitlement:0

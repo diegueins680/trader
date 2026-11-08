@@ -1,0 +1,16 @@
+[     549ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'attribution-reporting'. @ :0
+[     549ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'shared-storage'. @ :0
+[     549ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'shared-storage-select-url'. @ :0
+[    4977ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://www.instagram.com/direct/inbox/:0
+[    6789ms] [LOG] 
+%cStop! font-family:helvetica; font-size:20px; font-size:50px; font-weight:bold; color:red; -webkit-text-stroke:1px black; @ https://static.cdninstagram.com/rsrc.php/v4i8vt4/yh/l/en_US-j/dahjCPl-g6jRwu7FV0WEjbp_6rd90ow-ZH1g2o-DfYs64ZNVFxw0vLReMeFkNKS6eINvQDRPc1XxNvnZy7A5AeMUt6EUyXVxRVTHeTpzl7afy0.js:417
+[    7097ms] [LOG] 
+%cThis is a browser feature intended for developers. If someone told you to copy-paste something here to enable an Instagram feature or "hack" someone's account, it is a scam and will give them access to your Instagram account. font-family:helvetica; font-size:20px;  @ https://static.cdninstagram.com/rsrc.php/v4i8vt4/yh/l/en_US-j/dahjCPl-g6jRwu7FV0WEjbp_6rd90ow-ZH1g2o-DfYs64ZNVFxw0vLReMeFkNKS6eINvQDRPc1XxNvnZy7A5AeMUt6EUyXVxRVTHeTpzl7afy0.js:417
+[    7097ms] [LOG] 
+%cSee https://www.facebook.com/selfxss for more information. font-family:helvetica; font-size:20px;  @ https://static.cdninstagram.com/rsrc.php/v4i8vt4/yh/l/en_US-j/dahjCPl-g6jRwu7FV0WEjbp_6rd90ow-ZH1g2o-DfYs64ZNVFxw0vLReMeFkNKS6eINvQDRPc1XxNvnZy7A5AeMUt6EUyXVxRVTHeTpzl7afy0.js:417
+[    7098ms] [LOG] 
+%c  @ https://static.cdninstagram.com/rsrc.php/v4i8vt4/yh/l/en_US-j/dahjCPl-g6jRwu7FV0WEjbp_6rd90ow-ZH1g2o-DfYs64ZNVFxw0vLReMeFkNKS6eINvQDRPc1XxNvnZy7A5AeMUt6EUyXVxRVTHeTpzl7afy0.js:417
+[   10527ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'attribution-reporting'. @ :0
+[   10527ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'shared-storage'. @ :0
+[   10527ms] [WARNING] Error with Permissions-Policy header: Unrecognized feature: 'shared-storage-select-url'. @ :0
+[   10839ms] [ERROR] Permissions policy violation: unload is not allowed in this document. @ https://static.xx.fbcdn.net/rsrc.php/v4/yA/r/TeG_tOiS3yv.js?_nc_eui2=AeFVGu7pgmYppb4L0JQJEkKmDa6lCzFBH6ENrqULMUEfoZpOCsPz93tcmLSk6ikc2rdNjBOZ1d9OWEAUuF6GWvIF:246
