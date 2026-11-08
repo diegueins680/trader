@@ -39,6 +39,11 @@ import Trader.PortfolioSelection (
     portfolioGraduationPerformance,
     portfolioGraduationReview,
  )
+import Trader.Predictors.Conformal (
+    ConformalModel (..),
+    fitConformal,
+    predictInterval,
+ )
 import Trader.Predictors.Quantile (
     LinModel (..),
     QuantileModel (..),
@@ -55,7 +60,8 @@ formalVerificationSuite =
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
     , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
     , ("portfolio graduation equity boundaries fail closed", testGraduationPortfolioBoundaryContract)
-    , ("quantile intervals fail closed on malformed evidence", testQuantileIntervalAdmissibilityContract)
+        , ("quantile intervals fail closed on malformed evidence", testQuantileIntervalAdmissibilityContract)
+    , ("conformal interval width is 2*cmRadius and monotone non-decreasing (clause 5)", testConformalIntervalWidthMonotonicityContract)
     , ("every formal execution obligation holds", testFormalExecutionReport)
     , ("every formal risk obligation holds", testFormalRiskReport)
     , ("every formal optimization obligation holds", testFormalOptimizationReport)
@@ -413,6 +419,35 @@ testQuantileIntervalAdmissibilityContract = do
                 (wideSigma >= narrowSigma)
         _ ->
             ioError (userError "expected admissible ordered quantile bounds with positive sigma")
+
+testConformalIntervalWidthMonotonicityContract :: IO ()
+testConformalIntervalWidthMonotonicityContract = do
+    let residuals = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        mu = 10.0
+        lowerAlpha = 0.5
+        higherAlpha = 0.1
+        lowerModel = fitConformal lowerAlpha residuals
+        higherModel = fitConformal higherAlpha residuals
+        unavailableModel = fitConformal 0.1 []
+        intervalWidth (lo, hi, _) = hi - lo
+        (lowLo, lowHi, lowSigma) = predictInterval lowerModel mu
+        (highLo, highHi, _) = predictInterval higherModel mu
+        (badLo, badHi, badSigma) = predictInterval unavailableModel mu
+    assertBool
+        "lower-quantile interval width equals 2*cmRadius for a fixed finite mu"
+        (approxEq (lowHi - lowLo) (2 * cmRadius lowerModel))
+    assertBool
+        "higher-quantile interval width equals 2*cmRadius for a fixed finite mu"
+        (approxEq (highHi - highLo) (2 * cmRadius higherModel))
+    assertBool
+        "widening the selected residual quantile cannot narrow the interval (non-decreasing)"
+        (intervalWidth (highLo, highHi, Nothing) >= intervalWidth (lowLo, lowHi, lowSigma))
+    assertBool
+        "unavailable conformal model has cmCount == 0"
+        (cmCount unavailableModel == 0)
+    assertBool
+        "unavailable conformal model yields (-Infinity, Infinity, Nothing)"
+        (isInfinite badLo && badLo < 0 && isInfinite badHi && badHi > 0 && isNothing badSigma)
 
 testFormalExecutionReport :: IO ()
 testFormalExecutionReport =
