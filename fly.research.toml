@@ -53,6 +53,11 @@ primary_region = "fra"
   TRADER_OPTIMIZER_PRIOR_MISSING_AGE_MULTIPLIER = "0.10"
   TRADER_OPTIMIZER_P_LONG_SHORT = "0.2"
   TRADER_OPTIMIZER_P_COST_AWARE_EDGE = "1.0"
+  # Multiple-testing haircut on the walk-forward Sharpe gate: each trial's mean
+  # Sharpe is reduced by 1.0 * sqrt(2 ln trials) * sharpeStd/sqrt(folds) before
+  # the min-WF-Sharpe comparison (code default 0.3), so the best of N trials
+  # cannot be promoted on a lucky draw.
+  TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT = "1.0"
   # Small batches need method diversity: balance the only active long-horizon
   # family observed in production with regime-switch instead of letting the
   # latter dominate every primary draw.
