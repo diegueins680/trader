@@ -524,3 +524,28 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate flag 
 - Next owner: trader-firm-engineering (wire `argVolConfGate` into Main.hs sizing pipeline) → then trader-firm-qa (add TestMain.hs preset round-trip)
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof (Args.hs L83-84/314/1332-1358; Main.hs+TestMain.hs 0 matches)
+
+## 2026-11-10 09:59 ECT — vol-conf-gate data seam probe
+- Scope: Args.hs/Main.hs/TestMain.hs for `--vol-conf-gate <preset>` wiring.
+- git status: clean (no pending edits on the three files).
+- Args.hs: imports `VolConfGatePreset`, `parseVolConfGatePreset` (L84-85); field `argVolConfGate :: VolConfGatePreset` (L316); CLI option defined L1335-1340 (`--vol-conf-gate`) using `volConfGateChoicesCsv`; per-cell override flags L1349-1361 (`--vol-conf-weak-confidence-threshold`, `--vol-conf-strong-confidence-threshold`, `--vol-conf-{low,medium,high}-{medium,strong}-size`).
+- Main.hs/TestMain.hs: no matches for vol-conf-gate tokens in this grep — gate preset is consumed deeper in pipeline, not at Main/Test entrypoints.
+- Confidence seam exists (`--protection-min-confidence`, `--lstm-confidence-soft/hard`, `--meta-label-min-confidence`) and realized-vol lookback (`--vol-lookback`, L1319) already surfaced as CLI args.
+- Data seam assessment: preset parser + override knobs are fully in place at CLI/Args layer; no data-layer blocker observed for callable `--vol-conf-gate <preset>` slice.
+- Status: data-not-blocking
+- Next owner: trader-firm-backtest (wire preset into run loop + emit per-cell telemetry).
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate Args.hs evidence (L84-1361)
+
+## Finished result — 2026-11-10 13:55 ECT (vol-conf-gate proof)
+- Target: `--vol-conf-gate <preset>` CLI seam in `app/Trader/App/Args.hs`.
+- git status (Args/Main/TestMain): clean (no modifications).
+- Evidence: Args.hs L84-85 exports `VolConfGatePreset(..)` / `parseVolConfGatePreset`; L316 `argVolConfGate :: VolConfGatePreset`; L1335-1340 wires `--vol-conf-gate` via `eitherReader parseVolConfGatePreset` with `volConfGateChoicesCsv`.
+- Override surface: L1349-1361 optional thresholds/sizes (`--vol-conf-weak-confidence-threshold`, `--vol-conf-strong-confidence-threshold`, `--vol-conf-{low,medium,high}-{medium,strong}-size`).
+- Confidence sizing seam present: L1551-1572 (`confidence-sizing` flag, `--lstm-confidence-soft/-hard`, `--protection-min-confidence`).
+- No grep hits in `app/Main.hs` or `test/TestMain.hs` for the targeted tokens → preset plumbing lives entirely in Args.hs; Main/TestMain consume via `argVolConfGate` record field, no direct CLI parse to validate.
+- Data validation seam: parser `parseVolConfGatePreset` is the only input guard; no numeric range checks on override values in Args.hs L1349-1361.
+- Status: data-not-blocking
+- Next owner/consumer: trader-firm-backtest (wire preset+overrides into gate evaluation & regression harness).
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate Args.hs evidence (L84-1572)
