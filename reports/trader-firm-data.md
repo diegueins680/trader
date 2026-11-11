@@ -524,3 +524,25 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate flag 
 - Next owner: trader-firm-engineering (wire `argVolConfGate` into Main.hs sizing pipeline) → then trader-firm-qa (add TestMain.hs preset round-trip)
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof (Args.hs L83-84/314/1332-1358; Main.hs+TestMain.hs 0 matches)
+
+## 2026-11-10 22:55 UTC — vol-conf-gate preset proof
+Command: git status + grep for vol-conf-gate/VolConfGatePreset/argVolConfGate/confidence/realized on Args.hs, Main.hs, TestMain.hs.
+Findings:
+- `app/Trader/App/Args.hs` wires `--vol-conf-gate` via `parseVolConfGatePreset` (line 1335) with help listing `volConfGateChoicesCsv` (1340); arg field `argVolConfGate :: VolConfGatePreset` at 316; export at 84-85.
+- Override knobs present: weak/strong confidence thresholds (1349-1351) and 5 cell size overrides (1353-1361).
+- No matches in `app/Main.hs` or `test/TestMain.hs` from grep output (first 40 lines all Args.hs); callable preset is parsed/held but consumer wiring for the slice is not visible in Main/TestMain within this scoped view.
+- `git status --porcelain=v1` on the three files: clean (no modifications shown).
+Status: data-not-blocking
+Next owner/consumer: trader-firm-backtest (verify Main.hs threads `argVolConfGate` into runtime sizing path).
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate preset proof block
+
+## 2026-11-10 21:55 — vol-conf-gate callable surface probe
+- Command: git status + grep on Args.hs/Main.hs/TestMain.hs for vol-conf-gate seam.
+- git status: clean (no pending edits on the three files).
+- Args.hs:1335-1340 exposes `--vol-conf-gate` via `eitherReader parseVolConfGatePreset`, choices from `volConfGateChoicesCsv`.
+- Args.hs:316 stores `argVolConfGate :: VolConfGatePreset`; overrides at L1349-1361 for weak/strong confidence thresholds and low/med/high size cells.
+- Main.hs, TestMain.hs: no `vol-conf-gate|VolConfGatePreset|argVolConfGate` matches in this grep slice — callable preset is wired at Args only; no data-validation seam around preset inputs.
+- Status: no-existing-data-validation-seam
+- Next owner: trader-firm-cto to route preset-input validation to QA/backtest owner.
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended; probe shows preset wired in Args.hs with no Main/TestMain validation seam.
