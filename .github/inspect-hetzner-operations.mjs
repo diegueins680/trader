@@ -1,5 +1,6 @@
 // Run inside the API container. Credentials stay in that container; output is a
 // bounded operational report. The only POST calls Binance's test-order probe.
+// Order journal rows report outcome fields only (no ids, sizes or payloads).
 import { createHash } from "node:crypto";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -54,6 +55,8 @@ await attempt("fleet", async () => {
       activeUuid: bot.performance?.closeTiming?.comboUuid,
       consecutiveOrderErrors: bot.consecutiveOrderErrors, dayTrades: bot.dayTrades,
       action: bot.latestSignal?.action, reason: bot.decisionTrace?.reason,
+      outcome: bot.decisionTrace?.outcome,
+      stages: (bot.decisionTrace?.stages ?? []).slice(0, 24).map(stage => `${safeText(stage.label).slice(0, 60)}=${safeText(stage.status).slice(0, 30)}`),
     })),
   };
 });
@@ -79,7 +82,7 @@ await attempt("leaderboard", async () => {
   return {
     count: combos.length, tiers, generatedAtMs: board.generatedAtMs,
     newest: combos.slice().sort((a, b) => b.createdAtMs - a.createdAtMs).slice(0, 4).map(row),
-    pins: pins.filter(Boolean).map((uuid, i) => { const combo = combos.find(x => x.uuid === uuid); return { symbol: combo?.params?.binanceSymbol ?? combo?.params?.symbol ?? (env.TRADER_SERVER_ROLE === "trading" ? symbols[i] : null), uuid, present: !!combo, processing: combo?.processing }; }),
+    pins: pins.filter(Boolean).map((uuid, i) => { const combo = combos.find(x => x.uuid === uuid); return { symbol: combo?.params?.binanceSymbol ?? combo?.params?.symbol ?? (env.TRADER_SERVER_ROLE === "trading" ? symbols[i] : null), uuid, present: !!combo, processing: combo?.processing, backtest: combo ? { interval: combo.params?.interval, bars: combo.params?.bars, openThreshold: combo.openThreshold ?? combo.params?.openThreshold, tradeCount: combo.metrics?.tradeCount, roundTrips: combo.metrics?.roundTrips, positionChanges: combo.metrics?.positionChanges, exposure: combo.metrics?.exposure, avgHoldingPeriods: combo.metrics?.avgHoldingPeriods } : null }; }),
     replacements: missing.map(symbol => ({ symbol, strict: combos.filter(combo => (combo.params?.binanceSymbol ?? combo.params?.symbol) === symbol && combo.processing?.tier === "deployable" && !combo.processing?.relaxed).slice(0, 5).map(row) })),
   };
 });
@@ -109,6 +112,19 @@ await attempt("journal", async () => {
         let event; try { event = JSON.parse(line); } catch { continue; }
         const type = event.type ?? event.kind ?? "unknown";
         counts[type] = (counts[type] ?? 0) + 1;
+        if (type === "bot.order") {
+          // Outcome fields only: no order ids, quantities or raw exchange payloads.
+          const order = event.event?.order ?? {};
+          const risk = order.marketRisk;
+          const outcome = item => ({ sent: item.sent, mode: item.mode, side: item.side, status: item.status, reduceOnly: item.reduceOnly, filled: (item.executedQty ?? 0) > 0, message: safeText(item.message) });
+          rows.push({
+            type, atMs: event.atMs, symbol: event.symbol, market: event.market, partial: event.partial === true,
+            opSide: event.event?.opSide, ...outcome(order),
+            precedingClose: order.precedingClose ? outcome(order.precedingClose) : null,
+            marketRisk: risk ? { allowed: risk.allowed, admissionOutcome: risk.admissionOutcome, reasons: (risk.reasons ?? []).slice(0, 8).map(safeText), edgeBps: risk.edgeBps, spreadBps: risk.spreadBps, impactBps: risk.impactBps, markBasisBps: risk.markBasisBps } : null,
+          });
+          continue;
+        }
         if (!/optimizer|graduat|sync.*(fail|error)|autostart.*(fail|error)/i.test(type)) continue;
         const selected = Object.fromEntries(Object.entries(event).filter(([key, value]) => /^(type|atMs|symbol|count|admittedCount|newestCreatedAtMs|boardCount|beforeCount|afterCount|trials|durationMs|elapsedMs|exitCode|reason|summary|error|message|phase|status|objective)$/.test(key) && ["string", "number", "boolean"].includes(typeof value)).map(([key, value]) => [key, typeof value === "string" ? safeText(value) : value]));
         rows.push(selected);
