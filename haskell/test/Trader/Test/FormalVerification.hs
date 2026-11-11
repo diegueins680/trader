@@ -60,7 +60,7 @@ formalVerificationSuite =
     , ("external data symbol scoping fails closed without a target symbol", testExternalDataSymbolScoping)
     , ("automatic graduation equity is session bounded", testGraduationEquitySessionBoundary)
     , ("portfolio graduation equity boundaries fail closed", testGraduationPortfolioBoundaryContract)
-        , ("quantile intervals fail closed on malformed evidence", testQuantileIntervalAdmissibilityContract)
+    , ("quantile intervals fail closed on malformed evidence", testQuantileIntervalAdmissibilityContract)
     , ("conformal interval width is 2*cmRadius and monotone non-decreasing (clause 5)", testConformalIntervalWidthMonotonicityContract)
     , ("every formal execution obligation holds", testFormalExecutionReport)
     , ("every formal risk obligation holds", testFormalRiskReport)
