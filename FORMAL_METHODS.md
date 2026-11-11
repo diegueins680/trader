@@ -12,7 +12,7 @@ Clauses:
 2. Empty calibration evidence, negative residuals, `NaN`, positive infinity, negative infinity, or a residual list containing any malformed sample produces an unavailable conformal model with `cmCount == 0` and an unbounded prediction interval.
 3. An unavailable conformal model, a malformed model radius, or a malformed point forecast must return `(-Infinity, Infinity, Nothing)` from `predictInterval`, so malformed calibration evidence cannot emit artificially tight interval bounds or a positive sigma-derived confidence estimate.
 4. Valid zero residual samples remain admissible. They may produce a zero-width interval around a finite point forecast, but `sigmaFromInterval` remains unavailable for non-positive interval width.
-5. For a fixed finite point forecast and valid non-empty calibration evidence, interval width is `2 * cmRadius`, so widening the selected conformal residual quantile is monotone non-decreasing in the produced interval width.
+5. For a fixed finite point forecast and valid non-empty calibration evidence, the prediction interval is `[mu - cmRadius, mu + cmRadius]`, so its width is exactly `2 * cmRadius` and is monotone non-decreasing as the selected conformal residual quantile rises. An unavailable conformal model has `cmCount == 0` and must yield `(-Infinity, Infinity, Nothing)` from `predictInterval`.
 
 Bounded executable obligations:
 
@@ -24,7 +24,7 @@ Proof sketch:
 - `fitConformal` only calls `conformalRadius` after that boundary has proven the sample non-empty and every residual finite and non-negative. The selected radius is therefore a quantile over admissible evidence only.
 - On rejected evidence, `fitConformal` returns an unavailable model with `cmCount == 0` and an infinite radius. `predictInterval` maps unavailable models, malformed radii, and malformed point forecasts to an unbounded interval with `Nothing` sigma, which is conservative for downstream hold-style gates.
 - Valid zero residuals satisfy the same finite non-negative admissibility predicate, so the zero boundary remains legal while still preventing sigma confidence from being synthesized from a non-positive interval width.
-- For valid evidence and fixed `mu`, `predictInterval` computes `[mu - radius, mu + radius]`; the width is exactly `2 * radius`. Because `conformalRadius` selects from sorted finite non-negative residuals, increasing the selected residual quantile cannot narrow the interval.
+- For valid evidence and fixed finite `mu`, `predictInterval` computes `[mu - radius, mu + radius]`, so the width is exactly `2 * radius == 2 * cmRadius`. Because `conformalRadius` selects from sorted finite non-negative residuals, increasing the selected residual quantile cannot narrow the interval; the interval width is therefore monotone non-decreasing in the selected quantile. An unavailable model (`cmCount == 0`) or a malformed radius returns `(-Infinity, Infinity, Nothing)` instead, which `testConformalIntervalWidthMonotonicityContract` asserts directly.
 
 ## Formal quantile interval admissibility contract
 
