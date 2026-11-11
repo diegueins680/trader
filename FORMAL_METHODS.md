@@ -211,6 +211,32 @@ Proof sketch:
 - `portfolioGraduationPerformance` rejects malformed or non-positive fleet-equity chains before computing return or drawdown, so aggregate corruption cannot propagate into review thresholds.
 - `portfolioGraduationReview` uses a strict comparison for minimum net return and inclusive comparisons for drawdown and reliability bounds, making the threshold-equality behavior explicit and executable.
 
+## Walk-forward Sharpe multiple-testing haircut contract
+
+The walk-forward promotion path in `optimizeOperationsWithHLWith` and `sweepThresholdWithHLWith` in `haskell/app/Trader/Optimization.hs` is treated as the fail-closed boundary for admitting a tuned candidate against the configured minimum mean walk-forward Sharpe (the `TRADER_OPTIMIZER_MIN_WF_SHARPE_MEAN` promotion gate, default `0.3`). The gate compares a deflated mean Sharpe, not the raw mean, so that lucky draws across many evaluated candidates cannot be promoted.
+
+Let `trials` be the number of candidates evaluated in the sweep, `evaluatedFolds` be the count of non-empty eligible walk-forward folds for the candidate, `sharpeStd` be the across-fold standard deviation of the candidate's fold Sharpe scores, and `scale >= 0` be the configured haircut scale (default `0`). Define the haircut as `haircut = scale * sqrt (2 * log (max 2 trials)) * sharpeStd / sqrt (fromIntegral evaluatedFolds)` and the gated statistic as `deflatedMean = rawMean - haircut`.
+
+Clauses:
+
+1. The haircut is non-negative: `scale`, `sqrt (2 * log (max 2 trials))`, `sharpeStd`, and `1 / sqrt evaluatedFolds` are each non-negative for any admissible evidence, so `haircut >= 0` and `deflatedMean <= rawMean`.
+2. The haircut is monotone non-decreasing in the trial count: for `trials' >= trials` with every other input fixed, `haircut' >= haircut`, so admitting more candidates can only widen, never shrink, the deflation.
+3. The haircut is monotone non-decreasing in `sharpeStd / sqrt evaluatedFolds`: holding `scale` and `trials` fixed, increasing across-fold dispersion or decreasing the evaluated-fold count can only increase the haircut.
+4. A haircut of `0` leaves the gate unchanged: when `scale == 0` (the default), or when `sharpeStd == 0`, the haircut is `0` and `deflatedMean == rawMean`, so the deflated gate reduces exactly to the raw mean Sharpe comparison against the configured minimum.
+5. `evaluatedFolds > 0` is guarded: a candidate with no non-empty eligible walk-forward fold is ineligible and maps to the ineligible sentinel score rather than dividing by zero or evaluating the haircut, so the gate fails closed instead of admitting a candidate with no out-of-sample evidence.
+6. The deflated gate can only lower, never raise, admission versus the raw mean: because `deflatedMean <= rawMean`, any candidate that fails `rawMean >= minimum` also fails `deflatedMean >= minimum`, and a candidate admitted under the deflated gate is also admitted under the raw gate at the same `0.3` minimum. Equality at the minimum (`deflatedMean == minimum`) remains at the documented admissible boundary of the raw mean comparison.
+
+Bounded executable obligation:
+
+- `testFormalOptimizationReport` in `haskell/test/Trader/Test/FormalVerification.hs` is the bounded regression harness for this contract. It evaluates the `Trader.Formal.Optimization` obligation report over a bounded enumerated domain and asserts the monotonicity and fail-closed obligations that back this gate, including `fvrReturnMonotone` (promotion score is monotone in realized return evidence), `fvrZeroRoundTripRewardInvariant` (candidates without eligible out-of-sample round-trips stay disabled rather than rewarded), and `fvrOptimizerPublicSurfaceInvariant` (the optimizer-facing promotion surface stays stable). This harness name and its enumerated obligation coverage must remain one-to-one with the clauses above and with the registry proof sketch in `formal/specifications.json`.
+
+Proof sketch:
+
+- In `sweepThresholdWithHLWith`, a candidate's walk-forward score is the mean over its per-fold scores with `stddev` as the dispersion witness; candidates below the round-trip floor (`minRoundTripsReq`) or with no eligible fold (`foldEvalOk` false, so `foldRsEval` empty) map to the ineligible sentinel before any mean or haircut is computed. This establishes clause 5: `evaluatedFolds > 0` is a precondition for the haircut path, so the gate fails closed on no out-of-sample evidence.
+- The haircut is a product of non-negative factors (`scale >= 0`, `sqrt (2 * log (max 2 trials)) >= 0` because `max 2 trials >= 2 > 1`, `sharpeStd >= 0`, and `1 / sqrt evaluatedFolds > 0`), which gives clauses 1 and 4: it is non-negative and collapses to `0` exactly when `scale` or `sharpeStd` is `0`, leaving the raw mean comparison unchanged.
+- `sqrt (2 * log (max 2 trials))` is monotone non-decreasing in `trials`, and the remaining factors are held fixed, which gives clause 2; dividing by `sqrt evaluatedFolds` and multiplying by `sharpeStd` gives clause 3 because both transformations are monotone in the stated direction.
+- Because `deflatedMean = rawMean - haircut` with `haircut >= 0`, `deflatedMean <= rawMean` pointwise, so the admission set under the deflated gate is a subset of the admission set under the raw mean gate at the same minimum. This gives clause 6: deflation can only remove admissions (block lucky draws), never create them, and the equality boundary at the minimum stays at the documented admissible boundary.
+
 ## Formal fee-aware entry gate contract
 
 `normalizeSignalOpenThreshold`, `signalEntryHeadroomThresholdCap`, `normalizeSignalEntryEdge`, and `signalEntryFeeBufferOk` in `haskell/app/Trader/SignalGates.hs`, as wired into the repaired `mkEntryGateState` binding block in `haskell/app/Trader/Trading.hs`, are treated as the shared fail-closed fresh-entry threshold boundary, canonical optimizer headroom-cap witness, raw-edge normalization boundary, and marginal-entry veto.
