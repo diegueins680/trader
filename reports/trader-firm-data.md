@@ -524,3 +524,28 @@ FINAL_STATUS: done — reports/trader-firm-data.md appended; vol-conf-gate flag 
 - Next owner: trader-firm-engineering (wire `argVolConfGate` into Main.hs sizing pipeline) → then trader-firm-qa (add TestMain.hs preset round-trip)
 
 FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice proof (Args.hs L83-84/314/1332-1358; Main.hs+TestMain.hs 0 matches)
+
+## Data Director — vol-conf-gate slice proof (2026-11-11 01:55 ECT)
+- Command: grep for vol-conf-gate/VolConfGatePreset/argVolConfGatePreset/confidence/realized in app/Trader/App/Args.hs, app/Main.hs, test/TestMain.hs.
+- Git status: clean on Args.hs/Main.hs/TestMain.hs (no uncommitted edits).
+- Evidence in Args.hs:
+  - L84–85: imports `VolConfGatePreset(..)`, `parseVolConfGatePreset`.
+  - L316: field `argVolConfGate :: VolConfGatePreset` on the args record.
+  - L1335–1340: option parser `--vol-conf-gate` via `parseVolConfGatePreset`, help lists `volConfGateChoicesCsv`.
+  - L1349–1361: override knobs for weak/strong confidence thresholds and low/med/high × med/strong size cells.
+- No hits in app/Main.hs or test/TestMain.hs — preset wiring (threading into pipeline + a CLI/parse test) lives elsewhere.
+- No data-ingest/realized-vol seam touched by this slice; the `realized` matches were only in the `--vol-lookback` help text (L1319) and are config, not a validation hook.
+- Status: data-not-blocking
+- Next owner: trader-firm-engineering (verify `argVolConfGate` is consumed in the sizing pipeline and that a parse/round-trip test exists); consumer: trader-firm-qa for preset-choice coverage.
+
+FINAL_STATUS: done — reports/trader-firm-data.md appended with vol-conf-gate slice grep evidence (Args.hs L84/316/1335/1349-1361) and data-not-blocking label.
+
+## Finished result — 2026-11-11 05:55 -05 (data)
+Scope: `--vol-conf-gate <preset>` callable slice.
+- git status (Args.hs, Main.hs, TestMain.hs): clean (no porcelain output).
+- Args.hs: imports `VolConfGatePreset`/`parseVolConfGatePreset` (L84–85); field `argVolConfGate :: VolConfGatePreset` (L316); option `--vol-conf-gate` wired via `eitherReader parseVolConfGatePreset` with `volConfGateChoicesCsv` help (L1335–1340); override flags for weak/strong confidence thresholds and low/med/high-vol × med/strong-conf size cells (L1349–1361).
+- Main.hs / TestMain.hs: no matches on vol-conf-gate tokens (confidence/realized refs live only in Args.hs here).
+- Data seam: preset→gate params are already resolvable from argv alone (no external data feed needed for the callable surface); realized-vol input flows through `--vol-lookback` (L1319) which is upstream of gate but not part of this slice.
+Status: data-not-blocking
+Next owner: trader-firm-backtest (exercise `--vol-conf-gate` presets end-to-end) / trader-firm-qa (CLI parity test).
+FINAL_STATUS: done — reports/trader-firm-data.md appended; grep+git evidence from app/Trader/App/Args.hs L84–1361
