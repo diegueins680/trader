@@ -101,7 +101,7 @@
   "scripts/research/exposure_rl/evaluate.py": "c68abb00095ca2e0a8359385e307f908459ae60400141161128cd061a030c1b0",
   "scripts/research/exposure_rl/market.py": "61c8fb361d423a9f0ecdb81198ebc8f3fac871961342c14c6b31557d8319f44b",
   "scripts/research/exposure_rl/nn.py": "3f203ab727931b84d8d157049dc0c12e71f1bd6caea7e0030810196682929b09",
-  "scripts/research/exposure_rl/run_campaign.py": "f7ef8e91a9a4dd3e0153be007e59bd7b087641dbebff03051acf9d950e658e84",
+  "scripts/research/exposure_rl/run_campaign.py": "a978ec07170fe1365c665c2387107f4bac7b50cb03185617b7c0dd648d9e2506",
   "scripts/research/exposure_rl/shield.py": "1b0a1c5881125816fe444bff0f5a0e4a9a73261e2faec864e05093db2f68f8b8",
   "test/exposure_rl_test.py": "8bcfb38a9986e49a7a1f9701b419b492376b97d18e5cfddbd3235594786f58c3"
  },

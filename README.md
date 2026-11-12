@@ -197,6 +197,15 @@ The [PPO objective audit](formal/research/ppo-objective-contract.md) verifies sc
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed feature history and [.env.example](.env.example) for the complete runtime configuration surface.
 
+## Exposure-control RL research (2026-11-11)
+
+`exposure_rl_control_v1` is an offline research campaign that asks whether a learned policy for bounded target exposure beats matched non-RL rules on the fleet's symbols and 6h bars. **It found no candidate that passes its registered gates; nothing is integrated and the champion is unchanged.** Start with the [adoption memo](research-notes/exposure-rl-2026-11-11/adoption-memo.md).
+
+- **Code:** `scripts/research/exposure_rl/` (environment, shield, PPO, TD3, IQL, comparators, runner, report). NumPy only, CPU only, public data, simulated fills, no credentials.
+- **Run it:** see the [campaign README](research-notes/exposure-rl-2026-11-11/README.md). Tests: `python3 test/exposure_rl_test.py` (also part of `bash scripts/verify.sh automation`).
+- **Shield:** `haskell/research/ExposureShieldV1.hs` mirrors the Python shield. It is research-only and is not a component of any executable.
+- **Formal checks:** `bash scripts/verify.sh formal` now also runs the exposure path's SMT proofs, bounded lifecycle model, Haskell/Python conformance and source audit against [its assurance ledger](formal/research/exposure-rl/README.md). Two of twelve obligations are discharged in scope; ten are partially verified with their open items listed.
+
 ## Offline sequential-control research
 
 The [2026-09-28 assurance follow-up](research-notes/sequential-control-2026-09-17/gap-risk-review-2026-09-28.md)

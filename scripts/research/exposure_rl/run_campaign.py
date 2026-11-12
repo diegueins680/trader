@@ -363,12 +363,17 @@ def command_champion(args) -> int:
         times, held = backtest["openTimes"], backtest["positions"]
         summary = {"backtestRatio": ratio, "firstOpenTime": int(times[0]), "bars": len(held), "nonZeroShare": float(np.mean(np.asarray(held) != 0)), "nativeMetrics": {k: backtest["metrics"].get(k) for k in ("totalReturn", "sharpe", "maxDrawdown", "tradeCount")}}
         print(symbol, summary, flush=True)
-        return symbol, {str(int(t)): float(p) for t, p in zip(times, held)}, summary
+        # Native per-bar equity return of the CLI's own ledger (same-close fills, exact
+        # intrabar stop/take-profit fills, no funding), keyed by the outcome bar's open time.
+        curve = backtest["equityCurve"]
+        own = {str(int(times[i + 1])): float(curve[i + 1] / curve[i] - 1.0) for i in range(len(curve) - 1)}
+        return symbol, {str(int(t)): float(p) for t, p in zip(times, held)}, summary, own
 
+    native = {}
     with multiprocessing.pool.ThreadPool(args.workers) as pool:
-        for symbol, held, summary in pool.map(export, sorted(rows.items())):
-            positions[symbol], runs[symbol] = held, summary
-    document = {"schema": "champion_method_export_v1", "flags": CHAMPION_FLAGS, "binarySha256": M.sha256_file(binary), "source": source_state(), "runs": runs, "positions": positions, "sha256": sha256_bytes(json.dumps(positions, sort_keys=True).encode())}
+        for symbol, held, summary, own in pool.map(export, sorted(rows.items())):
+            positions[symbol], runs[symbol], native[symbol] = held, summary, own
+    document = {"schema": "champion_method_export_v1", "flags": CHAMPION_FLAGS, "binarySha256": M.sha256_file(binary), "source": source_state(), "runs": runs, "positions": positions, "nativeReturns": native, "nativeReturnsSha256": sha256_bytes(json.dumps(native, sort_keys=True).encode()), "sha256": sha256_bytes(json.dumps(positions, sort_keys=True).encode())}
     (out_dir / "champion-positions.json").write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
     return 0
 

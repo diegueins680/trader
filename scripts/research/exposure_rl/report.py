@@ -28,8 +28,10 @@ from exposure_rl.env import STRESSES  # noqa: E402
 RL = ("ppo", "td3", "iql")
 EXTENSIONS = ("ppo_risk", "ppo_no_context")
 LEARNED_NON_RL = ("behavior_cloning", "contextual_bandit")
-DETERMINISTIC = ("cash", "buy_and_hold", "regime_rule", "ridge_forecast", "champion_method")
-GATE_COMPARATORS = ("cash", "buy_and_hold", "regime_rule", "ridge_forecast", "champion_method")
+DETERMINISTIC = ("cash", "buy_and_hold", "regime_rule", "ridge_forecast", "champion_method", "champion_native")
+# champion_native was added after the run (see the adoption memo): the registered
+# champion_method replay drops the rule's intrabar take-profit exits.
+GATE_COMPARATORS = ("cash", "buy_and_hold", "regime_rule", "ridge_forecast", "champion_method", "champion_native")
 ALL = RL + EXTENSIONS + LEARNED_NON_RL + DETERMINISTIC
 BENCHMARK = "BTCUSDT"
 
@@ -50,7 +52,31 @@ def load_run(run_dir: Path):
                 elif len(parts) == 4 and parts[1] == "base" and parts[3] == "net":
                     policy, symbol = parts[0], parts[2]
                     symbols.setdefault(policy, {}).setdefault(symbol, {}).setdefault(job["fold"], {})[job["seed"]] = (archive[f"{policy}__base__{symbol}__open_time"], archive[key])
+    add_champion_native(series)
     return jobs, series, symbols
+
+
+def add_champion_native(series: dict) -> None:
+    """Champion on its own ledger: the CLI's per-bar equity returns, summed over the fleet.
+
+    Same-close fills, exact intrabar stop and take-profit fills and no funding
+    make this ledger more favourable than the common one. Its costs are its own,
+    so the same series is used for every stress and stress columns are not comparable.
+    """
+    path = ROOT / ".tmp" / "research" / "exposure-rl-v1" / "champion" / "champion-positions.json"
+    if not path.is_file() or ("cash", "base") not in series:
+        return
+    native = json.loads(path.read_text()).get("nativeReturns")
+    if not native:
+        return
+    for stress in ("base", "cost2x", "delay1bar"):
+        for fold, runs in series[("cash", "base")].items():
+            times = next(iter(runs.values()))[0]
+            total = np.zeros(len(times))
+            for symbol in V.FLEET:
+                rows = native.get(symbol, {})
+                total += np.asarray([rows.get(str(int(t)), 0.0) for t in times])
+            series.setdefault(("champion_native", stress), {}).setdefault(fold, {})[None] = (times, total)
 
 
 def pooled(folds: dict, seed=None):
