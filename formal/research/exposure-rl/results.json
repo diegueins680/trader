@@ -1,0 +1,144 @@
+{
+ "conformance": {
+  "outcomeKinds": [
+   36231,
+   12137,
+   15324,
+   56388
+  ],
+  "reserveCases": 4096,
+  "seed": 20261111,
+  "shieldCases": 120080,
+  "status": "exhaustively_checked"
+ },
+ "forgery": {
+  "constructorExported": false,
+  "status": "exhaustively_checked"
+ },
+ "ghc": "9.4.8",
+ "lifecycle": {
+  "bounds": {
+   "budget": 2,
+   "levels": 3,
+   "proposers": 2,
+   "retries": 1
+  },
+  "model": {
+   "states": 648,
+   "statesWithHold": 94,
+   "statesWithSubmission": 336,
+   "transitions": 1344
+  },
+  "mutantCounterexample": {
+   "trace": [
+    "operator:set_research_replay",
+    "p0:observe",
+    "p0:shield_admit_1",
+    "p0:reserve_unsafe",
+    "p1:observe",
+    "p1:shield_admit_2",
+    "p1:reserve_unsafe",
+    "p0:submit_unsafe",
+    "p1:submit_unsafe"
+   ],
+   "violation": "budget"
+  }
+ },
+ "obligations": {
+  "FM-01": "partially_verified",
+  "FM-02": "partially_verified",
+  "FM-03": "partially_verified",
+  "FM-04": "partially_verified",
+  "FM-05": "partially_verified",
+  "FM-06": "discharged_in_scope",
+  "FM-07": "partially_verified",
+  "FM-08": "partially_verified",
+  "FM-09": "partially_verified",
+  "FM-10": "partially_verified",
+  "FM-11": "discharged_in_scope",
+  "FM-12": "partially_verified"
+ },
+ "schemaVersion": 1,
+ "smt": {
+  "F-RLX-LEDGER-COST-NONNEGATIVE": "unsat",
+  "F-RLX-LEDGER-FLAT": "unsat",
+  "F-RLX-LEDGER-IDENTITY": "unsat",
+  "F-RLX-LEDGER-NO-INTENT": "unsat",
+  "F-RLX-LEDGER-TURNOVER-COSTS": "unsat",
+  "F-RLX-LEDGER-WEALTH-FOLD": "unsat",
+  "F-RLX-PARTITION-FIT-TEST": "unsat",
+  "F-RLX-PARTITION-FIT-VAL": "unsat",
+  "F-RLX-PARTITION-VAL-TEST": "unsat",
+  "F-RLX-RESERVE-BUDGET": "unsat",
+  "F-RLX-RESERVE-NOINCREASE": "unsat",
+  "F-RLX-RESERVE-STALE": "unsat",
+  "F-RLX-RESERVE-VERSION": "unsat",
+  "F-RLX-SHIELD-CAP": "unsat",
+  "F-RLX-SHIELD-FALLBACK": "unsat",
+  "F-RLX-SHIELD-HEADROOM": "unsat",
+  "F-RLX-SHIELD-IDEMPOTENT": "unsat",
+  "F-RLX-SHIELD-NOROUNDUP": "unsat",
+  "F-RLX-SHIELD-OVERCAP": "unsat",
+  "F-RLX-SHIELD-REDUCE": "unsat"
+ },
+ "solver": "4.15.4",
+ "sourceHashes": {
+  "formal/research/exposure-rl/Conformance.hs": "1439b9d6031bc13879dadb02b6d2b8fa8744e1369c9e5bddb129dd36553bb872",
+  "formal/research/exposure-rl/Forgery.hs": "88e78391af921856446f686afd214592d370287e55b32abe8acab10fbae73d9f",
+  "haskell/research/ExposureShieldV1.hs": "3f3df066a07bf396b5cdc486c946f06c352e579574d78121cde6ff32e89667be",
+  "scripts/formal/exposure_rl/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scripts/formal/exposure_rl/conformance.py": "2253883fb603a7e5397fd52298c463657c9e2bbfa44f298587cc1d07219be158",
+  "scripts/formal/exposure_rl/ledger_proofs.py": "dd5ed2171ad10cee4dc902e29a927f5366344decfa96d5b9726fd2bb39d81c38",
+  "scripts/formal/exposure_rl/lifecycle_model.py": "cefe532976eb718e8f0e96b2ae1cc2edaf748b135acde11456eeb2494ec26e92",
+  "scripts/formal/exposure_rl/shield_proofs.py": "8746dd949953884a4183f0e34ea09c61972f2059786cc2fc93b4d281e5feee4e",
+  "scripts/formal/exposure_rl/surface.py": "25904ae19a9cc23e7f94ed26a8c5c9ac1460fa996ba96f9474cb0ef550de3df7",
+  "scripts/formal/exposure_rl/test_exposure_formal.py": "02e8138e444646048258261ffd3e838d3b8478adb07c8eb8c3e85a7c34187a06",
+  "scripts/formal/exposure_rl/verify.py": "b5acd0bba170ee9c8e665e02a9c19be06e08b61ea113a1258ed12a8f2ed5f2dc",
+  "scripts/research/exposure_rl/acquire.py": "c75dff4eb537102a2aa9cad258c81002b8b5b4a4d27f7254e898eb98c771fbc0",
+  "scripts/research/exposure_rl/agents.py": "b9b3fe1ea1f5ae1ebc87785bb45d02d922dfa9b0c62b4b0bb560cdf0d9ec645a",
+  "scripts/research/exposure_rl/artifacts.py": "038cbdd4f8730b2f47b618c60ef20ac0640c1c4ccae4d26d7558eb60af63ac8e",
+  "scripts/research/exposure_rl/env.py": "d9a5989c870ad4cc771f27979789bf4c8134db724df86af9462a3be57ca9f356",
+  "scripts/research/exposure_rl/evaluate.py": "dc46de18e4c0200af876b9ae7e3970548855f4894b88666fa8a1bbe0b2dea916",
+  "scripts/research/exposure_rl/market.py": "61c8fb361d423a9f0ecdb81198ebc8f3fac871961342c14c6b31557d8319f44b",
+  "scripts/research/exposure_rl/nn.py": "3f203ab727931b84d8d157049dc0c12e71f1bd6caea7e0030810196682929b09",
+  "scripts/research/exposure_rl/run_campaign.py": "aaea3ab35fff147af44353e1908e7c76d35362d2b84a84e8e3b4d3690bed4503",
+  "scripts/research/exposure_rl/shield.py": "1b0a1c5881125816fe444bff0f5a0e4a9a73261e2faec864e05093db2f68f8b8",
+  "test/exposure_rl_test.py": "8bcfb38a9986e49a7a1f9701b419b492376b97d18e5cfddbd3235594786f58c3"
+ },
+ "surface": {
+  "haskell": {
+   "cabalComponentsReaching": 0,
+   "exports": 16,
+   "haskellImporters": 0,
+   "imports": 0
+  },
+  "python": {
+   "imports": [
+    "__future__",
+    "argparse",
+    "csv",
+    "dataclasses",
+    "datetime",
+    "exposure_rl",
+    "hashlib",
+    "historical_datafeed",
+    "json",
+    "math",
+    "multiprocessing",
+    "numpy",
+    "os",
+    "pathlib",
+    "subprocess",
+    "sys",
+    "tempfile",
+    "time",
+    "traceback",
+    "typing"
+   ],
+   "modules": 11,
+   "processCalls": 3
+  },
+  "scope": "listed sources only; not a sandbox",
+  "status": "exhaustively_checked"
+ }
+}
