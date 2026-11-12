@@ -120,6 +120,10 @@
         "formal/research/causal-value-v6-contract.md",
         "formal/research/causal-value-v6-source.json",
         "scripts/formal/causal_value.py",
+        "scripts/research/ppo_objective_v2.py",
+        "formal/research/ppo-objective-v2-contract.md",
+        "formal/research/ppo-objective-v2-source.json",
+        "scripts/formal/ppo_objective_successor.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -941,6 +945,22 @@
         {
           "id": "F-RL-VALUE-V6-CONFORMANCE",
           "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout target equals an independent exact-rational evaluation of the two correctly rounded operations bit for bit; behavior probabilities equal the exact rule for the recorded action; rewriting every outcome from step k onward leaves earlier transitions, targets and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes and out-of-bound values reject."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-SOURCE",
+          "statement": "PPO objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain with an old-probability floor of 2^-100, activation-first default rejection, a softmax computed from differences to the row maximum only, a coefficient selected by branch rather than multiplied by an activity flag, fsum reductions, zero canonicalization and a final finiteness guard before a single immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-ARITH",
+          "statement": "Under the standard rounding model on the admitted domain, softmax terms lie in [0,1] with total in [1,3], the probability ratio is at most 2^100(1+u), the clipped ratio lies in [0.8,1.2], the surrogate term is bounded by the larger factor magnitude, an inactive row has coefficient exactly zero and an active nonnegative-advantage row has a coefficient bounded by the clip ceiling times the advantage; loss stays below 2^201 and gradients below 2^202, so admitted inputs never overflow and no zero-times-infinity product can form."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-FLOW",
+          "statement": "The finite PPO-objective publication abstraction publishes only after activation, admission, computation over active or inactive rows and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, inactive rows publish exactly zero gradients, gradients match oracle finite differences away from clip boundaries, the CE-RL-012 witness rejects with a finite in-domain analogue whose gradient is exactly zero, the CE-RL-013 witness reproduces coefficient -8 as intended clipped-objective behavior, and underflowed terms are counted with canonical published zeros."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",

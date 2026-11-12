@@ -5128,6 +5128,94 @@ class OrderIdempotenceTests(unittest.TestCase):
             o.bind({o.MAIN: main.replace('    placeFutures mSf quoteAsset dir = do\n        summary <- fetchFuturesPositionSummary env sym', '    placeFutures mSf quoteAsset dir = do\n        let summary = emptySummary', 1)})
 
 
+class PpoObjectiveV2Tests(unittest.TestCase):
+    @staticmethod
+    def modules():
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import ppo_objective_v2 as impl
+        import ppo_objective_successor as proof
+        return impl, proof
+
+    def test_source_smt_bounds_model_and_oracles(self):
+        v,p=self.modules()
+        r=p.check_ppo_objective()
+        self.assertEqual(r['smt'],{'F-RL-PPOOBJ-V2-ARITH':'unsat'})
+        self.assertEqual((r['bounds']['ratioBoundLog2'],r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2'],
+                          r['bounds']['certifiedImplications']),(100,200,201,8))
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(6,9))
+        c=r['conformance']
+        self.assertEqual((c['oracleBatches'],c['frozenDifferential'],c['finiteDifferenceChecks'],c['inactiveRows']),(96,96,24,1640))
+
+    def test_mutants_and_solver_fail_closed(self):
+        v,p=self.modules()
+        source=(ROOT/p.SOURCE).read_text()
+        lock=read_json(ROOT/p.REGISTRY)
+        for old,new in [('coefficient = plain / n if active else 0.0','coefficient = active * plain / n'),
+                        ('MIN_PROB = 2.0 ** -100','MIN_PROB = 2.0 ** -1074'),
+                        ('        if type(old) is not float or not MIN_PROB <= old <= 1.0:\n            return False\n',''),
+                        ('terms = [math.exp(x - m) for x in row]','terms = [math.exp(x) for x in row]'),
+                        ('    loss += 0.0\n',''),
+                        ('tuple(g + 0.0 for g in r)','tuple(g for g in r)'),
+                        ('abs(x) <= BOUND','abs(x) <= BOUND * 2'),
+                        ('enabled: object = False','enabled: object = True'),
+                        ('import math','import math\nimport numpy as np'),
+                        ('-math.fsum(terms) / n','-sum(terms) / n'),
+                        ('clipped = min(max(ratio, LOW), HIGH)','clipped = ratio'),
+                        ('HIGH = 1.2','HIGH = 2.0'),
+                        ('return min(plain, bounded), grad, underflow','return plain, grad, underflow')]:
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,dict(lock,**p.registry_for(changed)))
+        with self.assertRaisesRegex(ValueError,'module effect drift|reviewed definition drift'):
+            p.extract(source.replace('underflow += 1','underflow += 2'))
+        with self.assertRaisesRegex(ValueError,'publication without finite guard'):
+            p.model(mutant=True)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove()
+
+    def test_frozen_flag_multiplication_reintroduces_ce_rl_012(self):
+        import numpy as np
+        import sequential_learning as frozen
+        v,p=self.modules()
+        tiny=float.fromhex('0x0.0000000000001p-1022')
+        with np.errstate(all='ignore'):
+            _,gradient=frozen.ppo_gradient(np.zeros((1,3)),np.array([0]),np.array([tiny]),np.array([1.0]))
+        self.assertTrue(np.isnan(gradient).all())
+        self.assertIsNone(v.objective_v2(((0.0,0.0,0.0),),(0,),(tiny,),(1.0,),enabled=True))
+        inside=v.objective_v2(((0.0,0.0,0.0),),(0,),(2.0**-100,),(1.0,),enabled=True)
+        self.assertEqual((inside.loss,inside.grad),(-1.2,((0.0,0.0,0.0),)))
+        with patch.object(v,'_admissible',return_value=True):
+            unguarded=v.objective_v2(((0.0,0.0,0.0),),(0,),(tiny,),(1.0,),enabled=True)
+        # Even outside the domain, branch selection publishes no NaN: the row is inactive.
+        self.assertEqual(unguarded.grad,((0.0,0.0,0.0),))
+
+    def test_domain_default_and_atomic_rejection(self):
+        v,p=self.modules()
+        row=((0.5,-0.25,0.0),)
+        good=v.objective_v2(row,(1,),(0.5,),(1.0,),enabled=True)
+        self.assertEqual((good.version,good.rows,good.underflow),('ppo-objective-v2',1,0))
+        with self.assertRaises(Exception):
+            good.loss=0.0
+        self.assertIsNone(v.objective_v2(row,(1,),(0.5,),(1.0,)))
+        for kwargs in ({'enabled':1},{'enabled':True,'version':'value-objective-v2'}):
+            self.assertIsNone(v.objective_v2(row,(1,),(0.5,),(1.0,),**kwargs))
+        inf=float('inf'); nan=float('nan')
+        for bad in [((row[0][:2],),(1,),(0.5,),(1.0,)), (list(row),(1,),(0.5,),(1.0,)), (row,(True,),(0.5,),(1.0,)),
+                    (row,(3,),(0.5,),(1.0,)), (row,(1,),(0.0,),(1.0,)), (row,(1,),(2.0**-101,),(1.0,)),
+                    (row,(1,),(1.5,),(1.0,)), (row,(1,),(nan,),(1.0,)), (row,(1,),(0.5,),(inf,)),
+                    (row,(1,),(0.5,),(2.0**101,)), (((2.0**101,0.0,0.0),),(1,),(0.5,),(1.0,)),
+                    (row*257,(1,)*257,(0.5,)*257,(1.0,)*257), ((),(),(),()), (row,(1,1),(0.5,),(1.0,)),
+                    (row,(1,),(1,),(1.0,)), (row,(1,),(0.5,),(1,))]:
+            self.assertIsNone(v.objective_v2(*bad,enabled=True))
+        extreme=v.objective_v2(((2.0**100,-2.0**100,0.0),),(0,),(2.0**-100,),(-2.0**100,),enabled=True)
+        self.assertTrue(extreme is not None and abs(extreme.loss)<2.0**201 and extreme.underflow>=2)
+
+
 class CausalValueV6Tests(unittest.TestCase):
     @staticmethod
     def proof():
@@ -5225,7 +5313,8 @@ class CausalValueV6Tests(unittest.TestCase):
         ledger=read_json(ROOT/'formal/research/proof-ledger.json')
         target=next(o for o in ledger['missionObligations'] if o['number']==10)
         self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
-        self.assertTrue({'F-RL-VALUE-V6-SOURCE','F-RL-VALUE-V6-ARITH','F-RL-VALUE-V6-FLOW','F-RL-VALUE-V6-CONFORMANCE'}<=set(target['evidenceRequirements']))
+        self.assertTrue({'F-RL-VALUE-V6-SOURCE','F-RL-VALUE-V6-ARITH','F-RL-VALUE-V6-FLOW','F-RL-VALUE-V6-CONFORMANCE',
+                         'F-RL-PPOOBJ-V2-SOURCE','F-RL-PPOOBJ-V2-ARITH','F-RL-PPOOBJ-V2-FLOW','F-RL-PPOOBJ-V2-CONFORMANCE'}<=set(target['evidenceRequirements']))
         self.assertIn('not retired',target['blockers'][0])
 
 
