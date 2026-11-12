@@ -17,7 +17,7 @@ PACKAGE = "scripts/research/exposure_rl"
 HASKELL = "haskell/research/ExposureShieldV1.hs"
 ALLOWED_IMPORTS = {
     "__future__", "argparse", "csv", "dataclasses", "datetime", "hashlib", "json", "math", "multiprocessing", "os", "pathlib",
-    "subprocess", "sys", "tempfile", "time", "traceback", "typing", "numpy", "historical_datafeed", "exposure_rl",
+    "subprocess", "sys", "tempfile", "time", "traceback", "typing", "numpy", "pandas", "diagnostics", "historical_datafeed", "exposure_rl",
 }  # fmt: skip
 NETWORK_MODULES = {"acquire.py"}  # the only module allowed to import the public datafeed
 PROCESS_MODULES = {"run_campaign.py"}  # the only module allowed to start a process
