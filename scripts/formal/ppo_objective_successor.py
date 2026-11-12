@@ -89,6 +89,17 @@ def extract(source=None, registry=None):
                    'scope': 'complete reviewed AST, difference-only softmax, branch-selected coefficient and finite guard; runtime semantics assumed'}
 
 
+def ceil_log2(value):
+    """Smallest integer k with value <= 2^k, by exact rational comparison (no float rounding)."""
+    require(type(value) is Q and value > 0, 'positive exact bound')
+    k = (value.numerator.bit_length() - value.denominator.bit_length())
+    while Q(2) ** k < value:
+        k += 1
+    while Q(2) ** (k - 1) >= value:
+        k -= 1
+    return k
+
+
 def chain():
     # Exact rational propagation of the per-operation (1+u) factor along the source expressions.
     u = Q(1, 2**53); g = 1 + u; bound = Q(2**100); floor = Q(1, 2**100); n = 256
@@ -102,8 +113,8 @@ def chain():
     gradient = (prob + 1) * g * coefficient * g
     worst = max(ratio, plain, loss, coefficient, gradient)
     require(worst < FINITE_LIMIT < Q(int(sys.float_info.max)), 'admitted-domain magnitude chain')
-    return {'ratioBoundLog2': math.ceil(math.log2(float(ratio))), 'lossBoundLog2': math.ceil(math.log2(float(loss))),
-            'gradientBoundLog2': math.ceil(math.log2(float(gradient))), 'finiteLimitLog2': 220}
+    return {'ratioBoundLog2': ceil_log2(ratio), 'lossBoundLog2': ceil_log2(loss),
+            'gradientBoundLog2': ceil_log2(gradient), 'finiteLimitLog2': 220}
 
 
 def prove(nodes=None):

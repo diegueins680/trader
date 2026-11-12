@@ -59,7 +59,7 @@ F-RL-PPOOBJ-V2-ARITH (SMT, quantifier-free, with an exact rational rounding
 chain under A-FP-ROUNDING and the standard model |fl(x) - x| <= u|x|,
 u = 2^-53): the row maximum makes every exponent argument nonpositive with one
 zero, so 1 <= total <= 3 and 0 <= p <= 1; with old >= 2^-100 the ratio is at
-most 2^100(1+u); the clipped ratio lies in [0.8, 1.2]; the surrogate term is
+most 2^100(1+u)^2; the clipped ratio lies in [0.8, 1.2]; the surrogate term is
 bounded by the unclipped product; an inactive row has coefficient exactly zero;
 every loss and gradient magnitude stays below 2^220, far below the largest
 finite binary64. So the finiteness guard never rejects an admitted input.

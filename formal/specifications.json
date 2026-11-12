@@ -920,7 +920,7 @@
         },
         {
           "id": "F-RL-VALUE-V2-ARITH",
-          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
+          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^202 and gradients below 2^102, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
         },
         {
           "id": "F-RL-VALUE-V2-FLOW",
@@ -952,7 +952,7 @@
         },
         {
           "id": "F-RL-PPOOBJ-V2-ARITH",
-          "statement": "Under the standard rounding model on the admitted domain, softmax terms lie in [0,1] with total in [1,3], the probability ratio is at most 2^100(1+u), the clipped ratio lies in [0.8,1.2], the surrogate term is bounded by the larger factor magnitude, an inactive row has coefficient exactly zero and an active nonnegative-advantage row has a coefficient bounded by the clip ceiling times the advantage; loss stays below 2^201 and gradients below 2^202, so admitted inputs never overflow and no zero-times-infinity product can form."
+          "statement": "Under the standard rounding model on the admitted domain, softmax terms lie in [0,1] with total in [1,3], the probability ratio is at most 2^100(1+u)^2, the clipped ratio lies in [0.8,1.2], the surrogate term is bounded by the larger factor magnitude, an inactive row has coefficient exactly zero and an active nonnegative-advantage row has a coefficient bounded by the clip ceiling times the advantage; loss stays below 2^201 and gradients below 2^202, so admitted inputs never overflow and no zero-times-infinity product can form."
         },
         {
           "id": "F-RL-PPOOBJ-V2-FLOW",

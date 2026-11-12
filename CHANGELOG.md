@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research/Formal: correct the reported value-objective-v2 bound exponents to loss < 2^202 and gradient < 2^102. The proof script took a float logarithm of an exact bound slightly above a power of two and rounded it down by one; exponents are now computed by exact rational comparison. The 2^220 finiteness margin and the kernel are unchanged.
 - Research/Formal: add default-disabled `ppo-objective-v2`, a finite clipped-PPO objective (scalar fsum arithmetic, bounded admission with an old-probability floor, branch-selected coefficient, published underflow count). It rejects CE-RL-012 inputs and reproduces CE-RL-013 as intended behavior. New requirements F-RL-PPOOBJ-V2-SOURCE/ARITH/FLOW/CONFORMANCE; frozen `ppo_gradient` and causal-ppo-v5 unchanged, obligation 10 stays open. No runtime, live or deployment change.
 - Research/Formal: add default-disabled `causal-value-v6`, a conservative Double-DQN learner composing `value-objective-v2` with causal replay v3, transition v4 and optimizer v5; its import closure contains no frozen v1 module. Rewards and network values are guarded at 2^99 (targets proved within 2^100), underflow is counted and published, and any stage failure publishes nothing. New requirements F-RL-VALUE-V6-SOURCE/ARITH/FLOW/CONFORMANCE; frozen learners unchanged, obligation 10 stays open. No runtime, live or deployment change.
 

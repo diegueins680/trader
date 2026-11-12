@@ -16,7 +16,7 @@ ratio, then multiplies it by an activity flag of zero, and returns a finite loss
 with an all-NaN gradient. The successor differs in two ways:
 
 1. Old probabilities below 2^-100 reject at admission, so the ratio is at most
-   2^100(1+u).
+   2^100(1+u)^2.
 2. The coefficient is selected by branch (`plain / n if active else 0.0`), so an
    inactive row is exactly zero and no `0 · inf` product is ever formed. A test
    shows this holds even when admission is bypassed.
@@ -29,7 +29,7 @@ large and the advantage negative. It is reproduced, not changed.
 | Requirement | Method | Result |
 |---|---|---|
 | F-RL-PPOOBJ-V2-SOURCE | complete AST lock and statement review | 13 source mutants reject with a refreshed lock |
-| F-RL-PPOOBJ-V2-ARITH | quantifier-free Z3 with an exact rational rounding chain | eight implications unsat; ratio <= 2^100(1+u), loss < 2^201, gradient < 2^202 |
+| F-RL-PPOOBJ-V2-ARITH | quantifier-free Z3 with an exact rational rounding chain | eight implications unsat; ratio <= 2^100(1+u)^2, loss < 2^201, gradient < 2^202 |
 | F-RL-PPOOBJ-V2-FLOW | explicit-state publication model | 6 states, 9 transitions; unguarded-publication mutant rejects |
 | F-RL-PPOOBJ-V2-CONFORMANCE | 60-digit decimal oracle, frozen differential, witnesses | 96 + 96 batches within 1e-12; 1640 inactive rows exactly zero; 24 finite-difference checks |
 

@@ -4581,7 +4581,7 @@ class ValueObjectiveV2Tests(unittest.TestCase):
         v,p=self.modules()
         r=p.check_value_objective()
         self.assertEqual(r['smt'],{'F-RL-VALUE-V2-ARITH':'unsat'})
-        self.assertEqual((r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2']),(201,101))
+        self.assertEqual((r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2']),(202,102))
         self.assertEqual((r['model']['states'],r['model']['transitions']),(6,9))
         self.assertEqual((r['conformance']['oracleBatches'],r['conformance']['frozenDifferential']),(96,96))
         self.assertGreater(r['conformance']['finiteDifferenceChecks'],0)
@@ -5142,7 +5142,7 @@ class PpoObjectiveV2Tests(unittest.TestCase):
         r=p.check_ppo_objective()
         self.assertEqual(r['smt'],{'F-RL-PPOOBJ-V2-ARITH':'unsat'})
         self.assertEqual((r['bounds']['ratioBoundLog2'],r['bounds']['lossBoundLog2'],r['bounds']['gradientBoundLog2'],
-                          r['bounds']['certifiedImplications']),(100,200,201,8))
+                          r['bounds']['certifiedImplications']),(101,201,202,8))
         self.assertEqual((r['model']['states'],r['model']['transitions']),(6,9))
         c=r['conformance']
         self.assertEqual((c['oracleBatches'],c['frozenDifferential'],c['finiteDifferenceChecks'],c['inactiveRows']),(96,96,24,1640))
