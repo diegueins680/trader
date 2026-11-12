@@ -1,0 +1,148 @@
+{
+  "registrationVersion": 1,
+  "campaign": "exposure_rl_control_v1",
+  "registeredOn": "2026-11-11",
+  "status": "registered-before-decisive-experiments",
+  "sourceBaseline": "b79dfa78cd42ef7e94540c5066aa73e5eb1f7d05",
+  "liveTrading": false,
+  "hypothesis": {
+    "statement": "A learned sequential target-exposure policy improves out-of-sample net return of the six-symbol fleet aggregate over matched non-RL decision rules when observations, costs, execution assumptions and the safety shield are identical.",
+    "economicMechanism": "Position management is sequential because proportional costs make the value of a target depend on the exposure already held, funding accrues to the position carried across settlements, and the trailing-drawdown gate makes future admissible actions depend on past losses. A myopic rule ignores these couplings.",
+    "whySequential": "Reward at t depends on the inherited position (turnover cost, funding) and the action changes the state seen at t+1 (exposure, drawdown gate, bars since fill)."
+  },
+  "pilotDisclosure": "Before this registration, implementation-validation pilots were run on the development panel only: one PPO (300k steps, seed 1) and one TD3 (60k steps, seed 1) fit on the first 60% of bars and inspected on the 60-80% slice, plus a shuffled-bar placebo and feature-statistics checks. The pilot showed a favourable PPO result on a strongly rising window (buy-and-hold Sharpe 2.01 on the same slice). Two design changes followed from pilots: the drawdown gate moved from an all-time to a trailing 120-bar peak, and a vacuous per-step limit was removed from the shield. No hyperparameter was tuned on pilot outcomes; values below are fixed defaults. All development data was already contaminated before this campaign.",
+  "data": {
+    "source": "Binance USD-M public history: /fapi/v1/continuousKlines (PERPETUAL, 6h), /fapi/v1/markPriceKlines (1h), /fapi/v1/fundingRate",
+    "credentialsRequired": false,
+    "interval": "6h",
+    "symbols": ["ARBUSDT", "BCHUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "NEARUSDT", "SOLUSDT"],
+    "fleetSymbols": ["ARBUSDT", "BCHUSDT", "DOGEUSDT", "ETHUSDT", "NEARUSDT", "SOLUSDT"],
+    "benchmarkOnlySymbols": ["BTCUSDT"],
+    "universeNote": "Symbols are the production fleet reviewed on 2026-11-11 plus BTC as a benchmark. The fleet was chosen with knowledge of history through 2026, so the universe carries selection and survivorship bias; no delisted instrument is represented. A symbol enters at its first listed bar plus the 60-bar burn-in.",
+    "development": {
+      "startOpenTime": 1600819200000,
+      "lastOpenTime": 1742191200000,
+      "startUtc": "2020-09-23T00:00:00Z",
+      "lastOpenUtc": "2025-03-17T06:00:00Z",
+      "acquiredOn": "2026-11-11",
+      "panelRows": 42087,
+      "fundingRows": 31643,
+      "panelSha256": "50e31c25bc94aab0418e59234ab28aacba47be58fc74563463926630fe93efe9",
+      "fundingSha256": "1fe25306e8875689ad805a2ed264bb394dc15a49899ac6f66254b187a444f414",
+      "contamination": "Previously exposed. The same calendar span was used by 45 earlier residual/funding trials and by sequential_control_screen_v1. It is development evidence only."
+    },
+    "confirmation": {
+      "startOpenTime": 1777593600000,
+      "lastOpenTime": 1784224800000,
+      "startUtc": "2026-05-01T00:00:00Z",
+      "lastOpenUtc": "2026-07-16T18:00:00Z",
+      "status": "not acquired; not inspected",
+      "claimedByEarlierRegistration": false,
+      "limits": "308 bars per symbol, of which the first 60 are burn-in because the preceding weeks are sealed. Policies are trained on data ending 2025-03-17, 13.5 months earlier. The window is a single short regime and is power-limited."
+    },
+    "reservedNeverFetched": [
+      {"name": "sealed-edge-campaign-holdout", "fromUtc": "2025-03-17T16:00:00Z", "toUtcExclusive": "2026-05-01T00:00:00Z"},
+      {"name": "prospective-funding-carry-window", "fromUtc": "2026-07-17T00:00:00Z", "toUtcExclusive": "2027-01-20T12:00:00Z"}
+    ],
+    "availability": "Historical timestamps only; no first-seen witnesses. Provider revisions cannot be excluded. Funding marks missing from the event are resolved from the open of the containing 1h mark bar.",
+    "license": "Provider market-data terms. Raw data and model artifacts are not committed."
+  },
+  "environment": {
+    "version": "exposure_env_v1",
+    "featureVersion": "exposure_features_v1",
+    "shieldVersion": "exposure_shield_v1",
+    "model": "Constrained POMDP. Market state is partially observed and non-stationary; price and funding paths are exogenous (price-taker replay), account state is action-dependent.",
+    "observation": "15 causal market features (fixed transforms, no fitted scaler) and 4 account-state features; 60-bar burn-in.",
+    "action": "Raw proposal in [-1, 1]; an absolute target, not an increment. Target exposure = trunc(raw * 1666) in units of 1e-4 of account equity.",
+    "actionStages": ["proposed", "shield-permitted", "submitted simulated intent", "filled simulated action"],
+    "shield": {"cap": 1666, "minTrade": 25, "drawdownLimit": 1000, "drawdownPeakWindowBars": 120, "riskOff": "reduce-only when drawdown >= limit or snapshot not fresh", "invalidProposal": "rejected; fallback proposes the current exposure", "invalidSnapshot": "recovery required; no intent"},
+    "timing": "Decide at close t on bars <= t; fill at open t+1; funding stamped at open t+1 settles on the pre-fill position, funding inside the bar on the post-fill position; equity marked at close t+1.",
+    "reward": "100 * (equity[t+1] - equity[t]) / equity[t], with equity net of costs and funding. No shaping in the primary reward. No external cash flows exist in the simulation.",
+    "discount": 0.99,
+    "discountRationale": "About 100 bars (25 days) effective horizon, longer than the reference rules' median holding periods (2-10 bars) and well inside a continuing task.",
+    "episodes": "Training: random symbol and start, 256 decisions, time-limit truncation with bootstrap from the true successor. Termination only at the insolvency floor (equity <= 0.5), with liquidation at cost and no bootstrap. Evaluation: one account per symbol from flat over the whole window, liquidated at cost at the end; that liquidation is evaluation accounting and not a training signal.",
+    "costPerSide": 0.0008,
+    "costRationale": "5 bp taker fee + 1.5 bp slippage + 1.5 bp half-spread, close to the fleet's calibrated combo costs. One uniform rate for all symbols is a simplification.",
+    "limits": "OHLCV replay supports a price-taker exposure experiment only. No queue-position, intrabar, liquidation-engine or market-impact claim. Open of bar t+1 is assumed tradable at cost."
+  },
+  "validation": {
+    "design": "Expanding walk-forward on the development panel; boundaries in calendar time.",
+    "folds": [
+      {"id": 1, "testStartUtc": "2022-07-01T00:00:00Z", "testEndUtcExclusive": "2023-03-01T00:00:00Z"},
+      {"id": 2, "testStartUtc": "2023-03-01T00:00:00Z", "testEndUtcExclusive": "2023-11-01T00:00:00Z"},
+      {"id": 3, "testStartUtc": "2023-11-01T00:00:00Z", "testEndUtcExclusive": "2024-07-01T00:00:00Z"},
+      {"id": 4, "testStartUtc": "2024-07-01T00:00:00Z", "testEndUtcExclusive": "2025-03-17T12:00:00Z"}
+    ],
+    "innerValidationDays": 180,
+    "purgeBars": 2,
+    "purgeRationale": "A decision's reward matures at the close of the next bar. Two bars separate the last fit outcome from the first later decision. Causal feature history is reused across the boundary; that is not label leakage.",
+    "finalHoldout": "The confirmation window, evaluated once for the frozen candidate package and comparators, only if the development gates select a candidate; otherwise it stays sealed."
+  },
+  "policies": {
+    "rl": {
+      "ppo": {"regime": "on-policy simulator", "lanes": 64, "totalSteps": 600000, "rollout": 128, "epochs": 4, "minibatch": 1024, "learningRate": 0.0003, "gaeLambda": 0.95, "clip": 0.2, "entropyCoef": 0.001, "checkpointEvery": 100000},
+      "td3": {"regime": "off-policy simulator", "lanes": 32, "totalSteps": 120000, "warmupSteps": 5000, "updatesPerVectorStep": 8, "batch": 256, "learningRate": 0.0003, "tau": 0.005, "exploreNoise": 0.2, "targetNoise": 0.2, "noiseClip": 0.5, "policyDelay": 2, "checkpointEvery": 30000},
+      "iql": {"regime": "offline fixed dataset (simulator-generated)", "updates": 30000, "batch": 256, "learningRate": 0.0003, "expectile": 0.7, "beta": 30.0, "betaRationale": "Rewards are scaled by 100, so one-step advantages are of order 0.05. beta was set on a synthetic constant-drift toy with a known optimum (beta 3 left the policy at the behaviour mean), never on market outcomes.", "weightClip": 100.0, "tau": 0.005, "checkpointEvery": 10000}
+    },
+    "extension": {
+      "ppo_risk": {"description": "PPO with a registered variance penalty: learner reward r - 0.5*r^2 on the scaled reward. Compared against unshaped PPO; the economic ledger is unchanged.", "riskPenalty": 0.5}
+    },
+    "network": "Two tanh hidden layers of 64 units; NumPy with hand-written gradients; CPU only.",
+    "actionHandling": "Learners see the clipped raw proposal. The shield is part of the transition. PPO log-probabilities, TD3 critic inputs and IQL regression targets all refer to that proposal. Known consequence: the TD3 actor gradient is zero wherever the shield projects.",
+    "nonRl": ["cash", "buy_and_hold", "regime_rule", "ridge_forecast", "champion_method", "behavior_cloning", "contextual_bandit"],
+    "champion": {
+      "name": "champion_method",
+      "definition": "Per-bar positions exported by the repository's trader-hs CLI running --method ta_regime_switch --positioning long-short --interval 6h --open-threshold 0.001 --close-threshold 0.001 --fee 0.0005 --slippage 0.00015 --spread 0.0003 --funding-rate 0 --max-position-size 0.1666 --stop-loss 0.0753 --take-profit 0.0353, replayed as target exposures on the common ledger.",
+      "fidelity": "Code-faithful, parameter-approximate. Stop and take-profit are medians of four combos recorded in untracked 2026-10-27 operations evidence; the six combos pinned on 2026-11-11 are not available locally. Intrabar stop exits appear one bar late on the common ledger. The production parameters were optimised on data through 2026, so any production-champion comparison on these windows would favour the champion.",
+      "unavailableBaselineGate": "No superiority claim over the pinned production combos, and no promotion, without matched exports of those combos."
+    },
+    "offlineDataset": {"origin": "simulated", "transitions": 300000, "lanes": 64, "behavior": "Per-episode mixture: 35% regime rule + N(0, 0.3), 35% ridge forecast + N(0, 0.3), 15% mean-reverting random walk, 15% uniform", "bcUpdates": 20000, "banditUpdates": 20000},
+    "ablations": {
+      "ppo_no_context": "PPO with funding and BTC-context features zeroed (alternative-data ablation).",
+      "ppo_unshielded_diagnostic": "The trained PPO evaluated with the shield disabled, in simulation only; diagnostic, never a candidate."
+    }
+  },
+  "seeds": [11, 23, 47, 71, 97],
+  "seedRule": "Every seed is reported. The seed aggregate is the mean of the seeds' per-bar returns (equal capital per seed). No seed is selected.",
+  "checkpointRule": "For each fit, the checkpoint with the highest inner-validation fleet Sharpe at base cost; ties go to the earliest. Test data is never used.",
+  "budget": {"hyperparameterSearch": "none; one fixed configuration per learner", "cpuOnly": true, "paidCompute": false},
+  "metrics": {
+    "aggregate": "Fleet series: per-bar sum of the six fleet symbols' account returns, pooled over the four test folds. BTC is reported separately.",
+    "primary": "Annualised mean per-bar net fleet return of the seed aggregate minus that of each comparator, with a 95% stationary-bootstrap interval (mean block 28 bars, 2000 draws).",
+    "materiality": 0.02,
+    "secondary": ["Sharpe", "max drawdown and duration", "expected shortfall 95%", "turnover", "holding period", "fees and funding", "per fold, per symbol, per seed", "shield intervention rates"],
+    "nonInferiority": {"maxDrawdownExcessOverBestComparator": 0.05}
+  },
+  "robustness": ["cost1_5x", "cost2x", "severe25bp_delay", "delay1bar", "partial50pct", "missed10pct", "funding2x", "stale5pct", "corrupt1pct", "spread_widening"],
+  "statistics": {
+    "dsr": "scripts/research/diagnostics.py deflated_sharpe_ratio over every evaluated variant's pooled fleet series; gate >= 0.95.",
+    "pbo": "scripts/research/diagnostics.py cscv_pbo, 16 slices; gate <= 0.20.",
+    "sampleNote": "Seeds and symbols are not independent market histories and do not multiply the sample size. An undefined statistic is reported as insufficient evidence."
+  },
+  "ope": {
+    "realLogs": "None are available to this task. No estimate is produced for real logged behaviour.",
+    "simulated": "FQE of the IQL and behaviour-cloning policies on the simulated dataset, compared with simulator ground truth from the same start states. Importance sampling is defined in proposal space for a stochastic form of the target (Gaussian, std 0.3); effective sample size is reported by horizon. Deterministic targets have zero support and are not evaluated by importance sampling."
+  },
+  "promotionGates": {
+    "disabledChallengerEligible": [
+      "Primary difference lower bound > 0 against cash, buy_and_hold, regime_rule, ridge_forecast and champion_method",
+      "Point estimate of the primary difference >= materiality against each of those comparators",
+      "Still positive against each comparator at cost2x and delay1bar (point estimate)",
+      "Max drawdown within the non-inferiority margin",
+      "DSR >= 0.95 and PBO <= 0.20",
+      "At least 4 of 5 seeds individually positive against the best comparator",
+      "No executable intent outside the shield's admitted set",
+      "Critical formal obligations for the path discharged",
+      "Confirmation window evaluated once with a positive primary point estimate"
+    ],
+    "liveAuthorization": "Outside this campaign."
+  },
+  "trialAccounting": "Every policy variant in this file is a trial: 3 RL learners, 1 extension, 1 ablation, 1 diagnostic, 7 non-RL comparators. Any successor configuration is a new registered trial.",
+  "artifacts": ".tmp/research/exposure-rl-v1 (ignored by git): data snapshots, run registry, policies, per-bar evaluation series.",
+  "reproduction": [
+    "python3 scripts/research/exposure_rl/acquire.py --partition development --output .tmp/research/exposure-rl-v1/data-dev",
+    "python3 scripts/research/exposure_rl/run_campaign.py champion",
+    "python3 scripts/research/exposure_rl/run_campaign.py development --workers 20",
+    "python3 scripts/research/exposure_rl/run_campaign.py report"
+  ]
+}
