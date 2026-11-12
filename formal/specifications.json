@@ -116,6 +116,10 @@
         "formal/research/value-objective-v2-source.json",
         "formal/research/value-v2-counterexamples.json",
         "scripts/formal/value_objective_successor.py",
+        "scripts/research/causal_value_v6.py",
+        "formal/research/causal-value-v6-contract.md",
+        "formal/research/causal-value-v6-source.json",
+        "scripts/formal/causal_value.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -921,6 +925,22 @@
         {
           "id": "F-RL-VALUE-V2-CONFORMANCE",
           "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
+        },
+        {
+          "id": "F-RL-VALUE-V6-SOURCE",
+          "statement": "Causal value v6 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly two generator draws per step, magnitude guards on every consumed reward and network value, terminal rows without bootstrap, checked transition, objective and optimizer stages, target replacement only after the final update of a rollout and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V6-ARITH",
+          "statement": "Under the standard rounding model, rewards and selected target-network values bounded by 2^99 give a Double-DQN target of magnitude at most 2^100 after one rounded multiplication by the discount and one rounded addition, so admitted targets lie in the value-objective-v2 domain and cannot overflow, and the bound is exceeded without either guard; epsilon-greedy behavior probabilities are positive, below one and sum to one, equal to 11/12 and 1/24 at the registered rate; the first maximal online value selects a bounded target-network value; and at most 16384 optimizer steps occur, below the optimizer step cap."
+        },
+        {
+          "id": "F-RL-VALUE-V6-FLOW",
+          "statement": "The finite causal-value training abstraction publishes only after activation and after every rollout's collection, target formation, fixed update count and target replacement succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and the target snapshot is replaced only after the final update of a rollout."
+        },
+        {
+          "id": "F-RL-VALUE-V6-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout target equals an independent exact-rational evaluation of the two correctly rounded operations bit for bit; behavior probabilities equal the exact rule for the recorded action; rewriting every outcome from step k onward leaves earlier transitions, targets and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes and out-of-bound values reject."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",

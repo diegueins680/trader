@@ -1097,6 +1097,71 @@
       "status": "exhaustively_checked"
     }
   },
+  "causalValueV6": {
+    "bounds": {
+      "certifiedImplications": 6,
+      "magnitudeGuardLog2": 99,
+      "maximumOptimizerSteps": 16384,
+      "satisfiableControls": 2,
+      "targetBoundLog2": 100
+    },
+    "conformance": {
+      "economicEvidence": false,
+      "marketDataReads": 0,
+      "oracleTargets": 822,
+      "prefixRewrites": 12,
+      "rejections": 7,
+      "runs": 9,
+      "seeds": [
+        11,
+        23,
+        47
+      ],
+      "status": "property_tested"
+    },
+    "model": {
+      "orderTransitions": 0,
+      "publishingTransitions": 20,
+      "requests": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rolloutBound": 2,
+      "scope": "finite stage abstraction over small request, rollout and update bounds; numeric values abstracted",
+      "states": 292,
+      "status": "model_checked",
+      "transitions": 337,
+      "updatesPerRollout": 2
+    },
+    "smt": {
+      "F-RL-VALUE-V6-ARITH": "unsat"
+    },
+    "source": {
+      "closure": [
+        "causal_optimizer_v5",
+        "causal_replay_v3",
+        "causal_transition_v4",
+        "causal_value_v6",
+        "replay_accounting_v2",
+        "value_objective_v2"
+      ],
+      "defaultDisabledEntries": 1,
+      "definitions": 10,
+      "externalImports": [
+        "__future__",
+        "dataclasses",
+        "fractions",
+        "math",
+        "numpy"
+      ],
+      "frozenModulesInClosure": 0,
+      "scope": "complete reviewed AST, frozen-free import closure, draw-before-outcome order, magnitude guards, checked stages and single publication; runtime semantics assumed",
+      "status": "exhaustively_checked"
+    }
+  },
   "championArchive": {
     "composition": {
       "crashDurability": false,
@@ -3639,6 +3704,18 @@
           "import replay_accounting_v2 as accounting"
         ],
         [
+          "scripts/research/causal_value_v6.py",
+          "from value_objective_v2 import VERSION as OBJECTIVE, objective_v2"
+        ],
+        [
+          "scripts/research/causal_value_v6.py",
+          "import causal_replay_v3 as replay"
+        ],
+        [
+          "scripts/research/causal_value_v6.py",
+          "import replay_accounting_v2 as accounting"
+        ],
+        [
           "scripts/research/point_in_time_v3.py",
           "from ppo_successor_v2 import TrainingResult, train_ppo_v2"
         ],
@@ -3902,6 +3979,7 @@
     "F-RL-TERMINAL-REAL": "unsat",
     "F-RL-TRANSITION-ADMISSION": "unsat",
     "F-RL-VALUE-V2-ARITH": "unsat",
+    "F-RL-VALUE-V6-ARITH": "unsat",
     "F-RL-WEALTH-FOLD": "unsat",
     "F-ROUND-DOWN-FINITE": "unsat",
     "F-ROUND-DOWN-INTEGER": "unsat",
@@ -4003,7 +4081,7 @@
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/accounting-reconciliation-contract.md": "da2f48c99730625161e11fcede5edee9ecf3d3a890003570230cad3050ff724e",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "1df9343aafd4a44cc757cbe3805427bbfe97f725c94321765794c82857f69ba9",
+    "formal/research/admission-progress-source.json": "b7a4bb81efbcfeaa59e9855c6e6bf4a30ab39d56d95da25c56595a7e75e706ff",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -4032,6 +4110,8 @@
     "formal/research/causal-replay-v3-contract.md": "7c4d1a5cc5086b17d164f82b101b470a13ce8c9e61fc1d7fdaf9824db01e51a6",
     "formal/research/causal-replay-v3-source.json": "7da0614db25217ed9a7f168ee4c99b4058bf937411bc98656f550857ca224457",
     "formal/research/causal-transition-v4-contract.md": "47a6bfaab4f78ad86c406a55727b16718c7b82140aa90e0bfe7015063c709c30",
+    "formal/research/causal-value-v6-contract.md": "69887731d53316e22631c98cb0e3f5263e4a45c9b4bdc45fa02f0bf944b136b0",
+    "formal/research/causal-value-v6-source.json": "01ef9c6817775b597a09632f63f73d9e31267874e8ec91be325ca74dd516563f",
     "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
     "formal/research/champion-archive-legacy.json": "2af6360c3b735da5ab3ed805362f439eb47f3931acdcb49e11aacd49b66f0df0",
     "formal/research/champion-archive-source.json": "3b888de2da28cf1dad3449b78a0c5965c7258a0011d3ea9d2cfde09d55c71683",
@@ -4081,8 +4161,8 @@
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "7e34d48ba3c0d2cf7fee8cf9878e22770742984cd1625c0bf99fad446fc96e0b",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "546c1de98fdc32afa942a4f0c09f39332dac971eeed4d049491b0e8605914d27",
-    "formal/research/obligation-contracts.json": "bbe31041d96131245ab5d7c5eb2b2a82605a8894d5bbc8e509d1ae56aa8eef12",
+    "formal/research/obligation-closure-audit.md": "7fe48ed77d072428d367ba8cc89a58a89611adbce7db4b4b3b20b28722e33e22",
+    "formal/research/obligation-contracts.json": "42262fc629c5b54ee94637a74905828259c795faff346be007137d1949d6d2a6",
     "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
@@ -4111,7 +4191,7 @@
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "d905835a72c67f07b34f2c3a967e0b0c566015ee7c9c0639598e265ffaee7edd",
+    "formal/research/proof-ledger.json": "1d8eb67c747ab0945e4f353a104c6aeb8728e66a5ee8b19de511f8b2573edb22",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4161,7 +4241,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "459a6ff05a68e55dddad71a78a35574a7b29f6b9c76851f954ad6720ff3b924b",
-    "formal/specifications.json": "df4a06b26b0283f18780ef5d9aae0d62126b4ca253fd5b3e02fc11c0ea2c01cb",
+    "formal/specifications.json": "cdb35fbd475d04e0f9f35376bd1ef1c1e8729111ba2f529985f3e325f4d7f7e1",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "0dfa2b57627183453f374f8f98b2ef2920aae5f1c54076f706f9d922a1c82cd3",
@@ -4317,6 +4397,7 @@
     "research-notes/registrations/causal-ppo-v5-engineering.json": "e07373f64d3e0f04f54a7642045ae95a20ed31614b9a9e7761fc518f679b6ac9",
     "research-notes/registrations/causal-replay-v3-engineering.json": "335a9d54944381d491e28b5278a395bf766a74a4f68b3f413e79ee4d050ef11d",
     "research-notes/registrations/causal-transition-v4-engineering.json": "16f989434e7c002e46e2b34b6422e1783dd49b1603274d7210067ba5c1bacf0a",
+    "research-notes/registrations/causal-value-v6-engineering.json": "e46ac1d6a636ddac823a56b7638ed87159768cd3b7699414b9f5c669cbc7adbb",
     "research-notes/registrations/champion-archive-engineering.json": "c85ffe9f4f1dcca1bc02a83784bbe4e18278a587fced36cd417242d95eef0a00",
     "research-notes/registrations/closed-trade-recovery-engineering.json": "aab2981fb719834652e837f7801fdb1a5a606bf40093ca6be8f252631e26ab52",
     "research-notes/registrations/drain-pool-engineering.json": "061ddd0e2fa719c6e2bb4893b71d1b0b84effbab924d267133b2964f3761312e",
@@ -4377,6 +4458,7 @@
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
     "scripts/formal/causal_replay.py": "384e26a7c7761467a82899a676555bff85ef18067d6f585aefd7ca7e9305cba5",
+    "scripts/formal/causal_value.py": "dbe807e7d3d6ee00e841bb64c6e96a9a8c57aa6bf30944c89c174a7641e73e16",
     "scripts/formal/champion_archive.py": "2ccd38fd305f7cb55cf4a75b97b4ea1f79dfe3b2b1ce624cb97e51c8f96d91f4",
     "scripts/formal/closed_trade_recovery.py": "76f07d58d1fdeb6501d5b8fb718854c6b4b4c84a8cf6f4d4714d9f816c53fa72",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
@@ -4417,26 +4499,27 @@
     "scripts/formal/report_bundle.py": "4d6ff62c1e8aa275a16f44d50123ebf44acdda0fbda0b72a6347fe7b7a50d336",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
-    "scripts/formal/shield_consumers.py": "9a5cd265c88fb8dad350cfb2f103ab1c6f681bcc47b8a125e8346ffe33f3bd5e",
+    "scripts/formal/shield_consumers.py": "fedd23028d3b70135c9c21dac9b81e6fedbbf1f867006c082ea74c79ccf092bc",
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/split_isolation.py": "2bce1d85906d338f0f198db03f44361025438687042446fd81cabdfb43106d85",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "f401b6a1153faea034b20741c4fd5f08a9c901f1135491705c33c93c0932ac52",
+    "scripts/formal/test_integrity.py": "9342a11ae1e9a2476d666a95b1b3c18e2a86f23bef0dc9ba8e9e0fd971186e9a",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
     "scripts/formal/value_objective_successor.py": "2d4f24e07f15feeff3a3b6433bedf8aa8d1461a0298f138371ecd1d62bce1620",
-    "scripts/formal/verify.py": "e8cea8f4fb3c8dd3bba6a2edef0bfe49982d58ee08da8673c918166d85022314",
+    "scripts/formal/verify.py": "c1acf140142fa0f1d74f32fdb82d78273978da771fcbf21d3275e77b05cef9c0",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/causal_optimizer_v5.py": "a18d6f1107141dbba199ca45e8fe1a90de72512c2b8d9269e039b356c8143f19",
     "scripts/research/causal_ppo_v5.py": "7fa7d7b46a8effd80c55c1261ec1fda691afa2476687b7e49a8a069f8ec7c072",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
     "scripts/research/causal_transition_v4.py": "c16a358c9605bc894ddf6bf5b259836c8fe9a20f5a0f0fd39a519c5f5f4312cd",
+    "scripts/research/causal_value_v6.py": "2d6964217f49cd27626c4ad0b4852cc43bd6a8d1a320c3ad74c05cbb75b13f45",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/funding_events_v2.py": "362e3c59961839a5874106188023e9e55b9dc56026c31aec53101ffe0805f1af",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
@@ -4458,8 +4541,10 @@
     "scripts/verify.sh": "0f7fda61f89e03259ef6a4361bb98c64074763849bfad5574c1419841cf0c127",
     "test/causal-ppo.test.mjs": "a0ca9964dfc920618333b20653a3e378c9dff65ec86ca4afbd59513d872413fa",
     "test/causal-transition.test.mjs": "1264890bb61a0463ba96f9fa4f8a5ee6c247281e5078c433a16d4841f1847e12",
+    "test/causal-value.test.mjs": "19ae31cc21d22a2884e9ab4b322272327c5d1a6ff3392602ef0f44ca00aa2710",
     "test/causal_ppo_test.py": "eb8006f5784b6242d46774dc002cf56fcc0548b07693a15ad0b73600170d0611",
     "test/causal_transition_test.py": "a8c9da967ba1b06ba62b7840d3b9eb881d6507295d00e1f05aaa600e49c66dfe",
+    "test/causal_value_test.py": "940eb66382c03b53177c9bbec382baed032d94d382a017a1e2c05c8a3532090a",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
     "test/formal-source-lock.test.mjs": "cc019d1079445887240af9b162bc85e99941161cde425d27513767a3e1f83fa9",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
