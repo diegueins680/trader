@@ -143,20 +143,19 @@ def activity(result: dict) -> dict:
 
 
 def stationary_bootstrap_mean(values: np.ndarray, rng, draws: int = 2000, mean_block: float = 28.0) -> np.ndarray:
-    """Politis-Romano stationary bootstrap of the sample mean."""
+    """Politis-Romano stationary bootstrap of the sample mean (circular blocks)."""
     n = len(values)
     out = np.empty(draws)
-    p = 1.0 / mean_block
-    for draw in range(draws):
-        restart = rng.random(n) < p
-        restart[0] = True
-        starts = rng.integers(0, n, size=n)
-        index = np.empty(n, dtype=np.int64)
-        position = 0
-        for i in range(n):
-            position = starts[i] if restart[i] else (position + 1) % n
-            index[i] = position
-        out[draw] = values[index].mean()
+    position = np.arange(n)
+    for first in range(0, draws, 256):
+        count = min(256, draws - first)
+        restart = rng.random((count, n)) < 1.0 / mean_block
+        restart[:, 0] = True
+        starts = rng.integers(0, n, size=(count, n))
+        # Index of the most recent restart at or before each position.
+        last = np.maximum.accumulate(np.where(restart, position, 0), axis=1)
+        index = (np.take_along_axis(starts, last, axis=1) + position - last) % n
+        out[first : first + count] = values[index].mean(axis=1)
     return out
 
 
