@@ -2459,6 +2459,45 @@
     "softmaxImplementationVerified": false,
     "universalRuntimeRefinement": false
   },
+  "ppoObjectiveV2": {
+    "bounds": {
+      "certifiedImplications": 8,
+      "finiteLimitLog2": 220,
+      "gradientBoundLog2": 202,
+      "lossBoundLog2": 201,
+      "ratioBoundLog2": 101
+    },
+    "conformance": {
+      "economicEvidence": false,
+      "finiteDifferenceChecks": 24,
+      "frozenDifferential": 96,
+      "inactiveRows": 1640,
+      "marketDataReads": 0,
+      "oracleBatches": 96,
+      "seed": 20261111,
+      "status": "property_tested",
+      "witnesses": {
+        "CE-RL-012": "rejected; in-domain analogue finite with zero gradient",
+        "CE-RL-013": "reproduced (intended)"
+      }
+    },
+    "model": {
+      "orderTransitions": 0,
+      "scope": "finite stage abstraction; numeric values abstracted",
+      "states": 6,
+      "status": "model_checked",
+      "transitions": 9
+    },
+    "smt": {
+      "F-RL-PPOOBJ-V2-ARITH": "unsat"
+    },
+    "source": {
+      "defaultDisabledEntries": 1,
+      "definitions": 7,
+      "scope": "complete reviewed AST, difference-only softmax, branch-selected coefficient and finite guard; runtime semantics assumed",
+      "status": "exhaustively_checked"
+    }
+  },
   "ppoProcessBridge": {
     "boundary": {
       "authorizationCapabilities": 0,
@@ -3953,6 +3992,7 @@
     "F-RL-PPO-OBJECTIVE": "unsat",
     "F-RL-PPO-V2-BOUNDS": "unsat",
     "F-RL-PPO-V2-FINITE": "unsat",
+    "F-RL-PPOOBJ-V2-ARITH": "unsat",
     "F-RL-PROCESS-ADMISSION": "unsat",
     "F-RL-PROMOTION-METADATA": "unsat",
     "F-RL-PROMOTION-SCHEMA": "unsat",
@@ -4081,7 +4121,7 @@
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/accounting-reconciliation-contract.md": "da2f48c99730625161e11fcede5edee9ecf3d3a890003570230cad3050ff724e",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "b7a4bb81efbcfeaa59e9855c6e6bf4a30ab39d56d95da25c56595a7e75e706ff",
+    "formal/research/admission-progress-source.json": "bbacffad8df262d01fb5071cd48dbbc187c96e5bfe4a4f4c1783eb56e1d9a89a",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -4161,7 +4201,7 @@
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
     "formal/research/inventory-readiness-source.json": "7e34d48ba3c0d2cf7fee8cf9878e22770742984cd1625c0bf99fad446fc96e0b",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "7fe48ed77d072428d367ba8cc89a58a89611adbce7db4b4b3b20b28722e33e22",
+    "formal/research/obligation-closure-audit.md": "e30f3d04799bdcf7bf153b2ebf83177036664a82daf94c32ad099c2619316d01",
     "formal/research/obligation-contracts.json": "42262fc629c5b54ee94637a74905828259c795faff346be007137d1949d6d2a6",
     "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
@@ -4185,13 +4225,15 @@
     "formal/research/ppo-artifact-v4-source.json": "9f8134e1005ebf2325645da7c5dac1e724741ae4f19221bbbcdbc1b74b3f2c2a",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
+    "formal/research/ppo-objective-v2-contract.md": "1a82b497185f23b9d4e6b314ecc314034786fc9c932ea37e70b4cd27304879b6",
+    "formal/research/ppo-objective-v2-source.json": "2ca12a3ecf0a2567bdb9343c25dc15beb22df63c52e51d727114f84f8c9dc1b1",
     "formal/research/ppo-process-bridge-source.json": "41db0057b11313b1e641be56dcd6ac473eaa25f9f369dc2723fb9673b895634a",
     "formal/research/ppo-process-bridge-v3-contract.md": "69a8a784ad4a4ab24b383436bf27474cb0c9f4d95e63f5b7d9610f46a4f88bf1",
     "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "1d8eb67c747ab0945e4f353a104c6aeb8728e66a5ee8b19de511f8b2573edb22",
+    "formal/research/proof-ledger.json": "f8d0ccf376c54d06d9576f8519dfad51d04cfcda6b6f03c4f7873cfc826f7d1b",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4241,7 +4283,7 @@
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
     "formal/research/worker-registry-source.json": "459a6ff05a68e55dddad71a78a35574a7b29f6b9c76851f954ad6720ff3b924b",
-    "formal/specifications.json": "cdb35fbd475d04e0f9f35376bd1ef1c1e8729111ba2f529985f3e325f4d7f7e1",
+    "formal/specifications.json": "1d79fbb9010541e26afb066341b7a58897396e8f6ee8477deaa3ad412dbd0882",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
     "haskell/app/Main.hs": "0dfa2b57627183453f374f8f98b2ef2920aae5f1c54076f706f9d922a1c82cd3",
@@ -4421,6 +4463,7 @@
     "research-notes/registrations/point-in-time-engineering.json": "4caca2ca287f24956e9de37a0fe3c6414774cf0432ce71bb2cb3dfa751d392d3",
     "research-notes/registrations/ppo-artifact-v4-engineering.json": "06cf7d683de9c2e648e4fcd292a41bb42e1068d1ca01952e7b79c9324fb9508f",
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
+    "research-notes/registrations/ppo-objective-v2-engineering.json": "8543e1ad23ab4d5efaf730d13bf4eaf0029e9a6ebc0130c49547be735c8a6217",
     "research-notes/registrations/ppo-process-bridge-v3-engineering.json": "fff9e59d0b3ce5a3a3c72f6fd09cd585e6208ada1e09457dfe2d77abb6387fd9",
     "research-notes/registrations/ppo-successor-v2-engineering.json": "fa1b6bbbc43e669e3007d7e340eb0ef2244ea7e663a0d7fa502825373f21c09d",
     "research-notes/registrations/promotion-boundary-engineering.json": "5a9659b44e6d77557307ad033444e12543de07807155b31ef9ab05c694f21b50",
@@ -4486,6 +4529,7 @@
     "scripts/formal/point_in_time.py": "35d739aa6d24340d2db381b636130caa8915b23de465f02e4b86064429063f64",
     "scripts/formal/position_ownership.py": "0594ff5d2b2d1df0ce3d312d06969d2c2a6d6e1b01f3d8b1865d8edc2793661f",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
+    "scripts/formal/ppo_objective_successor.py": "a5d27f602634a8db381dc2a85b9d08f1597b4ec05cc2f89d506a23fc70f80acd",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
     "scripts/formal/promotion_boundary.py": "4bb77a4bc8b324f5f1b7291c738b6f38fd882c4af95e7deee9f200b9a21c243b",
@@ -4506,13 +4550,13 @@
     "scripts/formal/split_isolation.py": "2bce1d85906d338f0f198db03f44361025438687042446fd81cabdfb43106d85",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "9342a11ae1e9a2476d666a95b1b3c18e2a86f23bef0dc9ba8e9e0fd971186e9a",
+    "scripts/formal/test_integrity.py": "b5ce977aa082233defa5a25b7fbe9b1b72d196700dfb718ccfde26ae50757a0e",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/value_objective_successor.py": "2d4f24e07f15feeff3a3b6433bedf8aa8d1461a0298f138371ecd1d62bce1620",
-    "scripts/formal/verify.py": "c1acf140142fa0f1d74f32fdb82d78273978da771fcbf21d3275e77b05cef9c0",
+    "scripts/formal/value_objective_successor.py": "937cd069807a761c206952790fe485e14793dce01f9878aa9df7db49ff25a865",
+    "scripts/formal/verify.py": "dcdcb8f8e683950ce5f479673ae85dfa89a9f91dd7a6ec453bc56d441e6484b7",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
     "scripts/research/causal_optimizer_v5.py": "a18d6f1107141dbba199ca45e8fe1a90de72512c2b8d9269e039b356c8143f19",
@@ -4528,6 +4572,7 @@
     "scripts/research/point_in_time_v3.py": "90e178ca0e0565c262ec2d23e53cb4c4c1522aea476a9c6ad59027caf983848f",
     "scripts/research/ppo_artifact_v4.py": "062e2e0583fc3420758610b5c511e74365b260db72448d635180305741e061f5",
     "scripts/research/ppo_inference_v3.py": "78d7a425a2619136aa5d2429c0ff069d4c03770f3260d3d7fa588e243ba656f5",
+    "scripts/research/ppo_objective_v2.py": "b99502dd9b50562bd25e9bbbfc18f5e8be44af70326b31f2e7155fd2f9902bea",
     "scripts/research/ppo_successor_v2.py": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/replay_runner_v2.py": "cbbe1680a37487266bf57146eaff9bc48cfd91fca8ded9fb45446755426b4bae",
@@ -4748,8 +4793,8 @@
   "valueObjectiveV2": {
     "bounds": {
       "finiteLimitLog2": 220,
-      "gradientBoundLog2": 101,
-      "lossBoundLog2": 201
+      "gradientBoundLog2": 102,
+      "lossBoundLog2": 202
     },
     "conformance": {
       "economicEvidence": false,
