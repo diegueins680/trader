@@ -5128,5 +5128,106 @@ class OrderIdempotenceTests(unittest.TestCase):
             o.bind({o.MAIN: main.replace('    placeFutures mSf quoteAsset dir = do\n        summary <- fetchFuturesPositionSummary env sym', '    placeFutures mSf quoteAsset dir = do\n        let summary = emptySummary', 1)})
 
 
+class CausalValueV6Tests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import causal_value as p
+        return p
+
+    def test_source_smt_model_and_oracle(self):
+        p=self.proof()
+        r=p.check_causal_value()
+        self.assertEqual(r['smt'],{'F-RL-VALUE-V6-ARITH':'unsat'})
+        self.assertEqual((r['bounds']['targetBoundLog2'],r['bounds']['magnitudeGuardLog2'],r['bounds']['maximumOptimizerSteps']),(100,99,16384))
+        self.assertEqual((r['bounds']['certifiedImplications'],r['bounds']['satisfiableControls']),(6,2))
+        self.assertEqual((r['model']['states'],r['model']['transitions']),(292,337))
+        self.assertEqual((r['source']['closure'],r['source']['frozenModulesInClosure']),
+                         (['causal_optimizer_v5','causal_replay_v3','causal_transition_v4','causal_value_v6','replay_accounting_v2','value_objective_v2'],0))
+        c=r['conformance']
+        self.assertEqual((c['runs'],c['oracleTargets'],c['prefixRewrites'],c['rejections'],c['marketDataReads']),(9,822,12,7,0))
+
+    def test_source_mutants_reject_even_with_refreshed_lock(self):
+        p=self.proof()
+        source=(ROOT/p.SOURCE).read_text()
+        lock=read_json(ROOT/p.REGISTRY)
+        mutations=[
+            ('import math','import math\nimport os'),
+            ('from value_objective_v2 import','from sequential_learning import bellman_gradient\nfrom value_objective_v2 import'),
+            ('enabled: object = False','enabled: object = True'),
+            ('enabled is not True or','enabled is not True and'),
+            ('        if type(outcome) is not Outcome:\n            raise ValueError("invalid outcome")\n',''),
+            ('explore = float(rng.random()) < EXPLORE','explore = float(rng.random()) < EXPLORE and outcome.terminal'),
+            ('x = _vector(replay.observe_v3(session, enabled=True))','x = _vector(replay.observe_v3(session, enabled=True)) + float(outcome.bar.price)'),
+            ('rewards.append(_bounded(_number(row.reward)))','rewards.append(_number(row.reward))'),
+            ('tuple(tuple(_bounded(float(x)) for x in row) for row in result)','tuple(tuple(float(x) for x in row) for row in result)'),
+            ('        if row.done:\n            targets.append(reward)\n            continue\n',''),
+            ('bootstrap = GAMMA * selected','bootstrap = selected'),
+            ('evaluate[i][choose[i].index(max(choose[i]))]','max(evaluate[i])'),
+            ('                target = online\n                transitions.extend(rows)','                transitions.extend(rows)'),
+            ('                for _ in range(UPDATES):','                target = online\n                for _ in range(UPDATES):'),
+            ('    if objective is None:\n        raise ValueError("rejected value objective")\n',''),
+            ('BOUND = 2.0 ** 99','BOUND = 2.0 ** 100'),
+            ('GAMMA = 0.99','GAMMA = 1.5'),
+            ('                published.extend(targets)\n','                published.extend(targets)\n                return TrainingResult(VERSION, replay.OBSERVATION, REWARD, OBJECTIVE, OPTIMIZER, seed, 0, 0, 0, "", session, (), (), (), (), 0, online, target)\n'),
+            ('rng = np.random.default_rng([seed, 6])','rng = np.random.default_rng([seed, 6]); open("sink", "w")'),
+        ]
+        for old,new in mutations:
+            with self.subTest(mutation=new), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,dict(lock,**p.registry_for(changed)))
+        with self.assertRaisesRegex(ValueError,'module effect drift|reviewed definition drift'):
+            p.extract(source.replace('0.99','0.98'))
+
+    def test_frozen_or_unknown_module_in_closure_rejects(self):
+        p=self.proof()
+        actual=p.read_module
+        def leaky(name):
+            text=actual(name)
+            return text+'\nimport sequential_learning\n' if name=='causal_transition_v4' else text
+        with self.assertRaisesRegex(ValueError,'frozen-free import closure'):
+            p.extract(read=leaky)
+        with self.assertRaisesRegex(ValueError,'external import closure'):
+            p.extract(read=lambda name: actual(name)+'\nimport socket\n' if name=='causal_optimizer_v5' else actual(name))
+        with self.assertRaisesRegex(ValueError,'support drift'):
+            lock=read_json(ROOT/p.REGISTRY)
+            lock['supportHashes']['scripts/research/causal_optimizer_v5.py']='0'*64
+            p.extract(registry=lock)
+
+    def test_model_mutants_constant_drift_and_solver_fail_closed(self):
+        p=self.proof()
+        for mutant,reason in (('consume-before-draw','before its action draw'),('early-sync','before the final update'),
+                              ('publish-partial','before every stage completed')):
+            with self.assertRaisesRegex(ValueError,reason):
+                p.model(mutant)
+        for key,value in (('BOUND','2.0 ** 100'),('GAMMA','1.5'),('EXPLORE','F(1, 4)'),('UPDATES','2 ** 20'),('ROLLOUT','512')):
+            with self.subTest(constant=key), self.assertRaises(ValueError):
+                p.prove(None,dict(p.CONSTANTS,**{key:value}))
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove()
+        with patch.object(p.z,'Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(Exception):
+                p.prove()
+
+    def test_unregistered_importer_of_the_value_kernel_still_rejects(self):
+        import shield_consumers as consumer
+        self.assertEqual(consumer.VALUE_LEARNER,{'causal_value_v6'})
+        with self.assertRaisesRegex(ValueError,'unregistered research consumer'):
+            consumer.research_importers({'scripts/research/other_learner.py':'from value_objective_v2 import objective_v2'})
+        self.assertIn(['scripts/research/causal_value_v6.py','from value_objective_v2 import VERSION as OBJECTIVE, objective_v2'],
+                      consumer.research_importers())
+
+    def test_ledger_keeps_obligation_ten_open_with_the_new_evidence(self):
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==10)
+        self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
+        self.assertTrue({'F-RL-VALUE-V6-SOURCE','F-RL-VALUE-V6-ARITH','F-RL-VALUE-V6-FLOW','F-RL-VALUE-V6-CONFORMANCE'}<=set(target['evidenceRequirements']))
+        self.assertIn('not retired',target['blockers'][0])
+
+
 if __name__ == '__main__':
     unittest.main()
