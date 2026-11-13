@@ -5316,6 +5316,120 @@ class CausalPpoV7Tests(unittest.TestCase):
         self.assertTrue({'F-RL-PPO-V7-SOURCE','F-RL-PPO-V7-ARITH','F-RL-PPO-V7-FLOW','F-RL-PPO-V7-CONFORMANCE'}<=set(target['evidenceRequirements']))
 
 
+class CausalOpeV8Tests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import causal_ope as p
+        return p
+
+    def test_source_smt_model_and_oracles(self):
+        p=self.proof()
+        r=p.check_causal_ope()
+        self.assertEqual(r['smt'],{'F-RL-OPE-V8-ARITH':'unsat'})
+        b=r['bounds']
+        self.assertEqual((b['behaviorFloorLog2'],b['lawGapLog2'],b['stepGapLog2'],b['weightGapLog2'],b['horizonBound'],
+                          b['certifiedImplications'],b['satisfiableControls']),(-10,-50,-40,-34,32,4,1))
+        self.assertEqual((r['model']['states'],r['model']['transitions'],r['model']['publishingTransitions']),(48,52,4))
+        self.assertEqual((r['source']['closure'],r['source']['frozenModulesInClosure']),
+                         (['causal_ope_v8','causal_optimizer_v5','causal_ppo_v7','causal_replay_v3','causal_transition_v4',
+                           'causal_value_v6','gae_targets_v2','ope_rational_v2','ppo_objective_v2','replay_accounting_v2',
+                           'value_objective_v2'],0))
+        c=r['conformance']
+        self.assertEqual((c['runs'],c['evaluations'],c['oracleEpisodes'],c['samplingLawChecks'],c['prefixRewrites'],
+                          c['rejections'],c['capacityRejections'],c['marketDataReads']),(6,18,24,96,12,26,1,0))
+
+    def test_source_mutants_reject_even_with_refreshed_lock(self):
+        p=self.proof()
+        source=(ROOT/p.SOURCE).read_text()
+        lock=read_json(ROOT/p.REGISTRY)
+        mutations=[
+            ('from fractions import Fraction as F','from fractions import Fraction as F\nimport os'),
+            ('import causal_ppo_v7 as ppo','import causal_ppo_v7 as ppo\nimport sequential_evaluation'),
+            ('enabled: object = False','enabled: object = True'),
+            ('enabled is not True or','enabled is not True and'),
+            ('    reliable: bool = False','    reliable: bool = True'),
+            ('FLOOR = 2.0 ** -10','FLOOR = 2.0 ** -100'),
+            ('HORIZON = 32','HORIZON = 64'),
+            ('WEIGHT_GAP = F(1, 2 ** 34)','WEIGHT_GAP = F(1, 2 ** 60)'),
+            ('    if len(result.transitions) < horizon:\n        raise ValueError("run shorter than the horizon")\n',''),
+            ('rows = result.transitions[:horizon]','rows = result.transitions[-horizon:]'),
+            ('recorded = result.behavior_probabilities[:horizon]','recorded = result.behavior_probabilities[1:horizon + 1]'),
+            ('type(p) is F and p in VALUE_LAW','type(p) is F'),
+            ('type(p) is float and FLOOR <= p <= 1.0','type(p) is float and 0.0 < p <= 1.0'),
+            ('ppo._bounded(ppo._number(row.reward))','float(row.reward)'),
+            ('q = tuple(ppo._bounded(x) for x in model.q)','q = model.q'),
+            ('    if v[-1] != 0.0:\n        raise ValueError("nonzero value beyond the horizon")\n',''),
+            ('        if len(set(sources)) != len(sources):\n            raise ValueError("reused generator stream")\n',''),
+            ('if estimate is None or len(estimate.episodes) != len(results):','if estimate is None:'),
+            ('episodes = tuple(_episode(result, model, horizon) for result, model in zip(results, models))',
+             'episodes = tuple(_episode(result, model, horizon) for result, model in zip(results, models) if len(result.transitions) >= horizon)'),
+            ('estimate_v2(episodes, GAMMA, enabled=True)','estimate_v2(episodes, 1.0, enabled=True)'),
+            ('        sources = tuple(','        open("sink", "w")\n        sources = tuple('),
+            ('except (ArithmeticError, ValueError, TypeError, MemoryError):\n        return None',
+             'except (ArithmeticError, ValueError, TypeError, MemoryError):\n        return Evaluation(VERSION, ESTIMATOR, GAMMA, 0, (), FLOOR, LAW_GAP, WEIGHT_GAP, None)'),
+        ]
+        for old,new in mutations:
+            with self.subTest(mutation=new), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,dict(lock,**p.registry_for(changed)))
+        with self.assertRaisesRegex(ValueError,'module effect drift|reviewed definition drift'):
+            p.extract(source.replace('0.99','0.98'))
+
+    def test_frozen_module_in_closure_and_support_drift_reject(self):
+        p=self.proof()
+        actual=p.read_module
+        with self.assertRaisesRegex(ValueError,'frozen-free import closure'):
+            p.extract(read=lambda name: actual(name)+'\nimport sequential_evaluation\n' if name=='ope_rational_v2' else actual(name))
+        with self.assertRaisesRegex(ValueError,'external import closure'):
+            p.extract(read=lambda name: actual(name)+'\nimport socket\n' if name=='ope_rational_v2' else actual(name))
+        with self.assertRaisesRegex(ValueError,'estimator limits'):
+            p.extract(read=lambda name: actual(name).replace('MAX_DECISIONS = 32','MAX_DECISIONS = 64') if name=='ope_rational_v2' else actual(name))
+        with self.assertRaisesRegex(ValueError,'support drift'):
+            lock=read_json(ROOT/p.REGISTRY)
+            lock['supportHashes']['scripts/research/causal_ppo_v7.py']='0'*64
+            p.extract(registry=lock)
+
+    def test_model_mutants_bound_drift_and_solver_fail_closed(self):
+        p=self.proof()
+        for mutant in ('drop-run','publish-partial','unchecked-estimate'):
+            with self.assertRaisesRegex(ValueError,'before every run was converted'):
+                p.model(mutant)
+        for kwargs in ({'floor':p.Q(1,2**100)},{'law_gap':p.Q(1,2**51)},{'horizon':64},{'law_gap':p.Q(1,2**40)}):
+            with self.subTest(drift=kwargs), self.assertRaises(ValueError):
+                p.prove(None,**kwargs)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove()
+        with patch.object(p.z,'Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(Exception):
+                p.prove()
+
+    def test_sampling_law_counts_the_draw_grid(self):
+        p=self.proof()
+        low,cut,law=p.sampling_law((0.25,0.5,0.25))
+        self.assertEqual((low,cut,law),(2**51,3*2**51,(p.Q(1,4),p.Q(1,2),p.Q(1,4))))
+        # An unfloored probability is drawn 2^47 times more often than recorded: the floor is necessary.
+        tiny=p.sampling_law((2.0**-100,0.5,0.5))[2][0]
+        self.assertEqual(tiny,p.Q(1,2**53))
+        self.assertGreater(tiny/p.Q(1,2**100),2**40)
+
+    def test_registered_importer_and_ledger_state(self):
+        import shield_consumers as consumer
+        self.assertEqual(consumer.OPE_ADAPTER,{'causal_ope_v8'})
+        with self.assertRaisesRegex(ValueError,'unregistered research consumer'):
+            consumer.research_importers({'scripts/research/other_evaluator.py':'from ope_rational_v2 import estimate_v2'})
+        self.assertIn(['scripts/research/causal_ope_v8.py','from ope_rational_v2 import VERSION as ESTIMATOR, Episode, Estimate, estimate_v2'],
+                      consumer.research_importers())
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==10)
+        self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
+        self.assertTrue({'F-RL-OPE-V8-SOURCE','F-RL-OPE-V8-ARITH','F-RL-OPE-V8-FLOW','F-RL-OPE-V8-CONFORMANCE'}<=set(target['evidenceRequirements']))
+
+
 class CausalValueV6Tests(unittest.TestCase):
     @staticmethod
     def proof():
