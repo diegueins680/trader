@@ -124,6 +124,10 @@
         "formal/research/ppo-objective-v2-contract.md",
         "formal/research/ppo-objective-v2-source.json",
         "scripts/formal/ppo_objective_successor.py",
+        "scripts/research/causal_ppo_v7.py",
+        "formal/research/causal-ppo-v7-contract.md",
+        "formal/research/causal-ppo-v7-source.json",
+        "scripts/formal/causal_ppo_learner.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -961,6 +965,22 @@
         {
           "id": "F-RL-PPOOBJ-V2-CONFORMANCE",
           "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, inactive rows publish exactly zero gradients, gradients match oracle finite differences away from clip boundaries, the CE-RL-012 witness rejects with a finite in-domain analogue whose gradient is exactly zero, the CE-RL-013 witness reproduces coefficient -8 as intended clipped-objective behavior, and underflowed terms are counted with canonical published zeros."
+        },
+        {
+          "id": "F-RL-PPO-V7-SOURCE",
+          "statement": "Causal PPO v7 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly one generator draw per step, a difference-only softmax with a 2^-100 floor on all three action probabilities, magnitude guards on every consumed reward, network value, raw advantage, target, normalized advantage and critic residual, terminal rows without a next-value evaluation, checked transition, target, objective and optimizer stages, joint acceptance of actor and critic candidates and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPO-V7-ARITH",
+          "statement": "Softmax terms in [0,1] with one equal to one give a total in [1,3] and quotient probabilities in [0,1] that sum to one; for probabilities that sum to one the cumulative rule selects exactly one action for every draw in [0,1) with interval lengths equal to the three probabilities; in exact real arithmetic a centered advantage whose square is at most n times the squared scale, with n at most 256, is at most 16 scales; two values guarded at 2^99 have a twice-rounded residual below 2^101, exceeded without the target guard; and at most 16384 optimizer steps occur per network, below the optimizer step cap, with the critic seed below 2^32."
+        },
+        {
+          "id": "F-RL-PPO-V7-FLOW",
+          "statement": "The finite causal-PPO training abstraction publishes only after activation and after every rollout's collection, target formation and fixed count of joint actor-critic updates succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and actor and critic step counts are equal at every rollout boundary and at publication."
+        },
+        {
+          "id": "F-RL-PPO-V7-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout action and behavior probability equals an independent recomputation from the seeded actor and the replayed uniform draws; every first-rollout critic target equals an independent exact-rational evaluation of the correctly rounded GAE recursion bit for bit; normalized advantages are centered with magnitude at most the square root of the rollout length up to rounding; rewriting every outcome from step k onward leaves earlier transitions, actions and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes, out-of-bound values and sub-floor probabilities reject."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",
