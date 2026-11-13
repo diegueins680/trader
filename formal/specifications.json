@@ -1330,6 +1330,199 @@
       ]
     },
     {
+      "id": "A-EXPOSURE-RL",
+      "title": "Shielded exposure-control reinforcement-learning research path",
+      "features": [
+        "bounded target-exposure environment",
+        "deterministic integer exposure shield",
+        "atomic exposure reservation",
+        "declared net-equity ledger",
+        "research-only Haskell shield",
+        "scoped assurance ledger"
+      ],
+      "criticality": "safety",
+      "implementation": [
+        "scripts/formal/exposure_rl/*.py",
+        "haskell/research/ExposureShieldV1.hs",
+        "scripts/research/exposure_rl/*.py",
+        "formal/research/exposure-rl/**"
+      ],
+      "uses": [
+        "G-FAIL-CLOSED",
+        "G-FINITE",
+        "G-CAUSAL",
+        "G-REDUCE-ONLY",
+        "G-ACCOUNT",
+        "G-BOUNDED",
+        "G-DETERMINISTIC",
+        "G-PROMOTION",
+        "G-NO-LOOKAHEAD"
+      ],
+      "dependsOn": [
+        "A-RESEARCH",
+        "A-FORMAL-RESEARCH"
+      ],
+      "requires": [
+        {
+          "id": "A-EXPOSURE-RL-R1",
+          "statement": "The path reads only public market history inside its registered partitions, refuses windows reserved by other registrations, verifies registered snapshot hashes before use, and reads no credential or live-trading setting."
+        },
+        {
+          "id": "A-EXPOSURE-RL-R2",
+          "statement": "The snapshot given to the shield describes the account at decision time; the shield validates ranges and the freshness flag it is given and nothing more."
+        }
+      ],
+      "ensures": [
+        {
+          "id": "A-EXPOSURE-RL-E1",
+          "statement": "For every valid snapshot and integer proposal, the projected target has absolute value at most the cap of 1666 units."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E2",
+          "statement": "When the snapshot is not fresh or drawdown is at or above the limit, the projected target never has larger absolute value than the current exposure and never has the opposite sign."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E3",
+          "statement": "The projected target's absolute value never exceeds min(|current|, cap) plus the reserved headroom."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E4",
+          "statement": "The projected target lies between the current exposure and the proposal, or is a same-side reduction of the current exposure; projection never moves past the proposal."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E5",
+          "statement": "The fallback for an invalid proposal never increases absolute exposure, never changes side, is within the cap, and equals the current exposure whenever that is within the cap."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E6",
+          "statement": "If reserved exposure is within the shared budget before a reservation step, it is within the budget after it."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E7",
+          "statement": "A reservation request carrying a stale version changes neither the holdings nor the version."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E8",
+          "statement": "In the declared ledger, the one-step change of equity equals gross profit and loss minus cost minus funding, for both fill conventions."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E9",
+          "statement": "In the declared ledger, equity after two consecutive steps equals initial equity plus summed gross profit and loss minus summed cost minus summed funding."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E10",
+          "statement": "With a purge of two bars, the outcome bar of every fit decision precedes the first test decision bar."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E11",
+          "statement": "The compiled Haskell shield and reservation functions return the same outcome kind, target and order authority as the Python reference on every case of the bounded grid and the seeded sample, and no outcome carries order authority."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E12",
+          "statement": "Observation features at a bar are unchanged when later bars or later funding events are altered."
+        },
+        {
+          "id": "A-EXPOSURE-RL-E13",
+          "statement": "The environment's binary64 ledger agrees with an independent exact-rational replay step by step and reconciles to final equity."
+        }
+      ],
+      "invariants": [
+        {
+          "id": "A-EXPOSURE-RL-I1",
+          "statement": "A program outside the shield module cannot construct a research intent: the constructor is not exported and such a program fails to compile."
+        },
+        {
+          "id": "A-EXPOSURE-RL-I2",
+          "statement": "The research path's Python sources import only reviewed modules, read no credential or live-trading setting, start only reviewed processes, and the Haskell shield imports nothing, is pure, exports no constructor, never authorizes an order and is neither listed in the cabal file nor imported by any production, test or benchmark Haskell source."
+        },
+        {
+          "id": "A-EXPOSURE-RL-I3",
+          "statement": "In the bounded lifecycle model, reserved exposure never exceeds the budget, a submission follows only a shield admission and a fresh granted reservation, failures reach the hold fallback, no decision is submitted twice, a disabled challenger takes no step, only the operator changes the mode, no state holds a live-order capability, and every state can reach quiescence."
+        }
+      ],
+      "failures": [
+        {
+          "id": "A-EXPOSURE-RL-F1",
+          "statement": "Non-finite, out-of-range and wrongly typed proposals and invalid snapshots never become an intent beyond the fallback, and a change below the minimum size is never rounded up."
+        },
+        {
+          "id": "A-EXPOSURE-RL-F2",
+          "statement": "A policy artifact with a wrong hash, schema, environment version, operating mode, live flag, non-finite parameter or corrupt encoding is refused."
+        },
+        {
+          "id": "A-EXPOSURE-RL-F3",
+          "statement": "A solver timeout, UNKNOWN, vacuous premise, failed conformance case, unreproduced ledger status or receipt mismatch fails verification; it is never reported as success."
+        }
+      ],
+      "evidence": [
+        {
+          "level": "static",
+          "path": "scripts/formal/exposure_rl/shield_proofs.py",
+          "contains": "F-RLX-SHIELD-CAP"
+        },
+        {
+          "level": "static",
+          "path": "scripts/formal/exposure_rl/ledger_proofs.py",
+          "contains": "F-RLX-LEDGER-WEALTH-FOLD"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/exposure_rl/lifecycle_model.py",
+          "contains": "non-atomic mutant was not caught"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/exposure_rl/conformance.py",
+          "contains": "a research intent could be constructed outside the shield"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/exposure_rl/surface.py",
+          "contains": "research Haskell is reachable from a cabal component"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/exposure_rl/test_exposure_formal.py",
+          "contains": "test_broken_projections_are_refuted"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/exposure_rl/test_exposure_formal.py",
+          "contains": "test_overclaims_fail"
+        },
+        {
+          "level": "property",
+          "path": "test/exposure_rl_test.py",
+          "contains": "test_features_ignore_later_bars_and_later_funding"
+        },
+        {
+          "level": "property",
+          "path": "test/exposure_rl_test.py",
+          "contains": "test_ledger_matches_exact_rationals_and_reconciles"
+        },
+        {
+          "level": "property",
+          "path": "test/exposure_rl_test.py",
+          "contains": "test_invalid_proposals_and_snapshots_fail_closed"
+        },
+        {
+          "level": "property",
+          "path": "test/exposure_rl_test.py",
+          "contains": "test_artifact_roundtrip_and_fail_closed"
+        },
+        {
+          "level": "property",
+          "path": "test/exposure_rl_test.py",
+          "contains": "test_fold_partitions_are_disjoint_and_ordered"
+        },
+        {
+          "level": "static",
+          "path": "formal/research/exposure-rl/assurance-ledger.json",
+          "contains": "F-RLX-PRODUCTION-INTEGRATION"
+        }
+      ]
+    },
+    {
       "id": "A-SEQUENTIAL-RESEARCH",
       "title": "Non-authorizing offline sequential policy screen",
       "features": [

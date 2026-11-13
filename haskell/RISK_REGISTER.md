@@ -367,3 +367,18 @@ Report bundle follow-up (2026-10-06, RL-OFFLINE-001): A-BUNDLE-FS assumes local 
 
 
 Stage-preservation follow-up (2026-10-06, RL-OFFLINE-001): A-STAGE-PROJECTION names the reviewed eligibility mapping and existing fixed-runtime/effect/build assumptions. Complete delivered Research-stage preservation closes scoped25 only through freshly composed certificates; the absent future promotion service and its liveness are not certified. All original scope/criteria remain unchanged. Runtime code, flags, ownership and risk settings are unchanged. Current12 scoped/24 partial/2 open; future consumers or eligibility transitions reopen25. Economic and production risks stay HIGH/OPEN.
+
+### RL-OFFLINE-001 — exposure-control campaign (2026-11-11)
+
+`exposure_rl_control_v1` trained PPO, TD3 and IQL on a bounded target-exposure
+environment and rejected all of them at its registered development gates
+([memo](../research-notes/exposure-rl-2026-11-11/adoption-memo.md)). The risk
+is unchanged: simulated policies can still exploit cost, coverage and regime
+assumptions, the data was previously exposed, and OPE was not credible even
+against simulator truth. New evidence for this entry: an early favourable pilot
+was a single bull-market window; replaying a rule's end-of-bar positions on a
+ledger without intrabar exits misstates that rule; and an all-time drawdown
+gate caused a lockout that a trailing peak removes. The path's shield and
+ledger have a [scoped assurance ledger](../formal/research/exposure-rl/README.md);
+ten of its twelve obligations are only partially verified. `RL-OFFLINE-001`
+remains HIGH/OPEN. No runtime, live setting or promotion eligibility changes.

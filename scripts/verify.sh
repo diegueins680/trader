@@ -101,6 +101,8 @@ verify_formal() {
   run_step "formal specification coverage" node "$ROOT_DIR/scripts/verify-formal-specs.mjs"
   run_step "proof ledger and model regression tests" "$formal_python" "$ROOT_DIR/scripts/formal/test_integrity.py"
   run_step "SMT, state model and Haskell conformance" "$formal_python" "$ROOT_DIR/scripts/formal/verify.py"
+  run_step "exposure RL path: checker mutation tests" "$formal_python" "$ROOT_DIR/scripts/formal/exposure_rl/test_exposure_formal.py"
+  run_step "exposure RL path: SMT, state model, conformance and assurance ledger" "$formal_python" "$ROOT_DIR/scripts/formal/exposure_rl/verify.py"
 }
 
 verify_smoke() {

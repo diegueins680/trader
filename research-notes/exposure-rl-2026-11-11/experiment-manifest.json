@@ -1,0 +1,257 @@
+{
+ "schema": "exposure_rl_experiment_manifest_v1",
+ "campaign": "exposure_rl_control_v1",
+ "registration": {
+  "path": "research-notes/registrations/exposure-rl-control-v1.json",
+  "sha256": "6bb8bbc7c868b43b56064781894f0cae5658e302afa2933928751bd2756de13a",
+  "sha256AtRun": "6bb8bbc7c868b43b56064781894f0cae5658e302afa2933928751bd2756de13a"
+ },
+ "run": {
+  "id": "dev-20261111",
+  "sourceCommit": "3ba6c0424584f6bcfb13096a137ccb2493edb4b8",
+  "campaignSourcesClean": true,
+  "plannedAt": "2026-11-12T01:28:22.581569+00:00",
+  "jobsPlanned": 104,
+  "jobsCompleted": 104,
+  "jobsFailed": 0,
+  "cpuSecondsByKind": {
+   "baselines": 574.7,
+   "offline": 30171.3,
+   "ppo": 3297.8,
+   "ppo_no_context": 3241.4,
+   "ppo_risk": 3222.6,
+   "td3": 15268.2
+  }
+ },
+ "data": {
+  "development": {
+   "source": "https://fapi.binance.com",
+   "endpoints": [
+    "/fapi/v1/continuousKlines",
+    "/fapi/v1/markPriceKlines",
+    "/fapi/v1/fundingRate"
+   ],
+   "interval": "6h",
+   "symbols": [
+    "ARBUSDT",
+    "BCHUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "ETHUSDT",
+    "NEARUSDT",
+    "SOLUSDT"
+   ],
+   "startOpenTime": 1600819200000,
+   "lastOpenTime": 1742191200000,
+   "outcomeEndExclusive": 1742212800000,
+   "barsPerSymbol": {
+    "ARBUSDT": 2900,
+    "BCHUSDT": 6546,
+    "BTCUSDT": 6546,
+    "DOGEUSDT": 6546,
+    "ETHUSDT": 6546,
+    "NEARUSDT": 6457,
+    "SOLUSDT": 6546
+   },
+   "firstOpenTime": {
+    "ARBUSDT": 1679572800000,
+    "BCHUSDT": 1600819200000,
+    "BTCUSDT": 1600819200000,
+    "DOGEUSDT": 1600819200000,
+    "ETHUSDT": 1600819200000,
+    "NEARUSDT": 1602741600000,
+    "SOLUSDT": 1600819200000
+   },
+   "panelRows": 42087,
+   "fundingRows": 31643,
+   "fundingMarkFallbacks": 21073,
+   "panelSha256": "50e31c25bc94aab0418e59234ab28aacba47be58fc74563463926630fe93efe9",
+   "fundingSha256": "1fe25306e8875689ad805a2ed264bb394dc15a49899ac6f66254b187a444f414",
+   "acquiredAt": "2026-11-12T00:15:17.096222Z",
+   "credentialsUsed": false
+  },
+  "confirmation": {
+   "status": "not acquired; not inspected",
+   "startUtc": "2026-05-01T00:00:00Z",
+   "lastOpenUtc": "2026-07-16T18:00:00Z"
+  },
+  "reservedNeverFetched": [
+   {
+    "name": "sealed-edge-campaign-holdout",
+    "fromUtc": "2025-03-17T16:00:00Z",
+    "toUtcExclusive": "2026-05-01T00:00:00Z"
+   },
+   {
+    "name": "prospective-funding-carry-window",
+    "fromUtc": "2026-07-17T00:00:00Z",
+    "toUtcExclusive": "2027-01-20T12:00:00Z"
+   }
+  ],
+  "rawDataCommitted": false,
+  "modelParametersCommitted": false,
+  "paidData": false,
+  "paidCompute": false,
+  "copyrightedPapersCommitted": false,
+  "license": "Provider market-data terms; public availability is not a redistribution licence. Raw data is not committed.",
+  "availabilityEvidence": "Historical timestamps only; no first-seen witnesses. This blocks any production promotion on its own."
+ },
+ "championExport": {
+  "schema": "champion_method_export_v1",
+  "flags": [
+   "--method",
+   "ta_regime_switch",
+   "--positioning",
+   "long-short",
+   "--interval",
+   "6h",
+   "--open-threshold",
+   "0.001",
+   "--close-threshold",
+   "0.001",
+   "--fee",
+   "0.0005",
+   "--slippage",
+   "0.00015",
+   "--spread",
+   "0.0003",
+   "--funding-rate",
+   "0",
+   "--max-position-size",
+   "0.1666",
+   "--stop-loss",
+   "0.0753",
+   "--take-profit",
+   "0.0353"
+  ],
+  "binarySha256": "1fe4f75ab0f71d6d805c925ea861730e623180c65393ab8dce61ee6fe4daacbf",
+  "positionsSha256": "9d767489507fa5e4a04b4639cde7efa06589016f54700cf849cdbd4d953f5e37",
+  "nativeReturnsSha256": "aaadbd77f0b7dc3f71a6c5fb3df4b82a7cd7bf9b8ea99c003e8799b0581ee76d",
+  "positionsIdenticalToRegisteredRunExport": true,
+  "note": "Positions were exported before the registered run. Native per-bar equity returns were exported afterwards for the champion_native comparator; the positions hash is unchanged."
+ },
+ "costModel": {
+  "basePerSide": 0.0008,
+  "components": "5 bp taker fee + 1.5 bp slippage + 1.5 bp half-spread",
+  "stresses": [
+   "cost1_5x",
+   "cost2x",
+   "severe25bp_delay",
+   "delay1bar",
+   "partial50pct",
+   "missed10pct",
+   "funding2x",
+   "stale5pct",
+   "corrupt1pct",
+   "spread_widening"
+  ],
+  "limits": "Uniform across symbols; an assumption, not a measurement."
+ },
+ "dependencies": [
+  {
+   "name": "numpy",
+   "version": "2.3.5",
+   "license": "BSD-3-Clause",
+   "use": "research and formal"
+  },
+  {
+   "name": "pandas",
+   "version": "2.3.3",
+   "license": "BSD-3-Clause",
+   "use": "report statistics only"
+  },
+  {
+   "name": "z3-solver",
+   "version": "4.15.4.0",
+   "license": "MIT",
+   "use": "formal target only"
+  },
+  {
+   "name": "GHC",
+   "version": "9.4.8",
+   "license": "BSD-3-Clause",
+   "use": "conformance and champion CLI build"
+  }
+ ],
+ "thirdPartyCodeCopied": false,
+ "trialAccounting": {
+  "rule": "Every registered policy variant is a trial whether or not it was promising. Pilots and post-run additions are listed, not hidden.",
+  "registeredVariants": {
+   "rl": [
+    "ppo",
+    "td3",
+    "iql"
+   ],
+   "extension": [
+    "ppo_risk"
+   ],
+   "ablation": [
+    "ppo_no_context"
+   ],
+   "diagnostic": [
+    "ppo_unshielded_diagnostic"
+   ],
+   "nonRl": [
+    "cash",
+    "buy_and_hold",
+    "regime_rule",
+    "ridge_forecast",
+    "champion_method",
+    "behavior_cloning",
+    "contextual_bandit"
+   ]
+  },
+  "registeredVariantCount": 13,
+  "fits": {
+   "ppo": 20,
+   "ppo_risk": 20,
+   "ppo_no_context": 20,
+   "td3": 20,
+   "iql": 20,
+   "behavior_cloning": 20,
+   "contextual_bandit": 20,
+   "ridge_forecast": 4
+  },
+  "hyperparameterConfigurationsPerLearner": 1,
+  "preRegistrationPilots": [
+   "one PPO fit (300k steps, seed 1) and one TD3 fit (60k steps, seed 1) on the first 60% of development bars",
+   "one shuffled-bar placebo PPO fit",
+   "runner pilot: fold 3, seed 11, every learner, uncommitted sources (run pilot1, not evidence)"
+  ],
+  "choicesInformedByPilots": [
+   "drawdown gate changed from an all-time to a trailing 120-bar peak",
+   "a vacuous per-step limit removed from the shield",
+   "IQL beta set to 30 on a synthetic toy problem with a known optimum"
+  ],
+  "postRunAdditions": [
+   {
+    "name": "champion_native",
+    "reason": "The registered champion_method replay drops the rule's intrabar take-profit exits. Added as a stricter comparator; changes no RL result."
+   }
+  ],
+  "multipleTestingVariants": [
+   "ppo",
+   "td3",
+   "iql",
+   "ppo_risk",
+   "ppo_no_context",
+   "behavior_cloning",
+   "contextual_bandit",
+   "buy_and_hold",
+   "regime_rule",
+   "ridge_forecast",
+   "champion_method",
+   "champion_native"
+  ],
+  "relationToEarlierCounts": "Separate from the 45-trial residual/funding family and from sequential_control_screen_v1. It reuses the same contaminated calendar span, so its results add to, and do not reset, the selection pressure on that span."
+ },
+ "holdoutLedger": {
+  "developmentSpan": "consumed (was already contaminated)",
+  "confirmationWindow": "sealed; not acquired",
+  "sealedEdgeCampaignHoldout": "never fetched",
+  "prospectiveFundingCarryWindow": "never fetched"
+ },
+ "outcome": {
+  "candidatesPassingDevelopmentGates": [],
+  "decision": "No candidate passes; keep the champion; do not integrate."
+ }
+}

@@ -1,0 +1,1262 @@
+{
+ "schemaVersion": 1,
+ "scope": "Exposure-control RL research path (exposure_rl_control_v1). Action-admission invariants, declared-ledger identities, fold arithmetic, a bounded lifecycle model, Haskell conformance and a source audit. It proves nothing about profitability, future drawdown, solvency or production behaviour.",
+ "campaign": "exposure_rl_control_v1",
+ "statusVocabulary": {
+  "smt_verified": "SMT proof, premise shown satisfiable",
+  "model_checked": "explicit-state exploration of a bounded model to a fixed point",
+  "exhaustively_checked": "every case of a stated finite set checked",
+  "property_tested": "tests only; not a proof",
+  "assumption": "not checked",
+  "open": "not done"
+ },
+ "assumptions": [
+  {
+   "id": "A-SNAPSHOT",
+   "status": "assumption",
+   "statement": "The snapshot passed to the shield truthfully describes the account at decision time.",
+   "risk": "A wrong or stale snapshot voids every admission invariant; the shield only checks ranges and the freshness flag it is given."
+  },
+  {
+   "id": "A-SOLVER",
+   "status": "assumption",
+   "statement": "Z3 4.15.4 is sound for the linear integer and nonlinear real queries used.",
+   "risk": "A solver defect could accept a false claim."
+  },
+  {
+   "id": "A-AST",
+   "status": "assumption",
+   "statement": "The syntax-tree translation of project() preserves the meaning of the restricted Python subset it accepts (integer assignments, if/else, comparisons, abs, min, _clamp).",
+   "risk": "A translator defect could prove a property of a different function; unsupported syntax is rejected rather than approximated."
+  },
+  {
+   "id": "A-RESERVE-MIRROR",
+   "status": "assumption",
+   "statement": "The three-account Z3 mirror of reserve() matches the Python and Haskell functions.",
+   "risk": "Checked only by seeded conformance cases."
+  },
+  {
+   "id": "A-LEDGER-DECLARED",
+   "status": "assumption",
+   "statement": "The declared ledger equations are the intended instrument accounting for a linear USD-margined perpetual held as a fraction of equity.",
+   "risk": "A wrong declaration would be proved faithfully."
+  },
+  {
+   "id": "A-EXOGENOUS-PRICES",
+   "status": "assumption",
+   "statement": "Prices and funding are unaffected by the account's own trades and the next bar's open is tradable at the stated cost.",
+   "risk": "Market impact, queue position and gaps are outside the model."
+  },
+  {
+   "id": "A-FOLD-MIRROR",
+   "status": "assumption",
+   "statement": "The index model of fold_ranges matches the implementation.",
+   "risk": "Checked by a property test only."
+  },
+  {
+   "id": "A-MODEL-ABSTRACTION",
+   "status": "assumption",
+   "statement": "The bounded lifecycle model is a faithful abstraction of the intended decision protocol.",
+   "risk": "No refinement proof links it to code."
+  },
+  {
+   "id": "A-GHC",
+   "status": "assumption",
+   "statement": "GHC 9.4.8 compiles the shield correctly and enforces the module export list.",
+   "risk": "Compiler defects are out of scope."
+  },
+  {
+   "id": "A-GRID",
+   "status": "assumption",
+   "statement": "The bounded conformance grid is representative of the inputs the shield receives.",
+   "risk": "Inputs outside the grid are covered by the SMT claims on the Python source and by the seeded sample only."
+  },
+  {
+   "id": "A-SOURCE-LIST",
+   "status": "assumption",
+   "statement": "The audited source list is the complete research path.",
+   "risk": "Code added elsewhere is not audited until listed."
+  },
+  {
+   "id": "A-TEST-SAMPLE",
+   "status": "assumption",
+   "statement": "Tested cases are representative.",
+   "risk": "Property tests can miss defects."
+  },
+  {
+   "id": "A-SHIELD-PRECEDENCE",
+   "status": "assumption",
+   "statement": "Every policy output passes through the shield before any intent exists.",
+   "risk": "True in the research environment by construction; a future consumer could bypass it."
+  },
+  {
+   "id": "A-NO-PRODUCTION-USE",
+   "status": "assumption",
+   "statement": "Nothing in production consumes this path.",
+   "risk": "Checked for the listed Haskell sources by F-RLX-SURFACE."
+  }
+ ],
+ "criticalFiles": [
+  "formal/research/exposure-rl/Conformance.hs",
+  "formal/research/exposure-rl/Forgery.hs",
+  "haskell/research/ExposureShieldV1.hs",
+  "scripts/formal/exposure_rl/__init__.py",
+  "scripts/formal/exposure_rl/conformance.py",
+  "scripts/formal/exposure_rl/ledger_proofs.py",
+  "scripts/formal/exposure_rl/lifecycle_model.py",
+  "scripts/formal/exposure_rl/shield_proofs.py",
+  "scripts/formal/exposure_rl/surface.py",
+  "scripts/formal/exposure_rl/test_exposure_formal.py",
+  "scripts/formal/exposure_rl/verify.py",
+  "scripts/research/exposure_rl/acquire.py",
+  "scripts/research/exposure_rl/agents.py",
+  "scripts/research/exposure_rl/artifacts.py",
+  "scripts/research/exposure_rl/env.py",
+  "scripts/research/exposure_rl/evaluate.py",
+  "scripts/research/exposure_rl/market.py",
+  "scripts/research/exposure_rl/nn.py",
+  "scripts/research/exposure_rl/run_campaign.py",
+  "scripts/research/exposure_rl/shield.py",
+  "test/exposure_rl_test.py"
+ ],
+ "entries": [
+  {
+   "requirementId": "F-RLX-SHIELD-CAP",
+   "claim": "For every valid snapshot and integer proposal, the projected target has absolute value at most the cap of 1666 units.",
+   "criticality": "critical",
+   "formalStatement": "For every valid snapshot and integer proposal, the projected target has absolute value at most the cap of 1666 units.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-REDUCE",
+   "claim": "When the snapshot is not fresh or drawdown is at or above the limit, the projected target never has larger absolute value than the current exposure and never has the opposite sign.",
+   "criticality": "critical",
+   "formalStatement": "When the snapshot is not fresh or drawdown is at or above the limit, the projected target never has larger absolute value than the current exposure and never has the opposite sign.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-HEADROOM",
+   "claim": "The projected target's absolute value never exceeds min(|current|, cap) plus the reserved headroom.",
+   "criticality": "critical",
+   "formalStatement": "The projected target's absolute value never exceeds min(|current|, cap) plus the reserved headroom.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-NOROUNDUP",
+   "claim": "The projected target lies between the current exposure and the proposal, or is a same-side reduction of the current exposure; projection never moves past the proposal.",
+   "criticality": "critical",
+   "formalStatement": "The projected target lies between the current exposure and the proposal, or is a same-side reduction of the current exposure; projection never moves past the proposal.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-IDEMPOTENT",
+   "claim": "Projecting an already projected target from the state it describes returns the same target.",
+   "criticality": "high",
+   "formalStatement": "Projecting an already projected target from the state it describes returns the same target.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-FALLBACK",
+   "claim": "The fallback for an invalid proposal never increases absolute exposure, never changes side, is within the cap, and equals the current exposure whenever that is within the cap.",
+   "criticality": "critical",
+   "formalStatement": "The fallback for an invalid proposal never increases absolute exposure, never changes side, is within the cap, and equals the current exposure whenever that is within the cap.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-SHIELD-OVERCAP",
+   "claim": "When the current absolute exposure is at least the cap plus the minimum trade, every proposal yields an intent that strictly reduces absolute exposure.",
+   "criticality": "high",
+   "formalStatement": "When the current absolute exposure is at least the cap plus the minimum trade, every proposal yields an intent that strictly reduces absolute exposure.",
+   "assumptions": [
+    "A-SNAPSHOT",
+    "A-SOLVER",
+    "A-AST"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Every valid snapshot (|exposure| <= 100000, drawdown and headroom in [0, 10000]) and every integer proposal; unbounded mathematical integers.",
+   "limitations": "The Z3 term is derived from the Python syntax tree of project(); the NumPy batch form and the Haskell module are tied to it by tests and conformance, not by proof. Says nothing about realised losses or about state the snapshot misreports. Between the cap and cap plus minimum trade the excess is below the minimum tradable size and is left in place rather than rounded up.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-RESERVE-BUDGET",
+   "claim": "If reserved exposure is within the shared budget before a reservation step, it is within the budget after it.",
+   "criticality": "critical",
+   "formalStatement": "If reserved exposure is within the shared budget before a reservation step, it is within the budget after it.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-RESERVE-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Three symbolic accounts, arbitrary non-negative holdings, budget, versions, index and request.",
+   "limitations": "Hand-written Z3 mirror of reserve() for three accounts; tied to the Python and Haskell functions by 4096 seeded conformance cases, not by proof. The research environment uses one account per symbol and does not exercise a shared budget.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-RESERVE-STALE",
+   "claim": "A reservation request carrying a stale version changes neither the holdings nor the version.",
+   "criticality": "critical",
+   "formalStatement": "A reservation request carrying a stale version changes neither the holdings nor the version.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-RESERVE-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Three symbolic accounts.",
+   "limitations": "Same mirror limitation as F-RLX-RESERVE-BUDGET.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-RESERVE-NOINCREASE",
+   "claim": "If reserved exposure already exceeds the budget, no reservation step increases the total.",
+   "criticality": "high",
+   "formalStatement": "If reserved exposure already exceeds the budget, no reservation step increases the total.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-RESERVE-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Three symbolic accounts.",
+   "limitations": "Same mirror limitation as F-RLX-RESERVE-BUDGET.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-RESERVE-VERSION",
+   "claim": "Every granted reservation increments the version by exactly one.",
+   "criticality": "high",
+   "formalStatement": "Every granted reservation increments the version by exactly one.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-RESERVE-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/shield_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py",
+    "scripts/formal/exposure_rl/conformance.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "Three symbolic accounts.",
+   "limitations": "Same mirror limitation as F-RLX-RESERVE-BUDGET.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-IDENTITY",
+   "claim": "In the declared ledger, the one-step change of equity equals gross profit and loss minus cost minus funding, for both fill conventions.",
+   "criticality": "critical",
+   "formalStatement": "In the declared ledger, the one-step change of equity equals gross profit and loss minus cost minus funding, for both fill conventions.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-COST-NONNEGATIVE",
+   "claim": "In the declared ledger, the cost charged in a step is never negative.",
+   "criticality": "high",
+   "formalStatement": "In the declared ledger, the cost charged in a step is never negative.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-FLAT",
+   "claim": "In the declared ledger, a flat account with no intent has unchanged equity, zero units, zero cost and zero funding.",
+   "criticality": "high",
+   "formalStatement": "In the declared ledger, a flat account with no intent has unchanged equity, zero units, zero cost and zero funding.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-TURNOVER-COSTS",
+   "claim": "In the declared ledger, any change of units under a positive cost rate incurs a strictly positive cost.",
+   "criticality": "high",
+   "formalStatement": "In the declared ledger, any change of units under a positive cost rate incurs a strictly positive cost.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-NO-INTENT",
+   "claim": "In the declared ledger, a step without an intent leaves units unchanged and charges no cost.",
+   "criticality": "high",
+   "formalStatement": "In the declared ledger, a step without an intent leaves units unchanged and charges no cost.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-WEALTH-FOLD",
+   "claim": "In the declared ledger, equity after two consecutive steps equals initial equity plus summed gross profit and loss minus summed cost minus summed funding.",
+   "criticality": "critical",
+   "formalStatement": "In the declared ledger, equity after two consecutive steps equals initial equity plus summed gross profit and loss minus summed cost minus summed funding.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-LEDGER-DECLARED",
+    "A-EXOGENOUS-PRICES"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All real equity, units, prices, funding amounts, target weights and cost rates with positive equity and prices and a non-negative rate; both fill conventions.",
+   "limitations": "Proved for the declared ledger over the reals. Binary64 execution in env.py is tied to the declared ledger by exact-rational conformance tests, which is property testing. Exchange liquidation, margin and fee tiers are not modelled.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-PARTITION-FIT-VAL",
+   "claim": "With a purge of two bars, the outcome bar of every fit decision precedes the first inner-validation decision bar.",
+   "criticality": "critical",
+   "formalStatement": "With a purge of two bars, the outcome bar of every fit decision precedes the first inner-validation decision bar.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-FOLD-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/run_campaign.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All integer bar indices with the validation start at least the purge and not after the test start.",
+   "limitations": "Index arithmetic of a hand-written model of fold_ranges; the implementation is tied to it by a property test. Causal feature history is deliberately shared across the boundary. Covers reward maturity, not information leakage through other channels.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-PARTITION-VAL-TEST",
+   "claim": "With a purge of two bars, the outcome bar of every inner-validation decision precedes the first test decision bar.",
+   "criticality": "critical",
+   "formalStatement": "With a purge of two bars, the outcome bar of every inner-validation decision precedes the first test decision bar.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-FOLD-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/run_campaign.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All integer bar indices with the validation start at least the purge and not after the test start.",
+   "limitations": "Index arithmetic of a hand-written model of fold_ranges; the implementation is tied to it by a property test. Causal feature history is deliberately shared across the boundary. Covers reward maturity, not information leakage through other channels.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-PARTITION-FIT-TEST",
+   "claim": "With a purge of two bars, the outcome bar of every fit decision precedes the first test decision bar.",
+   "criticality": "critical",
+   "formalStatement": "With a purge of two bars, the outcome bar of every fit decision precedes the first test decision bar.",
+   "assumptions": [
+    "A-SOLVER",
+    "A-FOLD-MIRROR"
+   ],
+   "tool": "Z3",
+   "toolVersion": "4.15.4",
+   "sourceModel": "scripts/formal/exposure_rl/ledger_proofs.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/run_campaign.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Premise satisfiable and premise-and-negated-conclusion UNSAT within the timeout; reproduced by scripts/formal/exposure_rl/verify.py.",
+   "bounds": "All integer bar indices with the validation start at least the purge and not after the test start.",
+   "limitations": "Index arithmetic of a hand-written model of fold_ranges; the implementation is tied to it by a property test. Causal feature history is deliberately shared across the boundary. Covers reward maturity, not information leakage through other channels.",
+   "counterexample": null,
+   "status": "smt_verified"
+  },
+  {
+   "requirementId": "F-RLX-LIFECYCLE-MODEL",
+   "claim": "In the bounded lifecycle model, reserved exposure never exceeds the budget, a submission follows only a shield admission and a fresh granted reservation, failures reach the hold fallback, no decision is submitted twice, a disabled challenger takes no step, only the operator changes the mode, no state holds a live-order capability, and every state can reach quiescence.",
+   "criticality": "critical",
+   "formalStatement": "In the bounded lifecycle model, reserved exposure never exceeds the budget, a submission follows only a shield admission and a fresh granted reservation, failures reach the hold fallback, no decision is submitted twice, a disabled challenger takes no step, only the operator changes the mode, no state holds a live-order capability, and every state can reach quiescence.",
+   "assumptions": [
+    "A-MODEL-ABSTRACTION"
+   ],
+   "tool": "explicit-state breadth-first exploration",
+   "toolVersion": "n/a",
+   "sourceModel": "scripts/formal/exposure_rl/lifecycle_model.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "scripts/formal/exposure_rl/test_exposure_formal.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Fixed point reached with no violation; the non-atomic mutant yields the expected budget counterexample.",
+   "bounds": "Two proposers, one decision each, one retry, three exposure levels, budget 2: 648 states and 1344 transitions.",
+   "limitations": "A bounded abstraction, not the implementation. The absence of a live-order transition is structural in the model; the implementation-level evidence is F-RLX-FORGERY and F-RLX-SURFACE. Real recovery actions, process crashes and persistence are not modelled.",
+   "counterexample": {
+    "mutant": "non-atomic check-then-act reservation",
+    "violation": "budget"
+   },
+   "status": "model_checked"
+  },
+  {
+   "requirementId": "F-RLX-CONFORMANCE",
+   "claim": "The compiled Haskell shield and reservation functions return the same outcome kind, target and order authority as the Python reference on every case of the bounded grid and the seeded sample, and no outcome carries order authority.",
+   "criticality": "critical",
+   "formalStatement": "The compiled Haskell shield and reservation functions return the same outcome kind, target and order authority as the Python reference on every case of the bounded grid and the seeded sample, and no outcome carries order authority.",
+   "assumptions": [
+    "A-GHC",
+    "A-GRID"
+   ],
+   "tool": "GHC 9.4.8 compiled driver compared with the Python reference",
+   "toolVersion": "9.4.8",
+   "sourceModel": "scripts/formal/exposure_rl/conformance.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "scripts/formal/exposure_rl/conformance.py",
+    "formal/research/exposure-rl/Conformance.hs"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "All 120080 shield cases and 4096 reservation cases agree; every outcome kind is exercised.",
+   "bounds": "27 exposures x 7 drawdowns x 2 freshness x 8 headrooms x 37 binary64 raw values (signed edge values, subnormal, infinities, NaN) plus 8192 seeded random cases; 4096 seeded reservation cases.",
+   "limitations": "Exhaustive over the stated finite grid only; not a proof for all binary64 inputs or all snapshots. Compiled with -O0.",
+   "counterexample": null,
+   "status": "exhaustively_checked"
+  },
+  {
+   "requirementId": "F-RLX-FORGERY",
+   "claim": "A program outside the shield module cannot construct a research intent: the constructor is not exported and such a program fails to compile.",
+   "criticality": "critical",
+   "formalStatement": "A program outside the shield module cannot construct a research intent: the constructor is not exported and such a program fails to compile.",
+   "assumptions": [
+    "A-GHC"
+   ],
+   "tool": "GHC 9.4.8 compile check",
+   "toolVersion": "9.4.8",
+   "sourceModel": "scripts/formal/exposure_rl/conformance.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [
+    "formal/research/exposure-rl/Forgery.hs"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "The forgery fixture is rejected by the compiler with an error naming ResearchIntent.",
+   "bounds": "The single forgery fixture and the module's explicit export list.",
+   "limitations": "One fixture; relies on Haskell's module abstraction. Unsafe coercions or Template Haskell in a hypothetical caller are outside this check.",
+   "counterexample": null,
+   "status": "exhaustively_checked"
+  },
+  {
+   "requirementId": "F-RLX-SURFACE",
+   "claim": "The research path's Python sources import only reviewed modules, read no credential or live-trading setting, start only reviewed processes, and the Haskell shield imports nothing, is pure, exports no constructor, never authorizes an order and is neither listed in the cabal file nor imported by any production, test or benchmark Haskell source.",
+   "criticality": "critical",
+   "formalStatement": "The research path's Python sources import only reviewed modules, read no credential or live-trading setting, start only reviewed processes, and the Haskell shield imports nothing, is pure, exports no constructor, never authorizes an order and is neither listed in the cabal file nor imported by any production, test or benchmark Haskell source.",
+   "assumptions": [
+    "A-SOURCE-LIST"
+   ],
+   "tool": "syntax-tree and text audit",
+   "toolVersion": "n/a",
+   "sourceModel": "scripts/formal/exposure_rl/surface.py",
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py",
+    "haskell/research/ExposureShieldV1.hs",
+    "scripts/research/exposure_rl/env.py",
+    "scripts/research/exposure_rl/run_campaign.py",
+    "scripts/research/exposure_rl/artifacts.py",
+    "scripts/research/exposure_rl/acquire.py"
+   ],
+   "testFiles": [
+    "scripts/formal/exposure_rl/test_exposure_formal.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh formal",
+   "result": "Every listed source passes the audit.",
+   "bounds": "Every Python file in scripts/research/exposure_rl, the Haskell shield, haskell/trader.cabal and every Haskell source under haskell/app, haskell/test and haskell/bench.",
+   "limitations": "An audit of the listed sources, not an operating-system sandbox. A reviewed import could still be misused in ways a text audit does not see.",
+   "counterexample": null,
+   "status": "exhaustively_checked"
+  },
+  {
+   "requirementId": "F-RLX-CAUSAL-FEATURES",
+   "claim": "Observation features at a bar are unchanged when later bars or later funding events are altered.",
+   "criticality": "critical",
+   "formalStatement": "Observation features at a bar are unchanged when later bars or later funding events are altered.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/market.py",
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_features_ignore_later_bars_and_later_funding`.",
+   "bounds": "Synthetic series, three cut points, price, volume and funding perturbations; plus an environment-level check.",
+   "limitations": "Covers the feature and observation code only. Policy weights and the champion export are tied to their training cut-offs by the runner's ranges and recorded hashes, not by this test. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-PARTITION-IMPL",
+   "claim": "The runner's fit, inner-validation and test ranges are ordered and separated by the purge for every registered fold, and training never reads a bar outside its range.",
+   "criticality": "critical",
+   "formalStatement": "The runner's fit, inner-validation and test ranges are ordered and separated by the purge for every registered fold, and training never reads a bar outside its range.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/run_campaign.py",
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_fold_partitions_are_disjoint_and_ordered`.",
+   "bounds": "The four registered folds on synthetic panels including a late-listed symbol; a poisoned-suffix training run.",
+   "limitations": "Synthetic panels on the registered grid. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-LEDGER-IMPL",
+   "claim": "The environment's binary64 ledger agrees with an independent exact-rational replay step by step and reconciles to final equity.",
+   "criticality": "critical",
+   "formalStatement": "The environment's binary64 ledger agrees with an independent exact-rational replay step by step and reconciles to final equity.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_ledger_matches_exact_rationals_and_reconciles`.",
+   "bounds": "120 scripted steps under base cost, doubled cost and the delayed-fill convention, to 1e-11.",
+   "limitations": "One scripted episode per configuration on a synthetic series. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-ACTION-VALIDATION",
+   "claim": "Non-finite, out-of-range and wrongly typed proposals and invalid snapshots never become an intent beyond the fallback, and a change below the minimum size is never rounded up.",
+   "criticality": "critical",
+   "formalStatement": "Non-finite, out-of-range and wrongly typed proposals and invalid snapshots never become an intent beyond the fallback, and a change below the minimum size is never rounded up.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/shield.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_invalid_proposals_and_snapshots_fail_closed`.",
+   "bounds": "Enumerated invalid proposals and snapshots; the scalar and NumPy batch forms agree on the bounded grid.",
+   "limitations": "Enumerated cases. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-TERMINATION",
+   "claim": "Time-limit and data-exhaustion endings are truncations that return the true successor state without liquidation; insolvency terminates, liquidates at cost and is not bootstrapped.",
+   "criticality": "high",
+   "formalStatement": "Time-limit and data-exhaustion endings are truncations that return the true successor state without liquidation; insolvency terminates, liquidates at cost and is not bootstrapped.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py",
+    "scripts/research/exposure_rl/agents.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_termination_and_truncation_semantics`.",
+   "bounds": "Scripted episodes for each ending and the TD3 target function.",
+   "limitations": "Scripted cases. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-REWARD-EXPLOITS",
+   "claim": "Cash earns exactly zero, churning pays costs, a missed fill creates no position, and terminal liquidation is charged once.",
+   "criticality": "high",
+   "formalStatement": "Cash earns exactly zero, churning pays costs, a missed fill creates no position, and terminal liquidation is charged once.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py",
+    "scripts/research/exposure_rl/evaluate.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_reward_exploit_probes`.",
+   "bounds": "Four scripted probes on a synthetic series.",
+   "limitations": "Probes named in advance; not a search for unknown exploits. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-ARTIFACT-COMPAT",
+   "claim": "A policy artifact with a wrong hash, schema, environment version, operating mode, live flag, non-finite parameter or corrupt encoding is refused.",
+   "criticality": "high",
+   "formalStatement": "A policy artifact with a wrong hash, schema, environment version, operating mode, live flag, non-finite parameter or corrupt encoding is refused.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/artifacts.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_artifact_roundtrip_and_fail_closed`.",
+   "bounds": "Seven mutations of a valid artifact and a round trip.",
+   "limitations": "Enumerated mutations; hash and metadata checks establish identity and compatibility, not profitability or semantic correctness. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-DETERMINISM",
+   "claim": "Evaluating a frozen policy twice with the same seed yields identical per-bar returns.",
+   "criticality": "medium",
+   "formalStatement": "Evaluating a frozen policy twice with the same seed yields identical per-bar returns.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/env.py",
+    "scripts/research/exposure_rl/evaluate.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_evaluation_is_deterministic`.",
+   "bounds": "One policy under a stochastic stress on one machine.",
+   "limitations": "Same machine and library build only; cross-platform binary64 equality is not claimed. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-LEARNER-MECHANICS",
+   "claim": "Network, PPO surrogate and expectile gradients match finite differences; GAE and TD3 targets match hand-computed fixtures; each learner recovers the known optimum of a constant-drift toy problem.",
+   "criticality": "high",
+   "formalStatement": "Network, PPO surrogate and expectile gradients match finite differences; GAE and TD3 targets match hand-computed fixtures; each learner recovers the known optimum of a constant-drift toy problem.",
+   "assumptions": [
+    "A-TEST-SAMPLE"
+   ],
+   "tool": "python unittest",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/agents.py",
+    "scripts/research/exposure_rl/nn.py"
+   ],
+   "testFiles": [
+    "test/exposure_rl_test.py"
+   ],
+   "ciCommand": "bash scripts/verify.sh automation",
+   "result": "Passes `test_toy_problems_with_known_solutions`.",
+   "bounds": "Finite-difference checks, two golden fixtures, two toy problems.",
+   "limitations": "Checks the mechanics, not that any learner is profitable or matches a third-party implementation. Property and example tests; not a proof.",
+   "counterexample": null,
+   "status": "property_tested"
+  },
+  {
+   "requirementId": "F-RLX-NEURAL-BOUNDS",
+   "claim": "Bounded verification of the policy network itself.",
+   "criticality": "medium",
+   "formalStatement": "Bounded verification of the policy network itself.",
+   "assumptions": [
+    "A-SHIELD-PRECEDENCE"
+   ],
+   "tool": "none",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "scripts/research/exposure_rl/agents.py"
+   ],
+   "testFiles": [],
+   "ciCommand": "n/a",
+   "result": "Not attempted.",
+   "bounds": "None.",
+   "limitations": "No neural-network verifier is used. The path does not depend on it: the actor ends in tanh and every output, including a non-finite one, is decoded and projected by the shield.",
+   "counterexample": null,
+   "status": "open"
+  },
+  {
+   "requirementId": "F-RLX-PRODUCTION-INTEGRATION",
+   "claim": "Refinement from the research shield to an order-capable production path.",
+   "criticality": "critical",
+   "formalStatement": "Refinement from the research shield to an order-capable production path.",
+   "assumptions": [
+    "A-NO-PRODUCTION-USE"
+   ],
+   "tool": "none",
+   "toolVersion": "n/a",
+   "sourceModel": null,
+   "artifact": "formal/research/exposure-rl/results.json",
+   "implementationFiles": [
+    "haskell/research/ExposureShieldV1.hs"
+   ],
+   "testFiles": [],
+   "ciCommand": "n/a",
+   "result": "Not attempted.",
+   "bounds": "None.",
+   "limitations": "The Haskell shield is not linked into any executable and no production snapshot, reservation store or order path consumes it. Pending orders, exchange precision and minimum notional, margin and real recovery actions are not modelled. Required before any shadow, paper or live use.",
+   "counterexample": null,
+   "status": "open"
+  }
+ ],
+ "obligations": [
+  {
+   "id": "FM-01",
+   "title": "Causality",
+   "requiredCertificates": [],
+   "supportingEvidence": [
+    "F-RLX-CAUSAL-FEATURES",
+    "F-RLX-PARTITION-IMPL"
+   ],
+   "status": "partially_verified",
+   "scope": "Features, observations and training ranges of the research path.",
+   "openItems": [
+    "Property-tested only; no proof of the feature code.",
+    "The champion-method export uses parameters chosen with later data; it is a comparator, not an RL input."
+   ]
+  },
+  {
+   "id": "FM-02",
+   "title": "Partition integrity",
+   "requiredCertificates": [
+    "F-RLX-PARTITION-FIT-VAL",
+    "F-RLX-PARTITION-VAL-TEST",
+    "F-RLX-PARTITION-FIT-TEST"
+   ],
+   "supportingEvidence": [
+    "F-RLX-PARTITION-IMPL"
+   ],
+   "status": "partially_verified",
+   "scope": "Reward maturity across fit, inner validation and test.",
+   "openItems": [
+    "The implementation is linked to the proved index model by a property test."
+   ]
+  },
+  {
+   "id": "FM-03",
+   "title": "Accounting",
+   "requiredCertificates": [
+    "F-RLX-LEDGER-IDENTITY",
+    "F-RLX-LEDGER-COST-NONNEGATIVE",
+    "F-RLX-LEDGER-FLAT",
+    "F-RLX-LEDGER-TURNOVER-COSTS",
+    "F-RLX-LEDGER-NO-INTENT",
+    "F-RLX-LEDGER-WEALTH-FOLD"
+   ],
+   "supportingEvidence": [
+    "F-RLX-LEDGER-IMPL",
+    "F-RLX-REWARD-EXPLOITS",
+    "F-RLX-TERMINATION"
+   ],
+   "status": "partially_verified",
+   "scope": "The declared ledger; binary64 code by exact-rational conformance.",
+   "openItems": [
+    "No proof about binary64 execution.",
+    "Exchange liquidation and margin are not modelled."
+   ]
+  },
+  {
+   "id": "FM-04",
+   "title": "Action validation",
+   "requiredCertificates": [
+    "F-RLX-CONFORMANCE",
+    "F-RLX-SHIELD-FALLBACK"
+   ],
+   "supportingEvidence": [
+    "F-RLX-ACTION-VALIDATION"
+   ],
+   "status": "partially_verified",
+   "scope": "Decoding and rejection of raw proposals in Python and Haskell.",
+   "openItems": [
+    "Binary64 decoding is checked on a bounded grid and a seeded sample, not for all inputs."
+   ]
+  },
+  {
+   "id": "FM-05",
+   "title": "Risk admission",
+   "requiredCertificates": [
+    "F-RLX-SHIELD-CAP",
+    "F-RLX-SHIELD-REDUCE",
+    "F-RLX-SHIELD-HEADROOM",
+    "F-RLX-SHIELD-NOROUNDUP",
+    "F-RLX-SHIELD-IDEMPOTENT",
+    "F-RLX-SHIELD-OVERCAP",
+    "F-RLX-RESERVE-BUDGET"
+   ],
+   "supportingEvidence": [
+    "F-RLX-CONFORMANCE"
+   ],
+   "status": "partially_verified",
+   "scope": "Integer projection for every valid snapshot and proposal.",
+   "openItems": [
+    "Pending orders, exchange precision, minimum notional and margin are not modelled; the environment has no pending orders."
+   ]
+  },
+  {
+   "id": "FM-06",
+   "title": "Authorization",
+   "requiredCertificates": [
+    "F-RLX-FORGERY",
+    "F-RLX-SURFACE",
+    "F-RLX-CONFORMANCE"
+   ],
+   "supportingEvidence": [],
+   "status": "discharged_in_scope",
+   "scope": "The research path cannot construct an intent outside the shield or reach an order capability in the audited sources.",
+   "openItems": []
+  },
+  {
+   "id": "FM-07",
+   "title": "Lifecycle",
+   "requiredCertificates": [
+    "F-RLX-LIFECYCLE-MODEL",
+    "F-RLX-SURFACE"
+   ],
+   "supportingEvidence": [
+    "F-RLX-ARTIFACT-COMPAT"
+   ],
+   "status": "partially_verified",
+   "scope": "Bounded model plus source audit; the path contains no promotion code.",
+   "openItems": [
+    "No refinement proof from the model to code."
+   ]
+  },
+  {
+   "id": "FM-08",
+   "title": "Failure handling",
+   "requiredCertificates": [
+    "F-RLX-LIFECYCLE-MODEL",
+    "F-RLX-SHIELD-FALLBACK"
+   ],
+   "supportingEvidence": [
+    "F-RLX-ARTIFACT-COMPAT",
+    "F-RLX-ACTION-VALIDATION"
+   ],
+   "status": "partially_verified",
+   "scope": "Invalid proposal, invalid snapshot, stale state and corrupt artifact reach a hold or reduce-only fallback.",
+   "openItems": [
+    "Inference timeouts are modelled, not implemented: research inference is in-process and has no deadline."
+   ]
+  },
+  {
+   "id": "FM-09",
+   "title": "Atomicity and freshness",
+   "requiredCertificates": [
+    "F-RLX-RESERVE-BUDGET",
+    "F-RLX-RESERVE-STALE",
+    "F-RLX-RESERVE-NOINCREASE",
+    "F-RLX-RESERVE-VERSION",
+    "F-RLX-LIFECYCLE-MODEL"
+   ],
+   "supportingEvidence": [
+    "F-RLX-CONFORMANCE"
+   ],
+   "status": "partially_verified",
+   "scope": "Pure compare-and-swap reservation and its bounded concurrent model.",
+   "openItems": [
+    "No concurrent store implements the reservation; the research environment uses one account per symbol."
+   ]
+  },
+  {
+   "id": "FM-10",
+   "title": "Compatibility",
+   "requiredCertificates": [],
+   "supportingEvidence": [
+    "F-RLX-ARTIFACT-COMPAT"
+   ],
+   "status": "partially_verified",
+   "scope": "Policy artifact loader.",
+   "openItems": [
+    "Property-tested only."
+   ]
+  },
+  {
+   "id": "FM-11",
+   "title": "Noninterference",
+   "requiredCertificates": [
+    "F-RLX-SURFACE",
+    "F-RLX-LIFECYCLE-MODEL"
+   ],
+   "supportingEvidence": [],
+   "status": "discharged_in_scope",
+   "scope": "The path is not linked into or imported by any production component; a disabled challenger takes no step in the model.",
+   "openItems": []
+  },
+  {
+   "id": "FM-12",
+   "title": "Recovery",
+   "requiredCertificates": [
+    "F-RLX-LIFECYCLE-MODEL"
+   ],
+   "supportingEvidence": [],
+   "status": "partially_verified",
+   "scope": "Retries, exactly-once submission and progress in the bounded model.",
+   "openItems": [
+    "Real recovery actions, crashes and persistence are not modelled or implemented."
+   ]
+  }
+ ]
+}
