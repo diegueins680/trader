@@ -128,6 +128,10 @@
         "formal/research/causal-ppo-v7-contract.md",
         "formal/research/causal-ppo-v7-source.json",
         "scripts/formal/causal_ppo_learner.py",
+        "scripts/research/causal_ope_v8.py",
+        "formal/research/causal-ope-v8-contract.md",
+        "formal/research/causal-ope-v8-source.json",
+        "scripts/formal/causal_ope.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -981,6 +985,22 @@
         {
           "id": "F-RL-PPO-V7-CONFORMANCE",
           "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout action and behavior probability equals an independent recomputation from the seeded actor and the replayed uniform draws; every first-rollout critic target equals an independent exact-rational evaluation of the correctly rounded GAE recursion bit for bit; normalized advantages are centered with magnitude at most the square root of the rollout length up to rounding; rewriting every outcome from step k onward leaves earlier transitions, actions and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes, out-of-bound values and sub-floor probabilities reject."
+        },
+        {
+          "id": "F-RL-OPE-V8-SOURCE",
+          "statement": "Causal OPE v8 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, admission of exactly the causal-value-v6 and causal-ppo-v7 result types under their own versions, rejection of the whole evaluation when any run is shorter than the horizon so that no run is dropped or padded, horizon-prefix-only access to every run, a 2^-10 floor on every evaluated behavior probability with the value learner's probabilities required to be exactly 11/12 or 1/24, magnitude guards on rewards and supplied values, distinct (version, seed) streams, a checked estimate and a single publication site; it neither trains nor samples and has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-OPE-V8-ARITH",
+          "statement": "Under one correctly rounded sum and three correctly rounded quotients the three recorded softmax probabilities sum to one within 2u/(1-u) for u = 2^-53; with one rounded addition and a uniform draw on the 2^-53 grid, the probability with which the cumulative rule draws each action differs from its recorded probability by at most 2^-50; for a recorded probability of at least 2^-10 the drawing probability is positive and differs relatively by at most 2^-40, which fails without the floor; over at most 32 decisions the trajectory weight formed from recorded probabilities is within a factor 2^-34 of one of the weight under the drawing law; and the binary64 conversions of 11/12 and 1/24 are within 2^-53 relatively."
+        },
+        {
+          "id": "F-RL-OPE-V8-FLOW",
+          "statement": "The finite causal-OPE abstraction publishes only after activation, conversion of every requested run, the stream-distinctness check and a checked estimate; no run is dropped; and any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V8-CONFORMANCE",
+          "statement": "Registered synthetic evaluations over both successor learners are deterministic and reject by default and under a wrong version; every published estimate field equals an independent exact-rational evaluation of the recorded transitions; a target equal to the recorded behavior gives unit weights and full effective sample size; for every evaluated policy-gradient step the exact drawing probabilities counted on the 2^-53 grid reproduce the recorded action and lie within the certified gaps of the recorded probabilities; rewriting every outcome beyond the horizon leaves the evaluation unchanged; a run ending at the horizon is admitted; short, forged, reused, out-of-domain and oversized inputs reject; and the estimator's rational size limit rejects six fixture runs at horizon 32 while admitting four."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",
