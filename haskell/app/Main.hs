@@ -10753,6 +10753,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                 (Just (T.pack (botSymbol st0)))
                 Nothing
             webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
+            recordBotStartupOrders mOps metrics mJournal mWebhook st0
             stVar <- newMVar st0
             persistBotStatusMaybe mBotStateDir st0
             onlineOptimizerEnabled <- botOnlineOptimizerEnabledFromEnv
@@ -12230,6 +12231,63 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
     if wantSwitch && appliedSwitch && desiredPos /= 0
         then botOptimizeAfterOperation st0
         else pure st0
+
+{- | A startup switch order is placed inside 'initBotState', outside the candle
+loop that records ordinary orders. Record it the same way, so the journal,
+operation history, order metrics, webhook and position origin cover every
+order a live worker sends. The state from 'initBotState' holds only the
+startup order event, if any.
+-}
+recordBotStartupOrders :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> IO ()
+recordBotStartupOrders mOps metrics mJournal mWebhook st =
+    forM_ (botOrders st) $ \orderEv -> do
+        let args = botArgs st
+            order = boeOrder orderEv
+            sym = botSymbol st
+            market = marketCode (argBinanceMarket args)
+            position = vectorLastOr 0 (botPositions st)
+            switchApplied = not (null (botOps st))
+            orderId = orderIdFromOrderResult order
+        metricsRecordOrder metrics order
+        journalWriteMaybe
+            mJournal
+            ( object
+                [ "type" .= ("bot.order" :: String)
+                , "atMs" .= boeAtMs orderEv
+                , "symbol" .= sym
+                , "market" .= market
+                , "event" .= orderEv
+                , "startup" .= True
+                ]
+            )
+        opsAppendMaybe
+            mOps
+            (Just (botTenantKey st))
+            "bot.order"
+            Nothing
+            (Just (argsPublicJson args))
+            ( Just
+                ( object
+                    [ "symbol" .= sym
+                    , "market" .= market
+                    , "interval" .= argInterval args
+                    , "event" .= orderEv
+                    , "signal" .= botLatestSignal st
+                    , "position" .= position
+                    , "originIp" .= botTradeOriginIp st
+                    , "resultingOpenTrade" .= fmap botOpenTradeJson (botOpenTrade st)
+                    , "sessionStartedAtMs" .= botStartedAtMs st
+                    , "startup" .= True
+                    ]
+                )
+            )
+            (Just (vectorLastOr 1.0 (botEquityCurve st)))
+            (activeBotComboUuid st)
+            (Just (T.pack sym))
+            orderId
+        when (shouldPersistPositionOriginOnSwitch (bsTradeEnabled (botSettings st)) (argBinanceLive args) switchApplied (aorSent order)) $
+            persistPositionOriginMaybe mOps (botTenantKey st) args sym position (botComboUuid st) orderId (boeAtMs orderEv)
+        webhookNotifyMaybe mWebhook (webhookEventBotOrder args sym (boeOpSide orderEv) (boePrice orderEv) order)
 
 botOptimizeAfterOperation :: BotState -> IO BotState
 botOptimizeAfterOperation st = do

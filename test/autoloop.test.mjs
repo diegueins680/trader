@@ -1893,6 +1893,12 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(compose, /TRADER_EXECUTION_MAKER_TIMEOUT_SEC: \$\{TRADER_EXECUTION_MAKER_TIMEOUT_SEC:-3\}/);
   assert.match(main, /lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"/);
   assert.match(main, /"executionPath"/);
+  // Startup switch orders are placed outside the candle loop; they must reach the same records.
+  assert.match(main, /recordBotStartupOrders mOps metrics mJournal mWebhook st0\n\s+stVar <- newMVar st0/);
+  assert.match(
+    main,
+    /recordBotStartupOrders mOps metrics mJournal mWebhook st =[\s\S]{0,600}metricsRecordOrder metrics order[\s\S]{0,500}"startup" \.= True[\s\S]{0,1400}"bot\.order"[\s\S]{0,1400}persistPositionOriginMaybe mOps/,
+  );
 
   const hetznerTrading = await fs.readFile(
     new URL("../deploy/hetzner/trader.trading.env.managed", import.meta.url),
