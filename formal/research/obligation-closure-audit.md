@@ -1,5 +1,7 @@
 # Obligation closure audit — 2026-10-03
 
+Causal PPO follow-up (2026-11-12): counts stay 20 scoped closures / 17 partial / 1 open. F-RL-PPO-V7-* adds composed PPO-learner evidence for 6 and 10: a frozen-free import closure, a probability floor, magnitude guards, counted normalization underflow, joint actor-critic acceptance and all-or-nothing publication. Both learner families now have frozen-free successors with scoped certificates. Network, optimizer, softmax and normalization arithmetic is guarded rather than bounded, OPE is not composed with the successors and no frozen path is retired, so obligation 10 stays open.
+
 PPO objective follow-up (2026-11-11): counts stay 20 scoped closures / 17 partial / 1 open. F-RL-PPOOBJ-V2-* adds finite clipped-objective evidence for 6 and 10 in a disconnected kernel that rejects CE-RL-012 inputs. The kernel is outside the promotion-boundary module set, so no closed obligation's certificate mapping changes. The frozen helper and causal-ppo-v5 are unchanged.
 
 Causal value follow-up (2026-11-11): counts stay 20 scoped closures / 17 partial / 1 open. F-RL-VALUE-V6-* adds composed value-learner evidence for 6 and 10: a frozen-free import closure, magnitude guards with a proved 2^100 target bound, counted underflow and all-or-nothing publication. Network and optimizer arithmetic are guarded rather than bounded, causal PPO v5 has regression evidence only, and no frozen path is retired, so obligation 10 stays open.
