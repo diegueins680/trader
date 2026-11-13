@@ -11,6 +11,7 @@
 | [environment-contract.md](environment-contract.md) | Observation, action, shield, timing, ledger |
 | [literature-review.md](literature-review.md), [paper-to-implementation.md](paper-to-implementation.md), [paper-matrix.csv](paper-matrix.csv), [search-log.md](search-log.md) | The research review and its sources |
 | [../registrations/exposure-rl-control-v1.json](../registrations/exposure-rl-control-v1.json) | The registration |
+| [experiment-manifest.json](experiment-manifest.json) | Data hashes, licences, cost model, trial accounting and holdout ledger |
 | [../../formal/research/exposure-rl/README.md](../../formal/research/exposure-rl/README.md) | Formal claims and what remains open |
 
 `results/results.json` is the machine-readable summary, `results/all-seed-results.csv` has one row per policy, fold, seed and stress, and `results/experiment-registry.csv` lists all 104 jobs.
