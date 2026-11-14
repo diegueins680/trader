@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = 'formal/research/shield-consumer-source.json'
 ENGINEERING_REGISTRY = 'formal/research/causal-ppo-v5-consumer-source.json'
 ENGINEERING = {'causal_transition_v4', 'causal_optimizer_v5', 'causal_ppo_v5'}
+# Registered only through its own complete AST lock and frozen-free closure (causal_value.extract).
+VALUE_LEARNER = {'causal_value_v6'}
+PPO_LEARNER = {'causal_ppo_v7'}
+OPE_ADAPTER = {'causal_ope_v8'}
 MODULES = {'sequential_env', 'sequential_evaluation', 'run_sequential_screen'}
 FIELDS = {'actions','done','equity','failure','fills','horizon','modifications','observation',
           'pending','proposals','rejections','rows','start','step','stop','supported','t','units'}
@@ -134,12 +138,18 @@ def research_importers(sources=None):
     sources = {str(p.relative_to(ROOT)):p.read_text() for p in sorted((ROOT/'scripts/research').rglob('*.py'))} if sources is None else sources
     engineering_consumers({name:sources.get('scripts/research/'+name+'.py',
                           (ROOT/('scripts/research/'+name+'.py')).read_text()) for name in ENGINEERING})
+    from causal_value import SOURCE as value_source, extract as value_extract
+    value_extract(sources.get(value_source))
+    from causal_ppo_learner import SOURCE as ppo_source, extract as ppo_extract
+    ppo_extract(sources.get(ppo_source))
+    from causal_ope import SOURCE as ope_source, extract as ope_extract
+    ope_extract(sources.get(ope_source))
     found=[]
     for path,source in sources.items():
         for n in ast.walk(ast.parse(source)):
             names = [a.name for a in n.names] if isinstance(n,ast.Import) else [n.module] if isinstance(n,ast.ImportFrom) else []
             if any(name in delivered for name in names):
-                require(path in {'scripts/research/'+name+'.py' for name in delivered | ENGINEERING}, 'unregistered research consumer: '+path)
+                require(path in {'scripts/research/'+name+'.py' for name in delivered | ENGINEERING | VALUE_LEARNER | PPO_LEARNER | OPE_ADAPTER}, 'unregistered research consumer: '+path)
                 found.append([path,ast.unparse(n)])
     return sorted(found)
 

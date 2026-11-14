@@ -51,7 +51,7 @@ reproduce in binary64. Full binary64 bit-blasting returned `unknown` after
 | Requirement | Status | Scope |
 |---|---|---|
 | F-RL-VALUE-V2-SOURCE | exhaustively_checked | AST lock; scalar-only imports; alpha = 0 skip; difference-only penalty; fsum; zero canonicalization; finite guard; activation-first default. |
-| F-RL-VALUE-V2-ARITH | smt_verified | 6 SAT-premise/UNSAT-violation pairs (congruence under A-FP-ROUNDING, max commutes with shift, exponent sign, 1 ≤ total ≤ 3, probability bounds, one-rounding magnitude lemma) plus an exact rational rounding chain: loss < 2^201, gradient < 2^101 on the admitted domain. Resolved counterexample: CE-RL-024. |
+| F-RL-VALUE-V2-ARITH | smt_verified | 6 SAT-premise/UNSAT-violation pairs (congruence under A-FP-ROUNDING, max commutes with shift, exponent sign, 1 ≤ total ≤ 3, probability bounds, one-rounding magnitude lemma) plus an exact rational rounding chain: loss < 2^202, gradient < 2^102 (corrected 2026-11-12; the earlier 2^201/2^101 came from a float logarithm that rounded down) on the admitted domain. Resolved counterexample: CE-RL-024. |
 | F-RL-VALUE-V2-FLOW | model_checked | 6 states, 9 transitions; a mutant publishing before the finite guard is caught. |
 | F-RL-VALUE-V2-CONFORMANCE | property_tested | 96 batches (scales 1, 50, 2^40, 2^90; alpha 0, 0.1, 1) agree with a 60-digit decimal oracle within 1e-12; 16 finite-difference gradient checks; underflow counts match; 96 ordinary batches agree with the frozen helper; CE-RL-014/015/024 witnesses. |
 
