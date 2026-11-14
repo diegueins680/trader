@@ -10705,7 +10705,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             argsFinal
                             settings
                             nowStart
-                    initBotState (bcDrain ctrl) mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
+                    initBotState (bcDrain ctrl) mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) (recordBotStartupOrders mOps metrics mJournal mWebhook) sym
     r <- trySync (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -10753,7 +10753,6 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                 (Just (T.pack (botSymbol st0)))
                 Nothing
             webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
-            recordBotStartupOrders mOps metrics mJournal mWebhook st0
             stVar <- newMVar st0
             persistBotStatusMaybe mBotStateDir st0
             onlineOptimizerEnabled <- botOnlineOptimizerEnabledFromEnv
@@ -11532,8 +11531,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: DrainController -> Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> String -> IO BotState
-initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation sym = do
+initBotState :: DrainController -> Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> (BotState -> IO ()) -> String -> IO BotState
+initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation recordStartupOrders sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -12228,6 +12227,9 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
                 , botBuildCommit = Nothing
                 }
 
+    -- Record before any post-operation optimization replaces the arguments and
+    -- signal that actually placed the startup order.
+    recordStartupOrders st0
     if wantSwitch && appliedSwitch && desiredPos /= 0
         then botOptimizeAfterOperation st0
         else pure st0
@@ -12236,7 +12238,8 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
 loop that records ordinary orders. Record it the same way, so the journal,
 operation history, order metrics, webhook and position origin cover every
 order a live worker sends. The state from 'initBotState' holds only the
-startup order event, if any.
+startup order event, if any. A recording failure is logged and must not stop
+a worker that may already hold a live position from entering its loop.
 -}
 recordBotStartupOrders :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> IO ()
 recordBotStartupOrders mOps metrics mJournal mWebhook st =
@@ -12248,46 +12251,51 @@ recordBotStartupOrders mOps metrics mJournal mWebhook st =
             position = vectorLastOr 0 (botPositions st)
             switchApplied = not (null (botOps st))
             orderId = orderIdFromOrderResult order
-        metricsRecordOrder metrics order
-        journalWriteMaybe
-            mJournal
-            ( object
-                [ "type" .= ("bot.order" :: String)
-                , "atMs" .= boeAtMs orderEv
-                , "symbol" .= sym
-                , "market" .= market
-                , "event" .= orderEv
-                , "startup" .= True
-                ]
-            )
-        opsAppendMaybe
-            mOps
-            (Just (botTenantKey st))
-            "bot.order"
-            Nothing
-            (Just (argsPublicJson args))
-            ( Just
-                ( object
-                    [ "symbol" .= sym
-                    , "market" .= market
-                    , "interval" .= argInterval args
-                    , "event" .= orderEv
-                    , "signal" .= botLatestSignal st
-                    , "position" .= position
-                    , "originIp" .= botTradeOriginIp st
-                    , "resultingOpenTrade" .= fmap botOpenTradeJson (botOpenTrade st)
-                    , "sessionStartedAtMs" .= botStartedAtMs st
-                    , "startup" .= True
-                    ]
-                )
-            )
-            (Just (vectorLastOr 1.0 (botEquityCurve st)))
-            (activeBotComboUuid st)
-            (Just (T.pack sym))
-            orderId
-        when (shouldPersistPositionOriginOnSwitch (bsTradeEnabled (botSettings st)) (argBinanceLive args) switchApplied (aorSent order)) $
-            persistPositionOriginMaybe mOps (botTenantKey st) args sym position (botComboUuid st) orderId (boeAtMs orderEv)
-        webhookNotifyMaybe mWebhook (webhookEventBotOrder args sym (boeOpSide orderEv) (boePrice orderEv) order)
+        recorded <-
+            trySync $ do
+                metricsRecordOrder metrics order
+                journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("bot.order" :: String)
+                        , "atMs" .= boeAtMs orderEv
+                        , "symbol" .= sym
+                        , "market" .= market
+                        , "event" .= orderEv
+                        , "startup" .= True
+                        ]
+                    )
+                opsAppendMaybe
+                    mOps
+                    (Just (botTenantKey st))
+                    "bot.order"
+                    Nothing
+                    (Just (argsPublicJson args))
+                    ( Just
+                        ( object
+                            [ "symbol" .= sym
+                            , "market" .= market
+                            , "interval" .= argInterval args
+                            , "event" .= orderEv
+                            , "signal" .= botLatestSignal st
+                            , "position" .= position
+                            , "originIp" .= botTradeOriginIp st
+                            , "resultingOpenTrade" .= fmap botOpenTradeJson (botOpenTrade st)
+                            , "sessionStartedAtMs" .= botStartedAtMs st
+                            , "startup" .= True
+                            ]
+                        )
+                    )
+                    (Just (vectorLastOr 1.0 (botEquityCurve st)))
+                    (activeBotComboUuid st)
+                    (Just (T.pack sym))
+                    orderId
+                when (shouldPersistPositionOriginOnSwitch (bsTradeEnabled (botSettings st)) (argBinanceLive args) switchApplied (aorSent order)) $
+                    persistPositionOriginMaybe mOps (botTenantKey st) args sym position (botComboUuid st) orderId (boeAtMs orderEv)
+                webhookNotifyMaybe mWebhook (webhookEventBotOrder args sym (boeOpSide orderEv) (boePrice orderEv) order)
+        case recorded of
+            Right () -> pure ()
+            Left ex -> hPutStrLn stderr ("WARN: bot/" ++ sym ++ " startup order recording failed: " ++ show (ex :: SomeException))
 
 botOptimizeAfterOperation :: BotState -> IO BotState
 botOptimizeAfterOperation st = do
