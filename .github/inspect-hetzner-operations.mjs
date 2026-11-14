@@ -56,7 +56,7 @@ await attempt("fleet", async () => {
       consecutiveOrderErrors: bot.consecutiveOrderErrors, dayTrades: bot.dayTrades,
       action: bot.latestSignal?.action, reason: bot.decisionTrace?.reason,
       outcome: bot.decisionTrace?.outcome,
-      startedAtMs: bot.startedAtMs, hasOpenTrade: bot.openTrade != null, orderCount: (bot.orders ?? []).length, tradeCount: (bot.trades ?? []).length,
+      startedAtMs: bot.startedAtMs, hasOpenTrade: bot.openTrade != null,
       lastOrder: bot.lastOrder ? { sent: bot.lastOrder.sent, side: bot.lastOrder.side, status: bot.lastOrder.status, filled: (bot.lastOrder.executedQty ?? 0) > 0, message: safeText(bot.lastOrder.message) } : null,
       stages: (bot.decisionTrace?.stages ?? []).slice(0, 24).map(stage => `${safeText(stage.label).slice(0, 60)}=${safeText(stage.status).slice(0, 30)}`),
     })),
