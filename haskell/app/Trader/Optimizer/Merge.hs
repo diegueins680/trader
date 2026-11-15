@@ -313,7 +313,9 @@ comboProcessingIdentityValue :: Combo -> Value
 comboProcessingIdentityValue combo =
     object
         [ "params" .= normalizeComboIdentityValue (Object (comboParams combo))
-        , "openThreshold" .= comboOpenThreshold combo
+        , -- Finite thresholds encode as before (UUIDs unchanged); an invalid
+          -- one stays distinct from a missing one instead of collapsing to null.
+          "openThreshold" .= fmap thresholdJson (comboOpenThreshold combo)
         , "closeThreshold" .= comboCloseThreshold combo
         , "objective" .= comboObjective combo
         ]
