@@ -261,6 +261,7 @@ import Trader.BotStartSemantics (
     capAdoptedMinPositionSize,
     capBotStartSymbolsPreservingOrphans,
     comboMinEdgeMeetsAdoptionFloorWithConfig,
+    comboOpenThresholdWithinAdoptionCeiling,
     comboTradeCountMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeMeetsAdoptionFloorWithConfig,
     comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig,
@@ -9606,9 +9607,13 @@ selectCompatibleTopComboArgs now limits sym args req export =
 selectCompatibleExistingTopCombo :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (TopCombo, Args, Maybe Text)
 selectCompatibleExistingTopCombo limits sym args req export = pick matchingCombos
   where
-    matchingCombos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    symbolCombos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+    -- Stale/incomplete evidence may be relaxed here, but the open-threshold
+    -- ceiling may not (see 'topComboLiveAdoptionEligible'). Family quarantine
+    -- still counts the live evidence of the combos the ceiling removes.
+    matchingCombos = filter (comboOpenThresholdWithinAdoptionCeiling . tcOpenThreshold) symbolCombos
     pick candidates =
-        case bestTopComboFromList candidates of
+        case bestTopComboFromListWithEvidence symbolCombos candidates of
             Nothing -> Nothing
             Just combo ->
                 let rest = filter ((/= topComboUuid combo) . topComboUuid) candidates
@@ -13458,7 +13463,8 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                                 adoptionEvidenceConfig = effectiveAdoptionEvidenceConfigFromArgs now (botArgs st) matchingCombos
                                 bestCombo =
                                     if allowStaleIncomplete
-                                        then bestTopComboForSymbol sym (Just interval) export
+                                        then -- stale/incomplete evidence is relaxed; the open-threshold ceiling is not
+                                            bestTopComboFromListWithEvidence matchingCombos (filter (comboOpenThresholdWithinAdoptionCeiling . tcOpenThreshold) matchingCombos)
                                         else bestLiveTopComboForSymbol now adoptionEvidenceConfig sym (Just interval) export
                             case bestCombo of
                                 Nothing -> recordError "bot.combo.sync_failed" "No fresh deployable top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
@@ -21436,6 +21442,9 @@ topComboLiveAdoptionEligible now adoptionEvidenceConfig combo =
         && not (topComboTradeCountBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeBelowFloorWithConfig adoptionEvidenceConfig combo)
         && not (topComboWalkForwardSharpeStdAboveCeilingWithConfig adoptionEvidenceConfig combo)
+        -- Not relaxable: explicit deployable overrides start through
+        -- 'topCombosDeployableOverrideTargets', which does not consult this gate.
+        && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo)
 
 topComboPortfolioCandidate :: PortfolioSelectorConfig -> TopCombo -> Maybe PortfolioCandidate
 topComboPortfolioCandidate selectorConfig combo = do
@@ -21907,6 +21916,8 @@ topComboHasRelaxableEvidence now combo =
         && isJust (topComboMetricInt "tradeCount" combo)
         && isJust (topComboWalkForwardSharpeMean combo)
         && isJust (topComboWalkForwardSharpeStd combo)
+        -- The open-threshold ceiling is never relaxed, so an above-ceiling combo must not take a relaxation slot.
+        && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo)
 
 topComboPortfolioPnlScore :: TopCombo -> Double
 topComboPortfolioPnlScore combo =
@@ -22041,32 +22052,32 @@ quarantinedFamilyKeys combos =
             [k | (k, statsList) <- M.toList grouped, liveStatsFamilyQuarantined statsList]
 
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
-bestTopComboFromList combos =
-    let badFamilies = quarantinedFamilyKeys combos
+bestTopComboFromList combos = bestTopComboFromListWithEvidence combos combos
+
+{- | Pick the best of @candidates@ while computing family quarantine from
+@evidence@. Callers that filter candidates by a gate unrelated to live
+losses pass the unfiltered matches as evidence, so a removed combo's live
+losses still count toward its family's quarantine.
+-}
+bestTopComboFromListWithEvidence :: [TopCombo] -> [TopCombo] -> Maybe TopCombo
+bestTopComboFromListWithEvidence evidence candidates =
+    let badFamilies = quarantinedFamilyKeys evidence
         quarantined combo =
             topComboLiveQuarantined combo
                 || maybe False (`Set.member` badFamilies) (topComboFamilyKey combo)
-     in case sortOn topComboTradePriorityKey (filter (not . quarantined) combos) of
+     in case sortOn topComboTradePriorityKey (filter (not . quarantined) candidates) of
             [] -> Nothing
             (c : _) -> Just c
 
 bestTopCombo :: TopCombosExport -> Maybe TopCombo
 bestTopCombo export = bestTopComboFromList (tceCombos export)
 
-bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
-bestTopComboForSymbol symRaw mInterval export =
-    bestTopComboFromList (filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export))
-
 bestLiveTopComboForSymbol :: Int64 -> AdoptionEvidenceConfig -> String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestLiveTopComboForSymbol now adoptionEvidenceConfig symRaw mInterval export =
-    bestTopComboFromList
-        ( filter
-            ( \combo ->
-                topComboMatchesSymbol symRaw mInterval combo
-                    && topComboLiveAdoptionEligible now adoptionEvidenceConfig combo
-            )
-            (tceCombos export)
-        )
+    -- Family quarantine counts every match, including those the adoption gates remove.
+    bestTopComboFromListWithEvidence matchingCombos (filter (topComboLiveAdoptionEligible now adoptionEvidenceConfig) matchingCombos)
+  where
+    matchingCombos = filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export)
 
 hasFreshDeployableTopComboForSymbolInterval :: Maybe OpsStore -> TopCombosStore -> Args -> String -> String -> IO Bool
 hasFreshDeployableTopComboForSymbolInterval mOps topCombosStore args sym interval = do
