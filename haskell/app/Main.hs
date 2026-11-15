@@ -22072,14 +22072,10 @@ bestTopCombo export = bestTopComboFromList (tceCombos export)
 
 bestLiveTopComboForSymbol :: Int64 -> AdoptionEvidenceConfig -> String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestLiveTopComboForSymbol now adoptionEvidenceConfig symRaw mInterval export =
-    bestTopComboFromList
-        ( filter
-            ( \combo ->
-                topComboMatchesSymbol symRaw mInterval combo
-                    && topComboLiveAdoptionEligible now adoptionEvidenceConfig combo
-            )
-            (tceCombos export)
-        )
+    -- Family quarantine counts every match, including those the adoption gates remove.
+    bestTopComboFromListWithEvidence matchingCombos (filter (topComboLiveAdoptionEligible now adoptionEvidenceConfig) matchingCombos)
+  where
+    matchingCombos = filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export)
 
 hasFreshDeployableTopComboForSymbolInterval :: Maybe OpsStore -> TopCombosStore -> Args -> String -> String -> IO Bool
 hasFreshDeployableTopComboForSymbolInterval mOps topCombosStore args sym interval = do
