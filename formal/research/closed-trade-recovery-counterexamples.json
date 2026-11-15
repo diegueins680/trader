@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "baseline": "d57968a66d8f85d08e6bfb430f1472781dcf2fa5",
+  "oldSource": "{-# LANGUAGE OverloadedStrings #-}\n\nmodule Trader.BotSnapshotRecovery (\n    TradeMemorySnapshotContext (..),\n    restoreTradeMemoryFromStatus,\n    snapshotMatchesTradeMemoryContext,\n) where\n\nimport qualified Data.Aeson as Aeson\nimport qualified Data.Aeson.KeyMap as KM\nimport qualified Data.Aeson.Types as AT\nimport Data.Char (toLower)\nimport Data.List (mapAccumL)\nimport Data.Maybe (fromMaybe, mapMaybe)\nimport qualified Data.Text as T\nimport qualified Data.Vector as V\nimport Trader.Text (trim)\nimport Trader.Trading (Trade (..), TradeEntrySource (..), exitReasonFromCode)\n\n{- | Identity and bounded-history contract for closed-trade memory recovery.\nPosition and open-trade state are deliberately absent: startup exposure is\nestablished from the venue, never from a persisted status snapshot.\n-}\ndata TradeMemorySnapshotContext = TradeMemorySnapshotContext\n    { tmscSymbol :: !String\n    , tmscInterval :: !String\n    , tmscMarket :: !String\n    , tmscMethod :: !String\n    , tmscTradeLimit :: !Int\n    }\n    deriving (Eq, Show)\n\nsnapshotMatchesTradeMemoryContext :: TradeMemorySnapshotContext -> Aeson.Value -> Bool\nsnapshotMatchesTradeMemoryContext context statusValue =\n    case statusValue of\n        Aeson.Object o ->\n            let getText key = KM.lookup key o >>= AT.parseMaybe Aeson.parseJSON\n             in getText \"symbol\" == Just (tmscSymbol context)\n                    && getText \"interval\" == Just (tmscInterval context)\n                    && getText \"market\" == Just (tmscMarket context)\n                    && getText \"method\" == Just (tmscMethod context)\n        _ -> False\n\nrestoreTradeMemoryFromStatus :: TradeMemorySnapshotContext -> Aeson.Value -> [Trade]\nrestoreTradeMemoryFromStatus context statusValue\n    | not (snapshotMatchesTradeMemoryContext context statusValue) = []\n    | otherwise =\n        case statusValue of\n            Aeson.Object o ->\n                case KM.lookup \"trades\" o of\n                    Just (Aeson.Array tradesV) ->\n                        reindexRestoredTrades\n                            (takeLast (tmscTradeLimit context) (mapMaybe tradeFromSnapshotValue (V.toList tradesV)))\n                    _ -> []\n            _ -> []\n\nparseTradeEntrySourceCode :: String -> Maybe TradeEntrySource\nparseTradeEntrySourceCode raw =\n    case map toLower (trim raw) of\n        \"signal\" -> Just TradeEntrySignal\n        \"adopted\" -> Just TradeEntryAdopted\n        \"post_direction_gates\" -> Just TradeEntryPostDirectionGates\n        \"post-direction-gates\" -> Just TradeEntryPostDirectionGates\n        \"postdirectiongates\" -> Just TradeEntryPostDirectionGates\n        _ -> Nothing\n\ntradeFromSnapshotValue :: Aeson.Value -> Maybe Trade\ntradeFromSnapshotValue =\n    AT.parseMaybe $\n        Aeson.withObject \"Trade\" $ \\o -> do\n            entryEquity <- o Aeson..: \"entryEquity\"\n            exitEquity <- o Aeson..: \"exitEquity\"\n            mReturn <- o Aeson..:? \"return\"\n            holdingPeriods <- fromMaybe 0 <$> (o Aeson..:? \"holdingPeriods\")\n            entryHighVolProb <- o Aeson..:? \"entryHighVolProb\"\n            entrySourceRaw <- o Aeson..:? \"entrySource\"\n            exitReasonRaw <- o Aeson..:? \"exitReason\"\n            entryIp <- o Aeson..:? \"entryIp\"\n            exitIp <- o Aeson..:? \"exitIp\"\n            let entrySource = fromMaybe TradeEntrySignal (entrySourceRaw >>= parseTradeEntrySourceCode)\n                tradeReturn =\n                    case mReturn of\n                        Just r | finite r -> r\n                        _ ->\n                            if finite entryEquity && finite exitEquity && entryEquity > 0\n                                then exitEquity / entryEquity - 1\n                                else 0\n                exitReason = exitReasonRaw >>= exitReasonFromCode\n            pure\n                Trade\n                    { trEntryIndex = 0\n                    , trExitIndex = max 1 holdingPeriods\n                    , trEntryEquity = entryEquity\n                    , trExitEquity = exitEquity\n                    , trReturn = tradeReturn\n                    , trHoldingPeriods = holdingPeriods\n                    , trEntryHighVolProb = entryHighVolProb\n                    , trEntrySource = entrySource\n                    , trExitReason = exitReason\n                    , trEntryIp = entryIp\n                    , trExitIp = exitIp\n                    , trFeeCost = 0\n                    }\n  where\n    finite x = not (isNaN x || isInfinite x)\n\nreindexRestoredTrades :: [Trade] -> [Trade]\nreindexRestoredTrades trades =\n    snd (mapAccumL reindex 0 trades)\n  where\n    reindex idx tr =\n        let hold = max 1 (trHoldingPeriods tr)\n            entryIdx = idx\n            exitIdx = idx + hold\n         in (exitIdx + 1, tr{trEntryIndex = entryIdx, trExitIndex = exitIdx})\n\ntakeLast :: Int -> [a] -> [a]\ntakeLast n xs\n    | n <= 0 = []\n    | otherwise = drop (max 0 (length xs - n)) xs\n",
+  "entries": [
+    {
+      "id": "CE-RECOVERY-001",
+      "claim": "Finite equities 1e-300 and 1e300 derive infinite return."
+    },
+    {
+      "id": "CE-RECOVERY-002",
+      "claim": "An explicitly non-finite return is replaced by a derived value."
+    },
+    {
+      "id": "CE-RECOVERY-003",
+      "claim": "A maxBound holding period followed by another trade wraps indices."
+    },
+    {
+      "id": "CE-RECOVERY-004",
+      "claim": "A finite supplied return permits non-finite entry equity."
+    }
+  ],
+  "proofAttempts": [
+    {
+      "tool": "Z3 4.15.4",
+      "timeoutMilliseconds": 10000,
+      "query": "Satisfiability of finite-entry/finite-exit/finite-selected-return with nested binary64 division/subtraction.",
+      "result": "SAT/UNKNOWN/vacuous proof gate failure; no certificate accepted.",
+      "resolution": "Sound overapproximation of computed intermediate by arbitrary binary64; guard excludes every non-finite intermediate. Exact division accuracy is not claimed; compiled independent oracle checks actual operations."
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "bounded-values-v1",
+  "date": "2026-10-06",
+  "baseCommit": "19b624174b721c464060915b0510227414fe2f64",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/bounded-values-contract.md",
+  "requirements": ["F-RL-BOUNDS-SOURCE", "F-RL-BOUNDS-COMPOSE", "F-RL-BOUNDS-CONFORMANCE"],
+  "obligation": 7,
+  "reading": "Recorded nextAction of obligation 7: separate proposal bounds from realized exposure; specify rejection/liquidation under loss; quantify admissible gap assumptions.",
+  "gapAssumption": {"maxAbsBarReturn": "1/2", "maxAbsFundingPerUnitOverPrice": "3/100", "maxFundingMultiplier": 2, "maxCostMultiplier": "5/2", "maxImpactBps": 10},
+  "hardBounds": {"capitalFloor": "4/5", "maxDrawdown": "3/20", "maxAbsExposure": "7/20", "maxAbsTarget": "1/4", "maxTurnover": "1/2"},
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "sourceChanges": 0,
+  "probeSeed": 20261012,
+  "probeEpisodes": 288,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Obligation 7 closes for the delivered offline path only if fresh source, SMT and existing shield/gap/post-cost certificates reproduce; the unconditional capital floor stays refuted."
+}

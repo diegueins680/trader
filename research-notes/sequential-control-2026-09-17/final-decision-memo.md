@@ -52,3 +52,51 @@ The Haskell proposal boundary is default-disabled, requires every deterministic 
 General: no adoption. RL: reject these configurations and continue offline research only if a separately preregistered question addresses a demonstrated gap. Prefer deterministic optimization or a supervised policy as the complexity baseline; this screen does not establish a winner among them. No shadow/paper candidate passed, so no activation plan is authorized. A future protocol needs independently available data, full reviewed-fleet coverage, exchange-calibrated execution, matched Haskell champion, credible OPE, complete statistical controls and new untouched confirmation. Do not reopen existing protected data to finish this report.
 
 Production authorization remains absent. No live flags, adopted UUIDs, leverage, margin, ownership, deployment identity, live caps or capital-preservation settings changed. No exchange order or authenticated endpoint was used, no live-money exploration occurred, and no policy can authorize an order. Existing production authorization in tracked profiles was preserved; this report does not falsely claim the pre-existing fleet was disabled.
+
+## OPE assurance continuation (2026-09-30)
+
+The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-real ESS/WIS/DR algebra from a preserved general-helper ESS underflow witness. The current deterministic six-step weights are checked separately. The source remains unchanged; all 108 invalid OPE batches retain their status and no new economic or holdout evidence is produced. WDR/MAGIC are not implemented by the existing ordinary DR plus trajectory WIS helper.
+
+## Isolated exact ESS diagnostic (2026-09-30)
+
+The [ess-rational-v2 continuation](ess-v2-followup-2026-09-30.md) retains a disabled, disconnected exact-arithmetic diagnostic. CE-RL-018 is mitigated only for supplied weights in that new kernel; the frozen helper and all 108 invalid OPE batches are unchanged. Exact weight concentration does not establish behavior support, estimator efficiency or candidate readiness.
+
+## Funding boundary audit (2026-10-01)
+
+The [funding audit](funding-boundary-followup-2026-10-01.md) separates source-linked timestamp semantics from finite coefficient assumptions. Synthetic CE-RL-019 refutes universal finite loader outputs; downstream replay rejects the encountered invalid transition. Historical prevalence is not established, the source is unchanged and no new economic evidence is produced.
+
+## Replay ordering audit (2026-10-01)
+
+The [ordering audit](replay-order-followup-2026-10-01.md) distinguishes delayed policy targets from compulsory terminal reconciliation. Scoped finite-state/SMT evidence and synthetic actual-helper traces retain both costs for terminal entry/liquidation. Early rejected or insolvent calls can retain simulated state; universal cash/runtime/production refinement and promotion gates remain unresolved.
+
+The [cutoff audit](replay-cutoff-followup-2026-10-01.md) extends the ordering abstraction to a seven-or-more-bars class. Integer SMT and finite graph/conformance evidence preserve the distinction between a six-bar call and a later episode endpoint. A false-terminal trace-matcher counterexample was corrected and retained. Actual observations/rewards, multi-call runtime behavior and all broader promotion requirements remain unresolved; no adoption follows.
+
+The [reward accounting audit](reward-accounting-followup-2026-10-03.md) verifies scoped real-arithmetic identities and preserves a synthetic zero-summed-reward path with a -0.0625% economic return. The existing reporter correctly records that loss. Reward, simulator and financial evidence are unchanged; no policy-objective equivalence, universal floating-point bound or new adoption evidence follows.
+
+## Exact funding events (2026-10-06)
+
+The [funding-events-v2 continuation](funding-events-2026-10-06.md) adds a disabled, disconnected exact-decimal funding loader successor. CE-RL-019 inputs reject before arithmetic, and admitted coefficients are exact under source-bound SMT size/endpoint lemmas, an exhaustive small-grid sweep, a publication model and Haskell oracle tests. The frozen loader stays refuted and unchanged; obligation 10 stays open and no adoption follows.
+
+## Exact replay runner (2026-10-06)
+
+The [replay-runner-v2 continuation](replay-runner-2026-10-06.md) composes the exact funding and replay kernels into a disabled episode runner over a fixed target schedule. SMT index, telescoping and funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests provide scoped evidence. It contains no policy, so no economic or adoption claim follows; obligation 10 stays open.
+
+## Value objective (2026-10-06)
+
+The [value-objective-v2 continuation](value-objective-2026-10-06.md) adds a disabled, disconnected conservative Double-DQN objective that rejects CE-RL-014 inputs, removes the CE-RL-015 shift defect, and preserves and resolves CE-RL-024 (a signed-zero counterexample found during proof). The frozen learner is unchanged; obligation 10 stays open and no adoption follows.
+
+## Split isolation closure (2026-10-06)
+
+[Obligation 2 closes](split-isolation-2026-10-06.md) for the delivered offline screen under the owner-approved standard purge/embargo definition. Counts are now 13 scoped closures / 24 partial / 1 open. This is a formal data-handling result, not economic evidence; the recommendation is unchanged.
+
+## Observation causality audit (2026-10-06)
+
+[CE-RL-025](observation-causality-2026-10-06.md): the frozen training path normalizes in-prefix observations with a scale fitted on later bars, so obligation 17 stays open. Evaluation observations are unaffected. The rejection of the frozen configurations stands.
+
+## Bounded values closure (2026-10-06)
+
+[Obligation 7 closes](bounded-values-2026-10-06.md) for the offline path under the explicit assumption A-GAP-BOUND. Counts: 14 scoped closures / 23 partial / 1 open. This is a conditional safety property of the simulator, not economic evidence; the recommendation is unchanged.
+
+## Accounting reconciliation closure (2026-10-07)
+
+[Obligation 8 closes](accounting-reconciliation-2026-10-07.md) by per-row binary64 reconciliation of the frozen ledger. Counts: 15 scoped closures / 22 partial / 1 open. Fill calibration remains empirical; the recommendation is unchanged.

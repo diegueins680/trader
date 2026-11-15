@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "champion-archive-isolation-v1",
+  "date": "2026-10-05",
+  "baseline": "b706fa9bdcac058cce6c2a17d3a808f614270def",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/champion-archive-contract.md",
+  "candidateClosure": [
+    28
+  ],
+  "unchangedOriginalCriteria": true,
+  "productionAuthorization": false,
+  "marketDataAccess": false,
+  "holdoutOpened": false,
+  "trainingRuns": 0,
+  "implementationChange": "export reports with exclusive binary create; retain output bytes and schemas",
+  "obligations": [
+    "F-RL-ARCHIVE-SOURCE",
+    "F-RL-ARCHIVE-PRESERVE",
+    "F-RL-ARCHIVE-FLOW",
+    "F-RL-ARCHIVE-CONFORMANCE"
+  ],
+  "methods": [
+    "source-derived writer/effect correspondence",
+    "SMT with non-vacuity checks",
+    "reachable finite state model",
+    "actual Python writer and exporter conformance",
+    "legacy counterexample and mutation regression"
+  ],
+  "verification": [
+    "bash scripts/verify.sh formal",
+    "bash scripts/verify.sh full"
+  ],
+  "acceptance": "Close only the unchanged obligation 28 criterion after fresh complete composition; otherwise leave partial. No deployment."
+}

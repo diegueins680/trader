@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "delivered-stage-preservation-v1",
+  "date": "2026-10-06",
+  "baseCommit": "ac9288ee8c7d61fa6af283f81a4bdf7b47846966",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/lifecycle-stage-contract.md",
+  "requirements": ["F-RL-STAGE-SOURCE", "F-RL-STAGE-STEP", "F-RL-STAGE-FLOW", "F-RL-STAGE-CONFORMANCE"],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "runtimeChanges": false,
+  "productionIntegration": false,
+  "eligibilityStages": ["research", "backtest-eligible", "replay-eligible", "shadow-eligible", "paper-eligible", "micro-live-review-eligible", "live-authorized"],
+  "policyFormats": ["v1", "v4"],
+  "solverTimeoutMilliseconds": 10000,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Only original25 may close after complete source-bound stage preservation and constituent certificates reproduce; no requirement scope or criterion change. All current promotion attempts remain refused."
+}

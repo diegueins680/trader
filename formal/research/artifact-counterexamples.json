@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "scope": "Deliberate source mutants, not existing loader defects or financial trials.",
+  "entries": [
+    {
+      "id": "CE-RL-007",
+      "requirement": "F-RL-ARTIFACT-METADATA",
+      "replace": "hashlib.sha256(raw).hexdigest() != expected_sha256",
+      "with": "False",
+      "offendingInput": "expected_sha256 is 64 zeros for a valid nonzero-hash synthetic policy",
+      "observed": "mutant returns a Network; original rejects artifact hash mismatch"
+    },
+    {
+      "id": "CE-RL-008",
+      "requirement": "F-RL-ARTIFACT-METADATA",
+      "replace": "a[\"enabled\"] is not False",
+      "with": "False",
+      "offendingInput": "enabled=true in otherwise valid synthetic policy, matching recomputed digest",
+      "observed": "mutant returns a Network; original rejects incompatible artifact"
+    }
+  ]
+}

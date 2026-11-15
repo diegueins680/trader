@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "causal-replay-v3-engineering",
+  "date": "2026-10-07",
+  "baseCommit": "d243a0edbdb5b6a7f14c091242d9035e9597598f",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/causal-replay-v3-contract.md",
+  "requirements": [
+    "F-RL-CAUSAL-V3-SOURCE",
+    "F-RL-CAUSAL-V3-ARITH",
+    "F-RL-CAUSAL-V3-FLOW",
+    "F-RL-CAUSAL-V3-CONFORMANCE"
+  ],
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "enabledByDefault": false,
+  "version": "causal-replay-v3",
+  "observationVersion": "causal-close-inventory-v3",
+  "burnInBounds": [
+    26,
+    4096
+  ],
+  "historyBound": 8192,
+  "tickBound": 4096,
+  "numericBits": 8192,
+  "probeSeed": 20261007,
+  "probeEpisodes": 32,
+  "modelStepBound": 8,
+  "verification": [
+    "bash scripts/verify.sh formal",
+    "bash scripts/verify.sh full"
+  ],
+  "closure": "No automatic original38 closure. Compose learner and actual availability admission separately; frozen CE-RL-025 stays refuted."
+}

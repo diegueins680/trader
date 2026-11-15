@@ -23,6 +23,7 @@
   "coverage": {
     "areas": [
       { "root": "formal/research", "include": ["formal/research/**"] },
+      { "root": "haskell/research", "include": ["haskell/research/*.hs"] },
       { "root": "haskell/app", "include": ["haskell/app/**/*.hs", "haskell/app/*.hs"] },
       { "root": "haskell/web/src", "include": ["haskell/web/src/**/*.ts", "haskell/web/src/**/*.tsx", "haskell/web/src/*.tsx", "haskell/web/src/*.css", "haskell/web/src/*.d.ts"] },
       { "root": "scripts", "include": ["scripts/**/*.mjs", "scripts/**/*.sh", "scripts/**/*.py", "scripts/**/*.jq", "scripts/*.mjs", "scripts/*.sh", "scripts/*.py"] },
@@ -49,9 +50,12 @@
       "haskell/web/vite.config.ts",
       "haskell/web/public/trader-config.js",
       "research-notes/registrations/sequential-control-screen-v1.json",
+      "research-notes/registrations/causal-transition-v4-engineering.json",
+      "research-notes/registrations/causal-ppo-v5-engineering.json",
       "research-notes/registrations/har-rv-risk-gate-v1.json",
       "research-notes/registrations/depth-normalized-ofi-v1.json",
-      "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json"
+      "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json",
+      "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json"
     ]
   },
   "specifications": [
@@ -68,7 +72,88 @@
       "implementation": [
         "scripts/formal/*.py",
         "scripts/formal/requirements.txt",
-        "formal/research/**"
+        "formal/research/**",
+        "scripts/research/optimizer_snapshot_v2.py",
+        "haskell/research/InferenceProcessV2.hs",
+        "scripts/research/ppo_successor_v2.py",
+        "scripts/formal/ppo_successor.py",
+        "scripts/research/ppo_inference_v3.py",
+        "haskell/research/SnapshotRequestV3.hs",
+        "scripts/research/ppo_artifact_v4.py",
+        "haskell/app/Trader/QuantityRounding.hs",
+        "haskell/app/Trader/Binance.hs",
+        "haskell/app/Trader/OrderNumeric.hs",
+        "haskell/app/Main.hs",
+        "haskell/app/Trader/BotSnapshotRecovery.hs",
+        "haskell/app/Trader/App/WorkerPublication.hs",
+        "scripts/research/summarize_sequential_screen.py",
+        "haskell/app/Trader/App/BacktestGate.hs",
+        "haskell/trader.cabal",
+        "formal/research/admission-progress-contract.md",
+        "formal/research/admission-progress-source.json",
+        "scripts/formal/admission_progress.py",
+        "scripts/formal/test_integrity.py",
+        "formal/research/AdmissionProgress.hs",
+        "formal/research/fixtures/admission-progress-before.hs",
+        "formal/research/fixtures/admission-progress-witness.hs",
+        "formal/research/fixtures/admission-progress.json",
+        "scripts/research/replay_accounting_v2.py",
+        "formal/research/replay-accounting-v2-contract.md",
+        "formal/research/replay-accounting-v2-source.json",
+        "scripts/formal/replay_accounting.py",
+        "formal/research/ReplayAccountingV2.hs",
+        "scripts/research/funding_events_v2.py",
+        "formal/research/funding-events-v2-contract.md",
+        "formal/research/funding-events-v2-source.json",
+        "scripts/formal/funding_events.py",
+        "formal/research/FundingEventsV2.hs",
+        "scripts/research/replay_runner_v2.py",
+        "formal/research/replay-runner-v2-contract.md",
+        "formal/research/replay-runner-v2-source.json",
+        "scripts/formal/replay_runner.py",
+        "scripts/research/value_objective_v2.py",
+        "formal/research/value-objective-v2-contract.md",
+        "formal/research/value-objective-v2-source.json",
+        "formal/research/value-v2-counterexamples.json",
+        "scripts/formal/value_objective_successor.py",
+        "scripts/research/causal_value_v6.py",
+        "formal/research/causal-value-v6-contract.md",
+        "formal/research/causal-value-v6-source.json",
+        "scripts/formal/causal_value.py",
+        "scripts/research/ppo_objective_v2.py",
+        "formal/research/ppo-objective-v2-contract.md",
+        "formal/research/ppo-objective-v2-source.json",
+        "scripts/formal/ppo_objective_successor.py",
+        "scripts/research/causal_ppo_v7.py",
+        "formal/research/causal-ppo-v7-contract.md",
+        "formal/research/causal-ppo-v7-source.json",
+        "scripts/formal/causal_ppo_learner.py",
+        "scripts/research/causal_ope_v8.py",
+        "formal/research/causal-ope-v8-contract.md",
+        "formal/research/causal-ope-v8-source.json",
+        "scripts/formal/causal_ope.py",
+        "formal/research/split-isolation-contract.md",
+        "scripts/formal/split_isolation.py",
+        "formal/research/observation-causality-contract.md",
+        "formal/research/observation-counterexamples.json",
+        "scripts/formal/observation_causality.py",
+        "formal/research/bounded-values-contract.md",
+        "scripts/formal/bounded_values.py",
+        "formal/research/accounting-reconciliation-contract.md",
+        "scripts/formal/accounting_reconciliation.py",
+        "formal/research/replay-source-lock.json",
+        "formal/research/async-stop-counterexample.json",
+        "scripts/formal/async_stop.py",
+        "formal/research/position-ownership-counterexamples.json",
+        "scripts/formal/position_ownership.py",
+        "formal/research/readiness-epoch-counterexample.json",
+        "scripts/formal/readiness_epoch.py",
+        "formal/research/round-min-cap-counterexample.json",
+        "scripts/formal/min_size_cap.py",
+        "formal/research/drain-gates-counterexample.json",
+        "scripts/formal/drain_gates.py",
+        "formal/research/order-idempotence-counterexample.json",
+        "scripts/formal/order_idempotence.py"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -122,6 +207,26 @@
           "statement": "Ending wealth less starting wealth equals gross plus funding minus costs minus terminal costs; reward penalty is not cash."
         },
         {
+          "id": "F-RL-GAP-BOUND",
+          "statement": "In exact arithmetic, E>0, abs(w)<=a<=1/4, abs(r)<=b, 0<=c<=k and a*b+k<=d<1 imply E*(1+w*r-c)>=E*(1-d)>0, with nonnegative a,b,k,d."
+        },
+        {
+          "id": "F-RL-DRAWDOWN-COMPOSE",
+          "statement": "In exact arithmetic, prior drawdown at most d0 and next-bar loss at most d compose to peak-relative drawdown at most d0+d-d0*d for 0<=d0,d<1."
+        },
+        {
+          "id": "F-RL-POSTCOST-EXPOSURE",
+          "statement": "For a full pre-cost target fill, 0<=c<=k<1, L>=0 and abs(target)<=L*(1-k) imply post-cost exposure abs(target)/(1-c)<=L in exact arithmetic."
+        },
+        {
+          "id": "F-RL-UNCONDITIONAL-FLOOR",
+          "statement": "Claim under audit, explicitly refuted: bounded admitted targets and positive future prices alone imply equity remains at least 0.80 throughout replay."
+        },
+        {
+          "id": "F-RL-GAP-CONFORMANCE",
+          "statement": "The 180 declared two-bar replay cases match exact rational terminal accounting within 2e-15; two preserved gap witnesses breach the capital floor and remain failed evidence."
+        },
+        {
           "id": "F-RL-LIFECYCLE",
           "statement": "The two-caller abstract protocol never gains authority, forbids new calls while draining and decreases outstanding calls on every completion."
         },
@@ -131,23 +236,919 @@
         },
         {
           "id": "F-RL-INTEGRITY",
-          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch."
+          "statement": "Proof rosters, source hashes, required fields, assumptions, counterexamples and bidirectional paths fail closed on mismatch. Numerical proof drivers isolate premise/witness checks from universal violation queries and reject inconclusive solver results."
+        },
+        {
+          "id": "F-RL-FEATURE-FOOTPRINT",
+          "statement": "For the admitted market_features source and ordinary fixed-shape numeric arrays, every market-value read lies in [t-24,t+1) when 24<=t<n; unsupported source dependencies are rejected."
+        },
+        {
+          "id": "F-RL-FIT-PREFIX",
+          "statement": "For the admitted runner setup and Scale.fit source, price/funding prefixes end no later than exclusive trainStop and every fitted feature read precedes trainStop, conditional on admitted arrays and trusted primitive/constructor semantics."
+        },
+        {
+          "id": "F-RL-COLLECT-PREFIX",
+          "statement": "For the admitted collect episode-construction source and prefix length L>=121, every sampled episode has a valid start and stop<=L, so outcomes permitted by its half-open Replay contract remain inside the training prefix."
+        },
+        {
+          "id": "F-RL-ARTIFACT-PATH",
+          "statement": "For the audited load_policy source, every return in the finite gate abstraction follows all 13 admission steps; failure is terminal and every path terminates within 13 primitive completions, assuming terminating trusted primitives."
+        },
+        {
+          "id": "F-RL-ARTIFACT-METADATA",
+          "statement": "Passing the source-derived load_policy compatibility predicate entails v1 metadata, rejected-research disposition, exact false enabled marker and matching action/provenance values; passing its digest predicate entails equal snapshot and expected digests under the stated primitive abstractions."
+        },
+        {
+          "id": "F-RL-TRANSITION-ADMISSION",
+          "statement": "For the audited training-transition admission helper and collector source under the stated integer/binary64 and primitive assumptions, every admitted transition has finite reward and positive finite equity with bounded time advance; terminals have zero units, no pending action and an accounted endpoint, while nonterminals advance a full horizon with a valid finite successor."
+        },
+        {
+          "id": "F-RL-TERMINAL-REAL",
+          "statement": "For the audited advantages source under exact real arithmetic, a true Boolean terminal mask yields raw advantage reward minus current value and reconstructed target equal to reward; batch normalization is excluded."
+        },
+        {
+          "id": "F-RL-TERMINAL-FP-MASK",
+          "statement": "For the audited terminal bootstrap products, finite IEEE binary64 next value and later carry with finite discount in [0,1] yield products numerically equal to zero under separate RNE operations; residual finiteness, target exactness and normalized advantages are not implied."
+        },
+        {
+          "id": "F-RL-TERMINAL-EXACT",
+          "statement": "Claim under audit, explicitly refuted in current source: finite binary64 learner inputs and critic outputs with a true terminal flag always reconstruct the exact reward as the value target."
+        },
+        {
+          "id": "F-RL-TERMINAL-FINITE",
+          "statement": "Claim under audit, explicitly refuted in current source: finite learner inputs and critic outputs imply finite advantage and target outputs."
         },
         {
           "id": "F-RL-REFINEMENT",
           "statement": "Universal source/compiler refinement and production lifecycle, accounting and data-availability proofs remain open."
+        },
+        {
+          "id": "F-RL-TARGET-V2-TERMINAL",
+          "statement": "For the audited isolated gae-targets-v2 kernel under stated native scalar and binary64 semantics, an accepted terminal step preserves the exact reward bits as its target, including signed zero."
+        },
+        {
+          "id": "F-RL-TARGET-V2-FINITE",
+          "statement": "For the audited gae-targets-v2 step and its source-bound admission guards, publication implies finite binary64 raw advantage and target, exact enabled True and matching version; default-disabled calls return absence."
+        },
+        {
+          "id": "F-RL-TARGET-V2-REAL",
+          "statement": "The audited gae-targets-v2 source satisfies the specified terminal and nonterminal raw GAE recurrence in exact real algebra with lambda .95; this is not a nonterminal binary64 error bound or a normalization theorem."
+        },
+        {
+          "id": "F-RL-TARGET-V2-PUBLISH",
+          "statement": "In the source-bound batch-publication abstraction for 1 through 256 rows, all rows must succeed before one complete result is published; admission or row failure returns absence, progress rank strictly decreases to quiescence within 258 abstract transitions, and no live-authorization transition exists."
+        },
+        {
+          "id": "F-RL-PPO-OBJECTIVE",
+          "statement": "For the audited ppo_gradient source, the selected-action ratio and negative clipped-surrogate row loss equal the specified piecewise objective in exact real arithmetic, using exact rational values of binary64 .8 and 1.2 literals and batch size 1 through 256."
+        },
+        {
+          "id": "F-RL-PPO-COEFFICIENT",
+          "statement": "For the audited PPO mask/multiplier and stated exact-real domain, the coefficient follows the selected one-sided clipping branches, is nonnegative and bounded by U*a/n for nonnegative advantage, and nonpositive for negative advantage; three logit components sum to zero conditional on an exact probability simplex."
+        },
+        {
+          "id": "F-RL-PPO-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite logits and advantages with positive finite old action probabilities guarantee finite PPO gradient outputs."
+        },
+        {
+          "id": "F-RL-PPO-UNIFORM-CLIP",
+          "statement": "Claim under audit, explicitly refuted: the PPO clipped objective universally bounds the coefficient magnitude by U*abs(advantage)/batchSize; this is not a guarantee made by the source paper or independent risk shield."
+        },
+        {
+          "id": "F-RL-DOUBLE-TARGET",
+          "statement": "For the audited contiguous train_q target slice and trusted three-action first-argmax semantics, the exact-real target selects with the online network, evaluates with the target network and equals reward at terminal; horizon is 1, 3 or 6 with the source-represented discount."
+        },
+        {
+          "id": "F-RL-CQL-GRADIENT",
+          "statement": "For the audited bellman_gradient source under exact-real scalarization and an assumed three-action softmax simplex, the row loss and gradient equal the registered fixed-alpha objective; conservative gradient components sum to zero and each lies in [-alpha/n,alpha/n], with total gradient sum (selectedQ-target)/n for n in 1..256 and alpha>=0."
+        },
+        {
+          "id": "F-RL-Q-FINITE",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: finite Q values and targets with alpha=0 guarantee a finite returned Bellman loss. The preserved helper witness has zero residual and finite zero gradient but NaN loss."
+        },
+        {
+          "id": "F-RL-CQL-SHIFT",
+          "statement": "Claim under audit, explicitly refuted in unchanged source: binary64 CQL loss is exactly invariant under a common Q/target shift. The prescribed 2^54 shift changes the loss despite equal finite gradients."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-PUBLISH",
+          "statement": "For the audited gradients/update source under non-mutating primitives, a single writer and successful uninterrupted final stores, every prepublication rejection preserves optimizer state, normal completion publishes all four fields, and the finite staging model terminates."
+        },
+        {
+          "id": "F-RL-GRADIENT-CLIP",
+          "statement": "For the extracted grad/max(1,norm) expression over exact reals with norm >= abs(grad), clipping preserves sign, never increases magnitude and yields absolute value at most one."
+        },
+        {
+          "id": "F-RL-INFER-ADMISSION",
+          "statement": "For the audited infer predicates, proposal admission is equivalent to exact enabled=True, valid observation/output vectors and finite binary64 measured elapsed milliseconds in [0,20], under trusted predicate semantics."
+        },
+        {
+          "id": "F-RL-INFER-SELECTION",
+          "statement": "For the audited three-score first-argmax selection and source action constants, the selected score is maximal with lowest-index tie breaking and the resulting action belongs to [-1/4,0,1/4], under stable finite ordered-score semantics."
+        },
+        {
+          "id": "F-RL-INFER-PATH",
+          "statement": "In the source-bound single-call admission model, rejected early gates prevent inference and a returned proposal requires enable, observation, output and timing admission; the model has no order-authorizing transition."
+        },
+        {
+          "id": "F-RL-OPE-ESS-REAL",
+          "statement": "For the extracted ESS expression over two nonnegative exact-real trajectory weights with positive sum, ESS lies in [1,2] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-WIS-REAL",
+          "statement": "For the extracted weighted-IS expression over two nonnegative exact-real weights with positive sum and returns in [lo,hi], weighted IS lies in [lo,hi] and is invariant under positive common scaling."
+        },
+        {
+          "id": "F-RL-OPE-DR-TELESCOPE",
+          "statement": "For the extracted sequential DR expression at each horizon 1..6, unit cumulative ratios, q_t=v_t, zero terminal v and gamma in [0,1] imply pathwise equality with discounted return in exact real arithmetic."
+        },
+        {
+          "id": "F-RL-ESS-V2-ACCUMULATE",
+          "statement": "The extracted exact ESS accumulator has zero base state and preserves k>=0, S>=0, Q>=0 and Q<=S*S<=k*Q when appending a nonnegative real weight, under exact primitive semantics."
+        },
+        {
+          "id": "F-RL-ESS-V2-BOUNDS",
+          "statement": "Under the exact accumulator invariant and 1<=k<=256, the extracted rational ESS result is zero at Q=0 and lies in [1,k] at Q>0; no conversion back to binary64 is performed."
+        },
+        {
+          "id": "F-RL-ESS-V2-PUBLISH",
+          "statement": "In the source-bound default-disabled exact ESS call model for 1..256 weights, computation follows full admission and publication follows complete accumulation; terminal states are stable, strict progress is bounded, and no persistence or order-authorizing transition exists."
+        },
+        {
+          "id": "F-RL-FUNDING-GRID",
+          "statement": "For the registered 4910-bar development grid, source-derived open/close timestamps are strictly ordered, below 2^53 and signed-int64 bounds, and match the registered spacing; this conditional integer proof assumes NumPy arange semantics."
+        },
+        {
+          "id": "F-RL-FUNDING-ENDPOINT",
+          "statement": "Under exact sorted regular-grid and NumPy left-insertion semantics, each integer settlement belongs to exactly one endpoint bucket or the rejected after-end region; bucket j>0 covers (close[j-1],close[j]]."
+        },
+        {
+          "id": "F-RL-REPLAY-DUE",
+          "statement": "For source-derived pending due=d+1+delay with integer delay in {0,1}, an admitted policy-target fill requires clear prior risk, a present pending target and an endpoint strictly after originating decision d; compulsory terminal liquidation is distinct."
+        },
+        {
+          "id": "F-RL-REPLAY-ORDER",
+          "statement": "In the source-bound single-call replay abstraction for 1..6 remaining bars, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets, admission precedes effects, old-position marking precedes risk and due target attempts, terminal handling precedes its row, and the complete finite graph reaches an end-of-call node under terminating helper assumptions."
+        },
+        {
+          "id": "F-RL-REPLAY-CUTOFF",
+          "statement": "For arbitrary integer remaining R>=1, H in {1,3,6} and 0<=t<=min(R,H), C=min(R,7) preserves min(R,H), t==R and the pinned ordering-model terminal predicate failed or t==R; t<=min(R,H)<=C<=R."
+        },
+        {
+          "id": "F-RL-REPLAY-QUOTIENT",
+          "statement": "The complete pinned single-call ordering graph over remaining classes 1..7, horizons 1/3/6, delays 0/1 and absent/1/2 pending offsets preserves its edge invariants and reaches a return node under terminating helpers. Class seven has checked lifted successors and synthetic actual-trace conformance; this is not universal Python or observation/reward refinement."
+        },
+        {
+          "id": "F-RL-ROW-RECONCILE",
+          "statement": "In exact reals with positive starting equity, the extracted Replay mark, sequential target/liquidation cost debits, merged cost fields and row return reconcile ending wealth and net return; fill quantities and cost formation are assumed, not proved."
+        },
+        {
+          "id": "F-RL-WEALTH-FOLD",
+          "statement": "SMT checks the positive-wealth product invariant base and induction step using the source row-return expression: P=E/E0 implies P*(1+r)=E_next/E0; the source economic metric equals that ratio minus one when E0=1."
+        },
+        {
+          "id": "F-RL-REWARD-RECONCILE",
+          "statement": "SMT checks the source penalty accumulator base, nonnegative induction step and call identity: returned reward plus summed noncash row penalties equals 100 times the call-relative equity change in exact reals with positive starting equity."
+        },
+        {
+          "id": "F-RL-REWARD-ADDITIVE",
+          "statement": "For every complete positive-wealth replay with zero costs, funding, inventory penalty and discounting, the sum of call rewards equals 100 times whole-episode net return."
+        },
+        {
+          "id": "F-RL-DEFAULT-PATH",
+          "statement": "For the enumerated delivered offline entry points, source-derived default control paths return absent before inspecting policy/data arguments; Haskell defaults to Disabled, Python enabled defaults to False, and saved policy metadata sets enabled to False. This exhaustively checked finite control abstraction assumes ordinary source execution and a returning clock."
+        },
+        {
+          "id": "F-RL-CLOSURE",
+          "statement": "All 38 obligations have explicit scope, closure criteria and blockers; closure requires nonempty sufficient formal certificates, no blockers and same-run reproduction. Formal completion and separate research acceptance are computed from evidence, never from a hardcoded completion value."
+        },
+        {
+          "id": "F-RL-PROCESS-LIFECYCLE",
+          "statement": "For the one-child/one-request inference-process-v2 control abstraction, every bounded startup, reply, timeout and cleanup branch reaches quiescence or explicit cleanup failure; expired replies and failed cleanup cannot emit a candidate, and no retry, successor or live-authority transition exists. Progress depends on bounded OS primitives and scheduler service; source locks and compiled tests do not establish complete IO refinement."
+        },
+        {
+          "id": "F-RL-PROCESS-ADMISSION",
+          "statement": "The source-bound inference-process-v2 integer admission predicate returns only quarter-exposure codes -1, 0 or 1, only after successful cleanup and with elapsed request time in [0,20000000) nanoseconds. Invalid frames, negative/expired elapsed times and failed cleanup return absence; clock-to-world and IO semantics are assumptions."
+        },
+        {
+          "id": "F-RL-PROCESS-ISOLATION",
+          "statement": "The reviewed research-only inference-process-v2 executable defaults to absence before input or launch, accepts only explicit versioned offline modes, launches only its own trusted binary with fixed worker arguments and an empty environment, writes no files or policy parameters, and has no order/promotion interface or production component reference. This finite source-bound check is not an OS sandbox or deployed-image guarantee."
+        },
+        {
+          "id": "F-RL-PROCESS-CONFORMANCE",
+          "statement": "Compiled inference-process-v2 guards agree with bounded and generated model cases; synthetic network outputs, default modes, malformed inputs, blocked input, worker hangs, ignored TERM, CPU loops, late/invalid/EOF responses, startup timeout and cleanup failure are exercised. Worker termination is checked; these tests supplement the model and do not prove operating-system timing or universal neural numerical parity."
+        },
+        {
+          "id": "F-SHUTDOWN-BUDGET",
+          "statement": "Shutdown remaining microseconds use exact Integer monotonic arithmetic, stay within the compiled nonnegative Int range, never round beyond the remaining deadline, reject backward/expired clock samples, and do not increase as valid time advances."
+        },
+        {
+          "id": "F-SHUTDOWN-STAGES",
+          "statement": "The six-stage shutdown model attempts five work stages then final close in order, rejects expired stages, preserves failures in the aggregate report, and reaches a report under bounded primitive-return assumptions; an acknowledgement is not a proof of resource quiescence."
+        },
+        {
+          "id": "F-SHUTDOWN-CONFORMANCE",
+          "statement": "Compiled production shutdown budget functions agree with edge and generated integer cases; runtime tests exercise expired no-dispatch, exceptions and uninterruptible timeout, and reviewed Main source binds the six stages and truthful aggregate report. This is conformance evidence, not full IO refinement."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-LIFECYCLE",
+          "statement": "In the finite two-worker/two-stop protocol, closure never reopens, closed starts are rejected, unfinished entries persist, cancellation helpers are unique, delivery is distinct from completion, and stop success requires all captured workers finished; a decreasing rank excludes infinite protocol paths under primitive progress."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-INVARIANTS",
+          "statement": "The reviewed atomic Boolean predicates preserve closed state, exclude closed admission, retain every registered unfinished entry, require per-entry completion for acknowledgement, and make cancellation-request creation idempotent. These are atomic predicate properties, not a proof of Haskell IO refinement."
+        },
+        {
+          "id": "F-WORKER-REGISTRY-CONFORMANCE",
+          "statement": "The compiled production worker registry rejects three preserved legacy counterexamples and passes barrier-controlled completion, closed-start, interrupted-stop, callback-unmasking and fixed-seed concurrent start/stop tests; source hashes and private exports bind the reviewed implementation."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-NUMERIC",
+          "statement": "Over the compiled signed Int domain, checked slot admission cannot overflow, accepts only nonnegative counts below a positive limit and preserves valid capacity bounds; total release is nonnegative, never increases valid counts, and reverses a successful admission."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-LIFECYCLE",
+          "statement": "The finite two-caller async admission model at capacities one and two preserves exact reservation ownership and bounds, permits callback execution only after publication, releases failed parent reservations or aborted child reservations exactly once, and terminates conditionally on callbacks and primitives returning."
+        },
+        {
+          "id": "F-ASYNC-ADMISSION-CONFORMANCE",
+          "statement": "Compiled async admission helper tests cover preparation/publication failure and interruption, callback cancellation, masked-parent unmasking, queue saturation and generated concurrency; pure counters match exact integer cases. Two baseline control-slice regressions are reproduced and rejected by the new helper; reviewed Main source binds the production integration."
+        },
+        {
+          "id": "F-ASYNC-SEAL-INVARIANTS",
+          "statement": "For valid bounded counts and positive capacity, sealed admission rejects without changing count, open admission preserves bounds, release is nonnegative and nonincreasing, and closed zero is stable; completion notification requires closed zero."
+        },
+        {
+          "id": "F-ASYNC-SEAL-LIFECYCLE",
+          "statement": "In the finite two-caller, two-sealer composition at capacities one and two, closure is permanent, no post-seal reservation is accepted, exact ownership is preserved, completion cannot precede final reservation release, notifications cannot be consumed, and quiescence follows under primitive and callback progress."
+        },
+        {
+          "id": "F-ASYNC-SEAL-CONFORMANCE",
+          "statement": "Compiled seal tests reproduce and repair snapshot-missed preparation and result-before-finalizer false acknowledgement; source-bound Main seals all pools before snapshots and waits on private reservation completion. Generated concurrent cases, interrupted waiters and repeated seals/reads exercise conformance without asserting complete IO refinement."
+        },
+        {
+          "id": "F-BACKTEST-GATE-NUMERIC",
+          "statement": "For arbitrary positive machine Int maximum B and representable seconds s, Integer-based U=min(B,max(1,s)*1000000) is positive, bounded by B and the sanitized exact duration, exact below saturation and monotone; it never wraps into the unlimited negative timeout sentinel."
+        },
+        {
+          "id": "F-BACKTEST-GATE-LIFECYCLE",
+          "statement": "The finite two-caller backtest gate at capacities one and two, with immediate/waiting modes, preserves exact reservation ownership and bounds, prevents callbacks on failed admission, releases each owner once and propagates cancellation/foreign timeout. Every reachable state can reach quiescence; retry cycles remain explicit and no unconditional eventual-termination claim is made."
+        },
+        {
+          "id": "F-BACKTEST-GATE-CONFORMANCE",
+          "statement": "Compiled backtest-gate tests reproduce baseline own-timeout, cancellation, outer-timeout and duration-overflow failures plus an instrumented reserve/finalizer-gap schedule, and check success/error cleanup, contention, waiting cancellation/retry, caller masking and generated concurrency. Reviewed Main keeps its existing HTTP/message mapping; source-bound tests are not full IO refinement."
+        },
+        {
+          "id": "F-DRAIN-POOL-ORDER",
+          "statement": "Shared drain and pool reservation equations reject without changing capacity after drain, preserve bounds and monotonic closure, release ownership independently of drain, and commute for independent pools under a fixed latch. STM serializability is an explicit runtime assumption."
+        },
+        {
+          "id": "F-DRAIN-POOL-LIFECYCLE",
+          "statement": "The finite two-caller, two-pool, two-drainer composition at capacities one and two excludes post-drain reservations even after stale ingress snapshots, preserves ownership and monotonic closure, and has terminating finite paths under primitive/callback progress. Pre-drain owners may execute after drain; no whole-server quiescence is claimed."
+        },
+        {
+          "id": "F-DRAIN-POOL-CONFORMANCE",
+          "statement": "Compiled literal baseline fixtures reproduce stale-ingress async, immediate and waiting backtest admissions; real shared-latch helpers reject them without effects. Runtime tests cover transaction rollback, both ownership/drain orderings, waiting rejection, release, independent controllers and generated concurrency. Source binding checks all four server pools share the controller; no complete HTTP or IO refinement is claimed."
+        },
+        {
+          "id": "F-DRAIN-GATES-SOURCE",
+          "statement": "Every HTTP route whose handler can transitively reach signal, backtest or trade computation, an optimizer process, a bot start or an order path is a POST route rejected while draining, except two reviewed credential probes (test-mode or read-only); within the server's call graph every backtest computation runs through the drain-latched backtest gate or a drained route; bot start publication checks the drain latch under the runtime lock before launch; the only two bot order-decision functions refuse while draining and are the only callers of the bot order paths; and the optimizer process launch refuses while draining."
+        },
+        {
+          "id": "F-DRAIN-GATES-FLOW",
+          "statement": "Exhaustive interleavings of a drain with an HTTP request, an auto-start publication, a bot order decision and a compute iteration - each checking the latch atomically before its work - never begin work admitted after the latch, while work admitted before it may finish; removing any one of the four gates reaches post-drain work."
+        },
+        {
+          "id": "F-ORDER-IDEMPOTENT-SOURCE",
+          "statement": "Binance and Coinbase exchange requests use venueRetryConfig, under which no write (POST, PUT, DELETE) is ever re-sent by the transport regardless of TRADER_HTTP_RETRY_WRITES, over venue managers with http-client's implicit stale-connection retry disabled; the only order re-send is the timestamp retry, which fires only after a non-2xx response carrying the explicit -1021 timestamp rejection; every live Binance futures, spot and Coinbase order decision re-reads the venue position or balance first and is a no-op for an already-held target; keyed orders reconcile an unknown outcome by client order id; and a retried bot start or keyed manual trade is refused or replayed rather than re-executed."
+        },
+        {
+          "id": "F-ORDER-IDEMPOTENT-FLOW",
+          "statement": "Exhaustively over up to three decisions in which each order may or may not apply at the venue and its response may be lost, target-position decisions that observe the venue position never leave more than the target exposure; delta-sized decisions or a transport that re-sends a lost write both exceed it."
+        },
+        {
+          "id": "F-RL-DATA-COMPOSITION",
+          "statement": "Every admitted scale reference in the four-source offline runner is a checked training fit, immutable owner binding, read, serialization or parameter-preserving forwarding edge; reviewed loader and caller composition preserves local market provenance. The 28 source-use sites are exhaustively checked under A-DATA-COMPOSITION, not a verified Python interpreter."
+        },
+        {
+          "id": "F-RL-DATA-KEYS",
+          "statement": "Source-derived panel equality filters and collector, replay and OPE call arguments select the declared symbol and pair prices with funding for arbitrary mathematical symbol strings. Six satisfiable-premise/UNSAT-violation queries compose with the checked dataflow skeleton."
+        },
+        {
+          "id": "F-RL-PPO-V2-FLOW",
+          "statement": "In the source-bound one-through-sixteen-rollout four-epoch private-call model, only completion of every target, actor, critic and finite-loss stage can publish a TrainingResult. Every modeled stage failure returns absent even after a local actor update; rank decreases on all transitions."
+        },
+        {
+          "id": "F-RL-PPO-V2-BOUNDS",
+          "statement": "The source-derived PPO successor configuration and batch arithmetic accept only integer horizons 1/3/6, bounded seeds and 1..4096 steps; each collected batch has 1..256 rows and the final processed prefix equals the requested step count."
+        },
+        {
+          "id": "F-RL-PPO-V2-FINITE",
+          "statement": "Passing the actual successor objective guard requires a finite binary64 loss before actor update or result publication, under the NumPy finite-scan abstraction. Snapshot finiteness is supplied separately by F-RL-SNAPSHOT-FINITE."
+        },
+        {
+          "id": "F-RL-PPO-V2-BOUNDARY",
+          "statement": "The complete reviewed PPO successor source has one default-disabled version-guarded training entry, owned immutable-prefix copies, checked v2 target/optimizer consumers and one immutable final result publication; its enumerated helper effects introduce no file, network, order, promotion or production operation."
+        },
+        {
+          "id": "F-RL-PPO-V2-CONFORMANCE",
+          "statement": "Actual synthetic PPO successor training composes collection, training-only scale fitting, terminal-safe GAE and immutable actor/critic updates; all registered seed/horizon/budget cases replay identically and injected partial, invalid or non-finite failures publish no result."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-CODEC",
+          "statement": "The reviewed Haskell Integer-word, version, step, shape and binary64 guards reject unsupported transient requests; accepted word conversion is lossless modulo 2^64 and every completed supported PPO step budget maps to an allowed snapshot step."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-FLOW",
+          "statement": "In the source-bound one-child request lifecycle, a published proposal requires successful snapshot decoding, request revalidation, successful cleanup and a fresh unexpired final deadline check; every modeled transition lowers rank."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-BOUNDARY",
+          "statement": "The complete reviewed PPO request encoder is default-disabled and version-guarded; its pure decoder and explicit research-only Haskell dispatch cannot construct an order capability, persist an artifact, train a policy or promote a candidate. Existing v2 dispatch semantics remain explicit."
+        },
+        {
+          "id": "F-RL-BRIDGE-V3-CONFORMANCE",
+          "statement": "Nine actual synthetic PPO training configurations pass exact-bit request encoding, compiled Haskell decoding and supervised inference checks on 27 clear-margin observations; invalid, tied, late and cleanup-failed requests yield absence."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-GUARD",
+          "statement": "Accepted source-bound digest and metadata comparisons exclude mismatches, admitted raw byte size is 1..65536, and completed supported PPO budgets map to snapshot steps 4..64 divisible by four."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-FLOW",
+          "statement": "In the one-shot artifact-to-request gate model, publication requires every enabled, integrity, metadata, restoration, canonical and v3 bridge gate; failure is terminal and no authorization transition exists."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-BOUNDARY",
+          "statement": "The complete reviewed PPO artifact byte codec and helper inventory exposes only three default-disabled pure entries with no file, network, training, promotion or order effects."
+        },
+        {
+          "id": "F-RL-ARTIFACT-V4-CONFORMANCE",
+          "statement": "Nine synthetic PPO configurations preserve immutable training state, canonical artifact bytes and compiled Haskell request bit patterns; generated finite bit patterns round-trip and registered malformed artifacts reject."
+        },
+        {
+          "id": "F-ROUND-DOWN-INTEGER",
+          "statement": "For exact nonnegative N and positive D, u=N div D satisfies 0<=u, u*D<=N<(u+1)*D; reconstructing positive-scale/increment rational grid values preserves downward bounds."
+        },
+        {
+          "id": "F-ROUND-DOWN-FINITE",
+          "statement": "The source-bound binary64 publication guard returns finite nonnegative output no greater than a valid positive finite input, independently of intermediate conversion output; invalid input or nonpositive scale/increment returns zero before division. The shared preflight accepts only finite quantities and positive present grid fields; source-bound Either ordering rejects these invalid inputs before minimum-size fallback."
+        },
+        {
+          "id": "F-ROUND-DOWN-CONFORMANCE",
+          "statement": "The compiled exact rounding core matches an independent Fraction oracle on 130 boundary and 4096 seeded bit-pattern cases, preserves CE-ROUND-001, and the Binance adapter passes generated finite/non-increase/delegation tests."
+        },
+        {
+          "id": "F-ROUND-UP-INTEGER",
+          "statement": "For positive exact N,D, ceiling quotient u=(N+D-1) div D satisfies (u-1)D<N<=uD; positive-scale rational reconstruction is no smaller than the exact input and less than one grid increment above it."
+        },
+        {
+          "id": "F-ROUND-UP-FINITE",
+          "statement": "The source-bound upward binary64 guard returns zero or a finite value at least its finite positive input; invalid input/grid returns zero before partial arithmetic. The maker-price predicate accepts only finite positive prices."
+        },
+        {
+          "id": "F-ROUND-UP-FLOW",
+          "statement": "In the one-call maker price dispatch model, invalid price reaches only terminal rejection for either fallback setting, while valid price reaches eligibility; the numeric rejection branch contains no order or fallback effect."
+        },
+        {
+          "id": "F-ROUND-UP-CONFORMANCE",
+          "statement": "Both actual Main upward delegates match the exact Fraction oracle on 130 boundary and 4096 seeded cases; compiled actual maker-price dispatch rejects invalid prices for both fallback settings and reproduces the old numeric-error market fallback."
+        },
+        {
+          "id": "F-ORDER-NUMBER-FINITE",
+          "statement": "The source-bound binary64 number validator accepts only finite positive selected quantities or prices; NaN, infinity, nonpositive values reject without numeric conversion."
+        },
+        {
+          "id": "F-ORDER-NUMBER-SELECTION",
+          "statement": "Market numeric admission follows base-first selection; an invalid present base cannot fall back to quote, futures requires base, and accepted quote-only input is finite positive and non-futures."
+        },
+        {
+          "id": "F-ORDER-NUMBER-FLOW",
+          "statement": "In the five-constructor local guard model, the credential boundary is reachable only after numeric, parsed-wire and context prefix guards pass; rejected guards are terminal. This is not complete order authorization."
+        },
+        {
+          "id": "F-ORDER-NUMBER-CONFORMANCE",
+          "statement": "Compiled actual current and preserved legacy Binance guard prefixes match an independent numeric/wire/selection/context oracle on 1632 boundary combinations and 4096 generated rows; wire bytes match the preserved formatter, zero-wire values stop before credentials, and maker zero-wire rejection cannot enter the source-derived market-fallback branch."
+        },
+        {
+          "id": "F-ORDER-WIRE-POSITIVE",
+          "statement": "Under the pinned deterministic formatter and Fixed E12 parser assumptions, source-bound selected-value admission requires a successful parse and strictly positive unbounded Integer wire units; failed parsing or nonpositive wire units rejects before credentials."
+        },
+        {
+          "id": "F-ROUND-MIN-CAP-SOURCE",
+          "statement": "The only quantity increase in the Binance order path is normalizeEntryQty's raise to the venue minimum; its spot caller applies it only to an explicit orderQuantity, which cannot carry maxOrderQuote (argument validation requires fraction sizing), and its futures caller refuses any fraction-sized order whose serialized wire quantity times price exceeds maxOrderQuote, compared exactly (CE-ROUND-003)."
+        },
+        {
+          "id": "F-ROUND-MIN-CAP",
+          "statement": "Over the reals, a fraction-sized futures entry - quote capped at maxOrderQuote, quantity rounded down to the step grid, then possibly raised to the venue minimum under the cap guard - never publishes a notional (serialized quantity times price) above maxOrderQuote; without the guard the raise does exceed it."
+        },
+        {
+          "id": "F-ORDER-WIRE-GRID",
+          "statement": "Every order number reaches the wire as an exact decimal whose binary64 never exceeds the checked value: Binance and Coinbase render through renderOrderNumber and DEX token amounts through the same gridUnits rule - the shortest round-trip decimal of the value when it fits the venue grid (8 decimals, or the token's decimals), otherwise the exact binary value truncated toward zero. Below 2^24 half an ulp is under half an 8-decimal step and an ulp under a step, so 8-decimal grid values are recovered exactly and keep their order as doubles: cap comparisons on doubles are comparisons on the wire decimals."
+        },
+        {
+          "id": "F-ORDER-WIRE-GRID-CONFORMANCE",
+          "statement": "The compiled actual renderOrderNumber and gridUnits match the exact contract on 3930 seeded 8-decimal grid values, 3006 arbitrary finite doubles from random bit patterns and 4000 token amounts at 6 and 18 decimals: grid values are recovered exactly, other values are truncated (or a tied shortest round-trip decimal is used), and no wire or token value's binary64 exceeds the checked value."
+        },
+        {
+          "id": "F-SIZING-INPUT",
+          "statement": "The source-bound binary64 admission model requires finite nonnegative present effective quantity/notional bounds, ordered present quantity bounds, finite positive supplied prices, and a supplied price for positive minimum notional."
+        },
+        {
+          "id": "F-SIZING-PUBLISH",
+          "statement": "Conditional on upstream quantity finiteness and rounding certificates, the source-bound publication comparison model permits only finite positive quantities within present effective quantity bounds; quote minimum expansion remains finite positive and satisfies present minimum notional."
+        },
+        {
+          "id": "F-SIZING-RETRY",
+          "statement": "The five new sizing-validation errors and existing non-finite/negative/grid errors cannot match the actual Main minimum-size retry classifier string predicate."
+        },
+        {
+          "id": "F-SIZING-FLOW",
+          "statement": "In the local minimum-retry model, invalid quantity/metadata admission is terminal and cannot reach normalization, minimum expansion or publication; only the existing too-small outcome permits retry."
+        },
+        {
+          "id": "F-SIZING-CONFORMANCE",
+          "statement": "Compiled actual current and preserved Main sizing functions match an independent admission oracle on 6214 rows, preserve accepted valid output bits and entry flags, publish finite positive bounded quantities, and reject invalid input before a forbidden minimum-retry marker."
+        },
+        {
+          "id": "F-RECOVERY-NUMERIC",
+          "statement": "Source-bound closed-trade admission publishes only finite returns from finite equities with positive entry equity, rejects explicitly non-finite returns, and requires nonnegative holding periods and absent or finite unit-interval probability."
+        },
+        {
+          "id": "F-RECOVERY-INDEX",
+          "statement": "The exact Integer index recurrence checks nonnegative entry and strictly greater exit within the machine bound before narrowing; accepted indices fit signed 32-bit and 64-bit Int under their respective bounds."
+        },
+        {
+          "id": "F-RECOVERY-FLOW",
+          "statement": "In the local record-eligibility and selected-history publication model, identity, numeric or index rejection prevents that record from publication; repeated terminal operations are stable."
+        },
+        {
+          "id": "F-RECOVERY-CONFORMANCE",
+          "statement": "Compiled actual recovery helpers agree with independent numeric/index oracles on 2675 numeric rows and 1031 histories, preserve admitted legacy returns and indices, repeat deterministically and reproduce four preserved counterexamples."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-PREDICATE",
+          "statement": "The source-bound inventory row predicate admits only finite amounts and requires every admitted nonzero row to have a nonempty symbol and an existing running, non-starting, trade-enabled runtime with matching signed side; opposite sides cannot both match one runtime."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-FLOW",
+          "statement": "The two-cycle inventory readiness publication model clears prior readiness before scanning, rejects failed or interrupted scans, never promotes from start acknowledgment, and can recover only through a successful reconciled scan."
+        },
+        {
+          "id": "F-INVENTORY-READINESS-CONFORMANCE",
+          "statement": "The compiled actual Haskell inventory readiness predicate agrees with the independent oracle on 6468 finite metadata/numeric partition cases in two repeated runs; source-bound scan/caller checks preserve four counterexample regressions."
+        },
+        {
+          "id": "F-READINESS-EPOCH-SOURCE",
+          "statement": "Every definition that mutates the bot runtime map (start publication, start-failure removal, Starting-to-Running promotion, stop, worker cleanup) and every possibly-live manual trade completion bumps the runtime epoch inside the same runtime lock; the readiness scan revokes readiness, reads its runtime snapshot together with the epoch under the lock, and publishes readiness tagged with that epoch and scan time only when the scan reconciled; both HTTP readers (/ready and /health) report ready only when the tagged epoch is current and the scan is within the freshness bound. A possibly-live manual trade is counted in flight from admission to completion under the runtime lock, bumping the epoch at both ends, the scan reads the in-flight count with its snapshot and never publishes readiness while a trade is in flight, and readers read the in-flight count before the epoch (barrier reads) and require it to be zero."
+        },
+        {
+          "id": "F-READINESS-EPOCH-FLOW",
+          "statement": "Exhaustive interleavings of the readiness scan (revoke, snapshot, venue read, publish) with a bot stop that leaves its position open, a bot start and a manual trade admitted, filled (opening a position) and completed never let an epoch-validating reader report ready while the current runtime and venue inventory are unreconciled, and readiness remains reachable; with lock-taking steps atomic and a lock-free two-read reader; dropping the epoch check (CE-READY-001), the epoch bump on stop, the in-flight count (bumping only at completion) or the scan's in-flight check reaches such a state, while the epoch/count write order is shown not to matter."
+        },
+        {
+          "id": "F-READINESS-EPOCH-CONFORMANCE",
+          "statement": "A compiled program against the actual Trader.App.Readiness module accepts readiness only at the scanned epoch and within the freshness bound (ten scan intervals, at least five minutes), keeps servers without live recovery ready and never accepts revoked readiness; the Haskell suite checks the same decisions."
+        },
+        {
+          "id": "F-RL-PROMOTION-SURFACE",
+          "statement": "The complete reviewed twelve-module research source closure has six fixed callback bindings, literal research output destinations and no unreviewed call/import/control-field site under the named primitive-effect assumptions."
+        },
+        {
+          "id": "F-RL-PROMOTION-METADATA",
+          "statement": "Extracted v1/v4 artifact writers retain fixed research promotion and exact false enabled metadata; accepted decoder metadata cannot change those fields, and runner authorization/promotion flags are literal false."
+        },
+        {
+          "id": "F-RL-PROMOTION-SCHEMA",
+          "statement": "Neither emitted v1 nor v4 policy key set satisfies the required keys extracted from the unchanged native persisted-LSTM decoder."
+        },
+        {
+          "id": "F-RL-PROMOTION-FLOW",
+          "statement": "The source-derived finite create/save/load/infer/failure/disable/retry/successor abstraction never reaches promoted persisted metadata or live authority, under the separately required capability and component-isolation certificates."
+        },
+        {
+          "id": "F-RL-PROMOTION-CONFORMANCE",
+          "statement": "Actual v1/v4 codecs accept only the two correct research-only metadata tuples among 72 cases; both exclusive-create writers preserve an existing file, and source/model mutations reject boundary weakening."
+        },
+        {
+          "id": "F-RL-ARTIFACT-COMPOSITION",
+          "statement": "Both delivered artifact readers bind validation to immutable expected identity and the exact hashed byte snapshot, construct parameters through reviewed helpers and retain the separately checked non-authorizing Haskell/native-decoder boundary."
+        },
+        {
+          "id": "F-RL-ARTIFACT-IDENTITY",
+          "statement": "Accepted source-derived v1/v4 digest and provenance predicates imply equality with the captured expected values; outer and nested snapshot version predicates imply the supported version literals."
+        },
+        {
+          "id": "F-RL-ARTIFACT-SNAPSHOT-FLOW",
+          "statement": "In the finite equality-class concurrent replacement model, every published artifact matches the captured expected provenance, expected digest and supported versions regardless of later caller or path replacement."
+        },
+        {
+          "id": "F-RL-ARTIFACT-COMPOSITION-CONFORMANCE",
+          "statement": "The preserved old loader reproduces the provenance race; the repaired loader and v4 reject the scheduled mismatch, preserve single-read bytes and stable-input compatibility, and reject incompatible versions and malformed parameters."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-GATES",
+          "statement": "Under the reviewed MVar transaction and private-gate correspondence, an executable child has a completed nonfailed publication; nested map insertion preserves every other key and duplicate admission preserves the map."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-FLOW",
+          "statement": "The finite two-start single-key publication protocol never executes an unpublished worker, preserves committed registration and one-shot gate decisions, and has a decreasing publication rank under returning primitives and fair scheduling."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-SOURCE",
+          "statement": "The complete gated helper and actual botStartSymbolWithSettings binding retain both duplicate checks, prepare metadata before forking, publish the actual child identity and release execution only after the masked map transaction returns."
+        },
+        {
+          "id": "F-BOT-PUBLICATION-CONFORMANCE",
+          "statement": "Compiled Haskell regressions reproduce the legacy unpublished-worker interleaving and check committed identity, unmasked execution, retained state, three publication failure cuts, preparation cancellation and two concurrent starts."
+        },
+        {
+          "id": "F-RL-ARCHIVE-SOURCE",
+          "statement": "All delivered archive writes are bound to five actual exclusive-create sites, fixed destinations and reviewed callback/effect closures; candidate output cannot invoke a production selector or choose a persistence destination."
+        },
+        {
+          "id": "F-RL-ARCHIVE-PRESERVE",
+          "statement": "Exclusive acquisition and writes through newly owned handles preserve every existing protected file identity and byte value, including rejected collisions, partial writes and retries, under named filesystem semantics."
+        },
+        {
+          "id": "F-RL-ARCHIVE-FLOW",
+          "statement": "The finite two-writer namespace/handle protocol preserves protected objects across acquisition, colliding insertion, partial/full write, failures and unbounded retries; the legacy truncating mode reaches a preserved counterexample."
+        },
+        {
+          "id": "F-RL-ARCHIVE-CONFORMANCE",
+          "statement": "Actual exporter and writer regressions reproduce three legacy collision failures, preserve regular/symlink/hardlink targets after repair, retain seven report byte streams and preserve existing files on failed writes and retries."
+        },
+        {
+          "id": "F-RL-SHIELD-CONSUMERS",
+          "statement": "All delivered replay constructors, receiver uses, callbacks and action consumers preserve local instance ownership; actual step admission dominates scheduling and both guarded fill paths, under reviewed primitive effects."
+        },
+        {
+          "id": "F-RL-SHIELD-ORIGIN",
+          "statement": "The extracted absent-or-shielded pending transfer preserves action origin and the shield action domain; consumed pending targets require current admission, observation, due and risk gates; terminal zero is independently risk-selected and distinct instances preserve each other."
+        },
+        {
+          "id": "F-RL-SHIELD-FLOW",
+          "statement": "The finite repeated-call shield/observation/pending/fill model and its independent two-instance product preserve shield origin and consumer precedence, including delayed pending targets, rejection, cancellation and fixed-zero terminal liquidation."
+        },
+        {
+          "id": "F-RL-SHIELD-CONSUMER-CONFORMANCE",
+          "statement": "Actual shield, Replay and all collector/replay/OPE consumers conform to projected model traces on synthetic paths; generated invalid proposals cannot consume an existing pending target."
+        },
+        {
+          "id": "F-RL-PIT-TIME",
+          "statement": "Source-derived integer availability bounds every selected timestamp by the decision and signed-63-bit publication domain; maximum visible revision transfer preserves its order, tie rejection and unavailable-record frame."
+        },
+        {
+          "id": "F-RL-PIT-BOUNDARY",
+          "statement": "The complete reviewed v3 entry admits immutable witnessed per-bar vintages before its sole private-array PPO successor call, defaults disabled, and publishes only a complete versioned envelope without new persistence, promotion or order effects."
+        },
+        {
+          "id": "F-RL-PIT-FLOW",
+          "statement": "The finite two-slot three-revision scan and training protocol never trains or publishes from missing or ambiguous greatest-visible revisions; failed or disabled calls publish no result."
+        },
+        {
+          "id": "F-RL-PIT-CONFORMANCE",
+          "statement": "Actual timestamp admission agrees with an independent oracle on generated records, preserves symbol and future-payload isolation, rejects malformed/missing data and composes with the actual PPO successor on a registered synthetic fixture."
+        },
+        {
+          "id": "F-RL-OPE-V2-ARITH",
+          "statement": "Source-extracted exact rational OPE weight, discount, return, IS, PDIS, DR and batch recurrences satisfy their algebra; nonzero supported weights stay positive, ESS accumulation preserves Cauchy bounds, and guarded means/WIS/ESS have nonzero denominators. Checked rational primitives bound intermediate representation size."
+        },
+        {
+          "id": "F-RL-OPE-V2-BOUNDARY",
+          "statement": "The reviewed complete OPE v2 surface is default-disabled, admits the entire immutable bounded batch before arithmetic, uses checked exact primitives, and returns only a versioned descriptive envelope without persistence, promotion or order effects."
+        },
+        {
+          "id": "F-RL-OPE-V2-FLOW",
+          "statement": "The finite two-episode three-decision OPE publication model rejects invalid data before arithmetic and never publishes a partial batch on arithmetic or allocation failure."
+        },
+        {
+          "id": "F-RL-OPE-V2-CONFORMANCE",
+          "statement": "The actual exact OPE estimator agrees with an independent prefix-product oracle, preserves positive extreme weights, rejects invalid and oversized batches, and deterministically publishes immutable descriptive results without statistical acceptance."
+        },
+        {
+          "id": "F-RL-BUNDLE-ARITH",
+          "statement": "Source-bound partial-write cursors remain within the encoded byte length and strictly progress on admitted writes; exclusive publication and exact existing-byte comparison preserve old identity/content and reject mismatched acknowledgements."
+        },
+        {
+          "id": "F-RL-BUNDLE-SOURCE",
+          "statement": "The complete reviewed default-disabled publisher encodes a closed research-only schema before effects, writes only exclusively acquired staging descriptors, fsyncs complete bytes before an exclusive same-directory link, and fsyncs the directory before success; exporter admission/reconciliation dominates its sole optional call."
+        },
+        {
+          "id": "F-RL-BUNDLE-FLOW",
+          "statement": "Two-writer finite crash/retry interleavings never expose partial target bytes, replace an existing target or lose acknowledged bytes under modeled fsync semantics; every same-intent state has a healthy completion path and unacknowledged-writer steps strictly decrease a checked recovery rank."
+        },
+        {
+          "id": "F-RL-BUNDLE-CONFORMANCE",
+          "statement": "Actual verified export preserves seven legacy report byte strings in a deterministic bundle; filesystem faults, process crashes, conflicts, short writes and concurrent retries preserve old files and recover matching complete output without replacing its inode."
+        },
+        {
+          "id": "F-RL-STAGE-SOURCE",
+          "statement": "The complete delivered research writer/reader/effect surface projects admitted candidates to Research eligibility and has no alternative promotion consumer; this source-to-stage composition requires the existing artifact, Haskell protocol, capability and build certificates."
+        },
+        {
+          "id": "F-RL-STAGE-STEP",
+          "statement": "For arbitrary JSON metadata classes and unconstrained evidence/review booleans, actual v1/v4 decoder predicates imply exact research-only metadata and false enabled flags; every admitted Research-to-Research step refines the mandatory-stage relation, and non-research metadata is rejected."
+        },
+        {
+          "id": "F-RL-STAGE-FLOW",
+          "statement": "The finite delivered-format model preserves Research eligibility across create/save/load/infer/failure/disable/retry/successor histories, including retained results and advanced-stage input attempts; no stage advancement or skipping is reachable."
+        },
+        {
+          "id": "F-RL-STAGE-CONFORMANCE",
+          "statement": "Actual v1/v4 writers/loaders retain ordinary research behavior and reject every tested promoted or malformed metadata tuple even after hashes are correctly recomputed; nested policy data cannot override root control fields."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-SOURCE",
+          "statement": "Actual private FIFO registration, head-only reservation, immediate-call refusal, cancellation cleanup and drain handoff match the reviewed admission transition mapping; both slot owners install release before unmasking."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-NUMERIC",
+          "statement": "Exact Integer ticket increments preserve freshness and finite predecessor-rank summaries; bounded Int reservation preserves capacity and inverse release under the stated primitive semantics."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-FLOW",
+          "statement": "In the three-caller capacity1/2 FIFO transition model, reservations preserve ownership, queue identity and draining safety, and every persistent waiter resolves under weak action fairness and terminating owner/cleanup assumptions; legacy polling admits a fair starvation lasso."
+        },
+        {
+          "id": "F-ADMISSION-PROGRESS-CONFORMANCE",
+          "statement": "Compiled current Haskell gates reject barging, preserve FIFO, clean up cancelled waiters and wake on drain; the preserved legacy helper admits a competing request before its registered retrying waiter in the tested finite schedule."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-SOURCE",
+          "statement": "Exact replay v2 has a completely reviewed pure source boundary, immutable state and receipts, explicit default rejection and version admission, and bounded rational primitives; it introduces no file, policy, promotion or order effect."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-ARITH",
+          "statement": "Source-extracted exact gross, funding and cost sums satisfy the one-step wealth identity and additive closing debit; admitted rational intermediates have bounded integer sizes, and the impact square-root upper approximation conservatively encloses the exact root under the isqrt contract."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-FLOW",
+          "statement": "The finite exact replay publication abstraction publishes only complete receipts, records terminal inventory as flat or explicitly failed liquidation, rejects arithmetic failure without a receipt, and has no continuation or order transition after termination."
+        },
+        {
+          "id": "F-RL-ACCOUNT-V2-CONFORMANCE",
+          "statement": "Exact replay v2 generated traces satisfy an independent compiled Haskell Rational wealth oracle, deterministic repetition and terminal refusal; extreme funding, subnormal-sized debits, insolvency and interrupted computation have explicit regression coverage."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-SOURCE",
+          "statement": "Exact funding events v2 has a completely reviewed pure source boundary, a canonical ASCII fixed-point decimal and integer-time admission domain, an immutable all-or-nothing published value, activation-first default rejection and checked rational primitives; it introduces no float, file, network, policy, promotion or order effect."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-ARITH",
+          "statement": "On the admitted decimal domain, decoded, product, 128-term accumulated and reduced funding coefficients and every Fraction primitive intermediate stay far below the 8192-bit guard, so admitted settlements publish exact coefficients without overflow, underflow or rounding while out-of-domain text rejects before arithmetic; the sweep assigns each event to the unique first close no earlier than its time."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-FLOW",
+          "statement": "The finite funding-load publication abstraction publishes a value only after activation, grid, record, bucket and arithmetic stages all succeed; any stage failure is terminal with no partial publication and no order transition."
+        },
+        {
+          "id": "F-RL-FUNDING-V2-CONFORMANCE",
+          "statement": "Exact funding v2 seeded synthetic loads and registered edge cases, including both CE-RL-019 witnesses as decimal text, agree with an independent compiled Haskell Rational oracle, repeat deterministically, reject by default, and compose with replay-accounting-v2 so that exact funding equals minus units times the published coefficient."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-SOURCE",
+          "statement": "Exact replay runner v2 has a completely reviewed pure source boundary that imports only the two exact v2 kernels, admits only matching funding buckets, prices and a bounded fixed target schedule, reads only prices[left], prices[left+k], buckets.events[left+k] and targets[k-1], forces the final step terminal, publishes an immutable episode or nothing, and has activation-first default rejection with no policy, file, promotion or order effect."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-ARITH",
+          "statement": "For every admitted start, horizon and grid, each runner read index is in bounds and step k reads no bar after left+k; the final step alone is forced terminal; final equity telescopes to one plus summed gross and funding minus summed debits from the per-step identity; and every charged funding bucket has index at least one, so an event charged at step k lies in (close[left+k-1], close[left+k]] and the bucket-0 prehistory exception is never charged."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-FLOW",
+          "statement": "The finite runner abstraction for horizons 1..8 publishes only terminal episodes with between one and H receipts, never steps beyond H, rejects without publication at any step, and has no continuation or order transition after publication."
+        },
+        {
+          "id": "F-RL-RUNNER-V2-CONFORMANCE",
+          "statement": "Seeded synthetic episodes satisfy deterministic repetition, default rejection, exact telescoping, funding and price alignment and per-row agreement with the compiled Haskell Rational wealth oracle; rewriting every price and settlement after the step-k close leaves receipts 1..k unchanged, and this metamorphic check rejects deliberately leaky future-price and future-funding variants."
+        },
+        {
+          "id": "F-RL-VALUE-V2-SOURCE",
+          "statement": "Value objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain, activation-first default rejection, a conservative penalty evaluated only when alpha is positive and computed from differences only, fsum reductions, zero canonicalization and a final finiteness guard before immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V2-ARITH",
+          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^202 and gradients below 2^102, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
+        },
+        {
+          "id": "F-RL-VALUE-V2-FLOW",
+          "statement": "The finite value-objective publication abstraction publishes only after activation, admission, computation with or without the penalty and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-VALUE-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
+        },
+        {
+          "id": "F-RL-VALUE-V6-SOURCE",
+          "statement": "Causal value v6 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly two generator draws per step, magnitude guards on every consumed reward and network value, terminal rows without bootstrap, checked transition, objective and optimizer stages, target replacement only after the final update of a rollout and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V6-ARITH",
+          "statement": "Under the standard rounding model, rewards and selected target-network values bounded by 2^99 give a Double-DQN target of magnitude at most 2^100 after one rounded multiplication by the discount and one rounded addition, so admitted targets lie in the value-objective-v2 domain and cannot overflow, and the bound is exceeded without either guard; epsilon-greedy behavior probabilities are positive, below one and sum to one, equal to 11/12 and 1/24 at the registered rate; the first maximal online value selects a bounded target-network value; and at most 16384 optimizer steps occur, below the optimizer step cap."
+        },
+        {
+          "id": "F-RL-VALUE-V6-FLOW",
+          "statement": "The finite causal-value training abstraction publishes only after activation and after every rollout's collection, target formation, fixed update count and target replacement succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and the target snapshot is replaced only after the final update of a rollout."
+        },
+        {
+          "id": "F-RL-VALUE-V6-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout target equals an independent exact-rational evaluation of the two correctly rounded operations bit for bit; behavior probabilities equal the exact rule for the recorded action; rewriting every outcome from step k onward leaves earlier transitions, targets and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes and out-of-bound values reject."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-SOURCE",
+          "statement": "PPO objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain with an old-probability floor of 2^-100, activation-first default rejection, a softmax computed from differences to the row maximum only, a coefficient selected by branch rather than multiplied by an activity flag, fsum reductions, zero canonicalization and a final finiteness guard before a single immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-ARITH",
+          "statement": "Under the standard rounding model on the admitted domain, softmax terms lie in [0,1] with total in [1,3], the probability ratio is at most 2^100(1+u)^2, the clipped ratio lies in [0.8,1.2], the surrogate term is bounded by the larger factor magnitude, an inactive row has coefficient exactly zero and an active nonnegative-advantage row has a coefficient bounded by the clip ceiling times the advantage; loss stays below 2^201 and gradients below 2^202, so admitted inputs never overflow and no zero-times-infinity product can form."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-FLOW",
+          "statement": "The finite PPO-objective publication abstraction publishes only after activation, admission, computation over active or inactive rows and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, inactive rows publish exactly zero gradients, gradients match oracle finite differences away from clip boundaries, the CE-RL-012 witness rejects with a finite in-domain analogue whose gradient is exactly zero, the CE-RL-013 witness reproduces coefficient -8 as intended clipped-objective behavior, and underflowed terms are counted with canonical published zeros."
+        },
+        {
+          "id": "F-RL-PPO-V7-SOURCE",
+          "statement": "Causal PPO v7 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly one generator draw per step, a difference-only softmax with a 2^-100 floor on all three action probabilities, magnitude guards on every consumed reward, network value, raw advantage, target, normalized advantage and critic residual, terminal rows without a next-value evaluation, checked transition, target, objective and optimizer stages, joint acceptance of actor and critic candidates and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPO-V7-ARITH",
+          "statement": "Softmax terms in [0,1] with one equal to one give a total in [1,3] and quotient probabilities in [0,1] that sum to one; for probabilities that sum to one the cumulative rule selects exactly one action for every draw in [0,1) with interval lengths equal to the three probabilities; in exact real arithmetic a centered advantage whose square is at most n times the squared scale, with n at most 256, is at most 16 scales; two values guarded at 2^99 have a twice-rounded residual below 2^101, exceeded without the target guard; and at most 16384 optimizer steps occur per network, below the optimizer step cap, with the critic seed below 2^32."
+        },
+        {
+          "id": "F-RL-PPO-V7-FLOW",
+          "statement": "The finite causal-PPO training abstraction publishes only after activation and after every rollout's collection, target formation and fixed count of joint actor-critic updates succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and actor and critic step counts are equal at every rollout boundary and at publication."
+        },
+        {
+          "id": "F-RL-PPO-V7-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout action and behavior probability equals an independent recomputation from the seeded actor and the replayed uniform draws; every first-rollout critic target equals an independent exact-rational evaluation of the correctly rounded GAE recursion bit for bit; normalized advantages are centered with magnitude at most the square root of the rollout length up to rounding; rewriting every outcome from step k onward leaves earlier transitions, actions and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes, out-of-bound values and sub-floor probabilities reject."
+        },
+        {
+          "id": "F-RL-OPE-V8-SOURCE",
+          "statement": "Causal OPE v8 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, admission of exactly the causal-value-v6 and causal-ppo-v7 result types under their own versions, rejection of the whole evaluation when any run is shorter than the horizon so that no run is dropped or padded, horizon-prefix-only access to every run, a 2^-10 floor on every evaluated behavior probability with the value learner's probabilities required to be exactly 11/12 or 1/24, magnitude guards on rewards and supplied values, distinct (version, seed) streams, a checked estimate and a single publication site; it neither trains nor samples and has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-OPE-V8-ARITH",
+          "statement": "Under one correctly rounded sum and three correctly rounded quotients the three recorded softmax probabilities sum to one within 2u/(1-u) for u = 2^-53; with one rounded addition and a uniform draw on the 2^-53 grid, the probability with which the cumulative rule draws each action differs from its recorded probability by at most 2^-50; for a recorded probability of at least 2^-10 the drawing probability is positive and differs relatively by at most 2^-40, which fails without the floor; over at most 32 decisions the trajectory weight formed from recorded probabilities is within a factor 2^-34 of one of the weight under the drawing law; and the binary64 conversions of 11/12 and 1/24 are within 2^-53 relatively."
+        },
+        {
+          "id": "F-RL-OPE-V8-FLOW",
+          "statement": "The finite causal-OPE abstraction publishes only after activation, conversion of every requested run, the stream-distinctness check and a checked estimate; no run is dropped; and any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V8-CONFORMANCE",
+          "statement": "Registered synthetic evaluations over both successor learners are deterministic and reject by default and under a wrong version; every published estimate field equals an independent exact-rational evaluation of the recorded transitions; a target equal to the recorded behavior gives unit weights and full effective sample size; for every evaluated policy-gradient step the exact drawing probabilities counted on the 2^-53 grid reproduce the recorded action and lie within the certified gaps of the recorded probabilities; rewriting every outcome beyond the horizon leaves the evaluation unchanged; a run ending at the horizon is admitted; short, forged, reused, out-of-domain and oversized inputs reject; and the estimator's rational size limit rejects six fixture runs at horizon 32 while admitting four."
+        },
+        {
+          "id": "F-RL-SPLIT-SOURCE",
+          "statement": "The unchanged frozen runner binds each fold's training data to the [:trainStop] slices passed only to scaling, baselines and training, resets the policy per trial and passes evaluation only that split's testStart/testStop; every full-panel use in the fold loop is reviewed; market data enters only through the single hash-gated loader; and Replay, Baselines and short-OPE index expressions are bound to their reviewed forms."
+        },
+        {
+          "id": "F-RL-SPLIT-REGIONS",
+          "statement": "Under the owner-approved standard purge/embargo definition, every training label index is at most trainStop-1, every replay and short-OPE outcome index lies in [testStart+1, testStop-1] and no read reaches testStop, training label windows end before the first test outcome, the embargo is vacuous because trainStop <= testStart, every registered fold lies inside the panel, and the panel's last close precedes the sealed holdout."
+        },
+        {
+          "id": "F-RL-SPLIT-CONFORMANCE",
+          "statement": "On a synthetic panel the actual replay_policy and short_ope results are unchanged when every value at or after testStop is rewritten with finite values, and every recorded replay outcome lies in [testStart+1, testStop-1], for both probe folds and horizons 1, 3 and 6."
+        },
+        {
+          "id": "F-RL-OBS-TRAIN-SCALE",
+          "statement": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision."
+        },
+        {
+          "id": "F-RL-OBS-REPLAY-CAUSAL",
+          "statement": "With a fixed scale, the actual Replay observation, supported() flag and receipts up to step t are unchanged when all prices and funding after t are rewritten, at every decision of 24 seeded episodes."
+        },
+        {
+          "id": "F-RL-BOUNDS-SOURCE",
+          "statement": "The unchanged frozen Replay checks the registered floor, drawdown and exposure bounds after every mark-to-market and after every admitted trade, makes every risk failure terminal with liquidation when equity is positive, exits early only on non-finite/non-positive market data or inadmissible features, ends a rejected proposal without any order, rejects turnover above one half, uses the registered cost terms and shield action set, and the runner's stress configurations are exactly the registered maxima."
+        },
+        {
+          "id": "F-RL-BOUNDS-COMPOSE",
+          "statement": "Every non-terminal state satisfies the registered floor and computed exposure bounds on the stored doubles, and its passing rounded drawdown check fl(1-fl(eq/peak)) <= 0.15 implies an exact peak-relative drawdown below 3/20 + 2^-50; under A-GAP-BOUND, a per-operation binary64 error model (fl(x)=x(1+d)+e, |d|<=2^-53, |e|<=2^-1075, exact literal values, range premise prices and equity in [2^-400, 2^400] so every intermediate stays below 2^1000) applied along the AST-bound mark-to-market and trade operation sequences shows equity after a bar >= 0.804 of its prior value, exposure at detection <= 0.653, post-trade inventory <= 0.952 of post-trade equity, equity after an admitted trade or a terminal liquidation (of carried or post-trade inventory) above 0.998 and 0.996 of its prior value, and computed post-cost full-fill (fresh or rebalance) target exposure fl(fl(new*p)/e) < 0.2506, so every risk- or horizon-triggered termination liquidates to flat with positive equity."
+        },
+        {
+          "id": "F-RL-BOUNDS-CONFORMANCE",
+          "statement": "Across 288 seeded episodes covering all nine registered stress configurations and gaps up to one half, every non-terminal actual Replay state satisfies the realized bounds, every risk- or horizon-triggered termination ends flat with positive equity, every proposal rejection leaves an in-bounds position unchanged, and the preserved floor witnesses lie outside A-GAP-BOUND."
+        },
+        {
+          "id": "F-RL-RECON-SOURCE",
+          "statement": "The unchanged frozen Replay writes equity only at initialization, in the mark-to-market update and in the trade/liquidation cost debit; the mark-to-market, cost-term, cost-sum, terminal merge and row-record expressions are bound to their reviewed forms; a rejected turnover debits nothing; and invalid market data rejects before any row is recorded."
+        },
+        {
+          "id": "F-RL-RECON-ERROR",
+          "statement": "For every recorded Replay row under A-GAP-BOUND (per-bar |return| <= 1/2, funding <= 3/100 of the prior price, prices and equity in [2^-400, 2^400], registered execution maxima, binary64 arrays), with the carried inventory satisfying the non-terminal exposure bound |U*p0| <= x0*E certified by F-RL-BOUNDS-COMPOSE (every bar starts from a state whose risk check passed): the recorded equity reconciles with prior equity plus recorded gross and funding minus recorded fee, spread, slippage and impact within 15u*M+15H (M the sum of magnitudes); gross within 3u relative plus 2^-600*E+2H of units*(p1-p0); funding within 3u relative plus 4H of -units*f*m; each fee, spread and slippage term within 4u relative plus 10H, and impact within 6u relative plus 10H, of its formula on the executed cash and turnover; u=2^-53, H=2^-1075, each certified by Z3 queries mechanically generated from the reviewed source AST (direct final inequalities, per-multiplication step instances with merge, and a two-stage roll-forward over the AST-derived roundings)."
+        },
+        {
+          "id": "F-RL-RECON-CONFORMANCE",
+          "statement": "Across 216 seeded episodes covering all nine stress configurations, every one of the actual Replay's 5578 recorded rows satisfies the stated roll-forward bound exactly in rationals; horizon-one rows satisfy the gross and funding bounds against units captured before the bar; and, using a pass-through spy on the actual _trade that records each call's executed cash, equity and turnover, every row's fee, spread and slippage satisfy the stated 4u+10H bound and every impact satisfies the stated 6u+10H bound against rigorous exact-square-root enclosures."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-SOURCE",
+          "statement": "No module under haskell/app can capture an asynchronous exception except through reviewed forwarding threads: every exception-capturing combinator (try, catch, handle and their variants from Control.Exception, Control.Monad.Catch, UnliftIO or GHC.IO) is imported only by Trader.App.AsyncSafe and the async-filtering BacktestGate, all imports of those modules are explicit and unqualified, and trySync/catchSync rethrow every SomeAsyncException; so a killed bot worker, a timed-out call or a stopped heartbeat cannot convert the kill into an ordinary error and keep acting."
+        },
+        {
+          "id": "F-LIVE-STOP-ASYNC-CONFORMANCE",
+          "statement": "A compiled program built against the actual Trader.App.AsyncSafe module, killing the routine only after it signals it is inside its exchange call, reproduces CE-LIVE-001 with the legacy capture (it records an error and runs its follow-up order) and shows no later step runs with trySync; the Haskell suite also checks catchSync, synchronous capture and that System.Timeout.timeout fires through trySync."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-SOURCE",
+          "statement": "Every Main.hs definition that can transitively reach a venue order, cancel or swap primitive is in a reviewed classification (bot worker, guarded bot publication, shared order path, claimed manual trade, separate CLI process, reduce-only close-position override, test-order key probe, server roots); both manual trade handlers run their trade under runManualTrade; bot start has exactly one publication site, which refuses an identity claimed by a manual trade or owned by any live bot before launch; owner identity uses exactly the credentials the venue environment signs with; and the claim helper admits and releases under the runtime lock with uninterruptible release. Live mainnet Binance identity is the exchange account UID from the signed read-only account endpoint (cached per credential pair, fail-closed: an unresolved identity refuses the manual trade with 503 and the bot start), and lookup errors never echo request headers."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-FLOW",
+          "statement": "Exhaustive interleavings of three bots (two tenants on one account, one on another) and three manual trades (admit, act, complete/fail/time out), with each lock-protected step atomic, never reach a state with two live bots or a live bot and an acting manual trade on one (account, symbol); removing the manual guard (CE-LIVE-002), keying uniqueness by tenant (CE-LIVE-003) or dropping the claim check at bot start each reaches such a state."
+        },
+        {
+          "id": "F-LIVE-OWNERSHIP-CONFORMANCE",
+          "statement": "A compiled program against the actual Trader.App.ManualTradeOwnership module refuses a same-account second bot across tenants while admitting another account, refuses a manual trade on an owned identity, refuses bot start during a manual trade, leaks no claim after a timeout, and observes no bot/manual overlap in 300 concurrent races; the Haskell suite checks the same behaviours."
+        },
+        {
+          "id": "F-LIVE-ROLE-GATE-SOURCE",
+          "statement": "Every venue adapter function that places, cancels or swaps (eight Binance place/cancel primitives, the Coinbase market order and the DEX transaction send) refuses on a research, read-only or Fly server as its first action, before any network call (Binance place primitives only in live mode); the role is resolved exactly as the server identity resolves it, and the checked-in non-trading deployments (fly.toml read-only, fly.research.toml research, the Hetzner research managed env overlay applied on every deploy) carry a refused role while the trading deployment does not."
+        },
+        {
+          "id": "F-LIVE-ROLE-GATE-CONFORMANCE",
+          "statement": "A compiled program against the actual Trader.App.LiveRole module refuses research, read-only and Fly roles and allows trading, standalone and local, refuses through requireLiveOrderRole on a research server, and resolves an unlabelled Fly machine to the fly role; the Haskell suite additionally shows a research server's live Binance order and cancel are refused before any network call while test-mode orders are not gated."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-SOURCE",
+          "statement": "Causal replay v3 uses only consumed immutable bars with one explicit symbol, fits the scale strictly before the first decision, revalidates the scale against its burn-in prefix, observes the old state before consuming a new bar, neutralizes unsupported targets before exact accounting, preserves the scale and has activation-first default rejection with no policy callback, persistence or order effect."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-ARITH",
+          "statement": "For admitted initialization and step bounds, scale rows exist and precede the initial decision, every trailing feature lag lies within the consumed prefix, append stays within the history bound, consecutive availability advances strictly, symbol identity is preserved, normalized support intervals preserve order, and the shielded target remains in [-1/4,1/4] with unsupported targets zero."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-FLOW",
+          "statement": "The finite causal replay control model through eight steps keeps the scale fixed and authority absent, advances only after observing the old state, never advances beyond the bound and has no continuation from a rejected or terminal state."
+        },
+        {
+          "id": "F-RL-CAUSAL-V3-CONFORMANCE",
+          "statement": "Seeded synthetic prefix replays reproduce identical observations despite rewriting unconsumed future values, agree with the Haskell Rational observation oracle and exact accounting kernel, keep previous sessions immutable and neutralize unsupported targets; deterministic regression tests reject late, invalid, oversized and forged-scale inputs."
         }
       ],
       "invariants": [
         {
           "id": "F-RL-NO-PROMOTION",
           "statement": "Passing scoped certificates never permits candidate promotion or access to protected outcomes."
+        },
+        {
+          "id": "F-RL-COMPONENT-ISOLATION",
+          "statement": "For the pinned GHC/Cabal parsed source graph, the complete dependency closure and declared module roster of every executable exclude Trader.Research.PolicyProposalV1. The graph certificate covers source build reachability, not server control flow or deployed images."
+        },
+        {
+          "id": "F-RL-POLICY-EFFECTS",
+          "statement": "For ordinary admitted Network objects and base numeric arrays under A-CAPABILITY-BUILD, every enumerated inference helper uses only reviewed numeric primitives and clock reads and contains no parameter write or order/process/network operation; the parsed Haskell proposal surface remains pure with a private constructor and constant false authority."
+        },
+        {
+          "id": "F-RL-ARTIFACT-DISJOINT",
+          "statement": "Under trusted Aeson generic required-field semantics, the exact top-level key set emitted by save_policy cannot satisfy the required-key predicate of the unchanged native PersistedLstmModel decoder. This excludes emitted offline artifacts, not arbitrary converted JSON."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-PUBLISH",
+          "statement": "The source-bound optimizer-snapshot-v2 model with two writers, two calls each and one retained reader permits only complete immutable snapshot publication under exclusive lock and matching expected identity; stale updates cannot commit, every retained read stays coherent, and generation equals committed updates. Orphan locks fail closed and are not a recovery guarantee."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CAS",
+          "statement": "Under matching expected identity, exclusive lock and admitted widths, the source-derived v2 publication predicate permits only current step plus one in [1,2^31-1] with unchanged width; stale identity cannot publish. Identity-to-generation and primitive reference atomicity are explicit assumptions."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-FINITE",
+          "statement": "The source-derived optimizer-snapshot-v2 pack guard rejects non-finite binary64 slots and negative variance slots; publication follows a successful whole-candidate scan and immutable byte encoding under trusted NumPy scan/serialization semantics. No floating error or optimizer convergence theorem is claimed."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-ISOLATION",
+          "statement": "The reviewed optimizer-snapshot-v2 module has only the enumerated numeric, immutable-snapshot and synchronization calls, with no file, network, subprocess, order or promotion operations. Its three public computational entry points default to absent and reject unsupported pinned runtime/GIL configurations; no frozen financial runner or production integration is introduced; the separately registered PPO successor is an offline engineering caller."
+        },
+        {
+          "id": "F-RL-SNAPSHOT-CONFORMANCE",
+          "statement": "Actual optimizer-snapshot-v2 updates and forwards consume single immutable snapshots; synthetic parity, stale/busy writers, retained readers, failure paths, default controls, compiled single-store observations and CE-RL-023 corrected-layout replay conform to the scoped model. Tests are not universal implementation refinement."
         }
       ],
       "failures": [
         {
           "id": "F-RL-FAIL-CLOSED",
-          "statement": "SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success."
+          "statement": "Unexpected SAT, UNKNOWN, timeout, missing tooling, drift, missing traceability or skipped SMT roster prevents formal success; explicitly refuted claims require their prescribed SAT counterexamples."
+        },
+        {
+          "id": "F-RL-OPTIMIZER-ATOMIC",
+          "statement": "Claim under audit, explicitly refuted in the observer/interruption model and instrumented CPython execution: every interrupted optimizer update preserves all old fields and every observation sees either the complete old or complete new state."
+        },
+        {
+          "id": "F-RL-INFER-DEADLINE",
+          "statement": "Claim under audit, refuted by the source-bound pending-call lasso: infer guarantees completion within 20 milliseconds even when forward does not return."
+        },
+        {
+          "id": "F-RL-OPE-FP-SUPPORT",
+          "statement": "Claim under audit, explicitly refuted in the unchanged public helper with underflow ignored: finite positive trajectory weights always imply positive reported ESS. CE-RL-018 has two weights 2^-600 but ESS zero."
+        },
+        {
+          "id": "F-RL-FUNDING-FINITE",
+          "statement": "Claim under audit, explicitly refuted by synthetic CE-RL-019: finite funding rates, positive finite marks and ordered finite timestamps always produce finite loader funding coefficients."
         }
       ],
       "evidence": [
@@ -165,6 +1166,186 @@
           "level": "property",
           "path": "scripts/formal/conformance.py",
           "contains": "check_haskell"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_future_and_wrong_window_slices_fail_smt"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_training_counterexamples"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_runner_passes_only_training_prefixes_to_fit_and_optimizer"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_artifact_bypass_counterexamples"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_preserved_terminal_inventory_counterexample"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_current_numpy_counterexamples_and_downstream_rejection"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_v1_counterexamples_corrected_or_rejected_in_v2_only"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_preserved_funding_overflow_full_loader_and_replay_refusal"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_actual_grid_and_preserved_terminal_round_trip"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_nonterminal_six_bar_call_and_forced_terminal_mismatch"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_nonadditive_witness_reports_economic_loss"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/snapshot_v2.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_two_real_writers_and_stale_replay"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_byte_view_parity_counterexample_regression"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/inference_process.py",
+          "contains": "check_model"
+        },
+        {
+          "level": "property",
+          "path": "scripts/formal/inference_process.py",
+          "contains": "conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_lifecycle_rejects_unbounded_poll_and_restart"
+        },
+        {
+          "level": "bounded-exhaustive",
+          "path": "scripts/formal/data_composition.py",
+          "contains": "check_composition"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_leakage_mutants_fail_semantic_admission"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_loader_fit_replay_symbol_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_smt_model_and_actual_prefixes"
+        },
+        {
+          "level": "property",
+          "path": "haskell/test/Trader/Test/OrderNumeric.hs",
+          "contains": "orderNumericSuite"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_smt_model_and_actual_functions"
+        },
+        {
+          "level": "property",
+          "path": "haskell/test/Trader/Test/QuantityRounding.hs",
+          "contains": "testSizing"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_closed_trade_recovery_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_inventory_readiness_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_promotion_conformance"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "test_snapshot_race_and_compatibility"
+        },
+        {
+          "level": "regression",
+          "path": "haskell/test/Trader/Test/WorkerPublication.hs",
+          "contains": "legacyCounterexample"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ChampionArchiveTests"
+        },
+        {
+          "level": "regression",
+          "path": "test/sequential_screen_test.py",
+          "contains": "test_export_refuses_leaf_collisions_after_directory_creation"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ShieldConsumerTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "PointInTimeTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ExactOpeTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "ReportBundleTests"
+        },
+        {
+          "level": "regression",
+          "path": "scripts/formal/test_integrity.py",
+          "contains": "LifecycleStageTests"
         }
       ]
     },
@@ -180,6 +1361,8 @@
         "terminal accounting",
         "simulated behavior coverage",
         "off-policy evaluation",
+        "exact causal transition adapter",
+        "nine-input causal PPO engineering composition",
         "no live exploration",
         "no automatic promotion"
       ],
@@ -192,8 +1375,16 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/summarize_sequential_screen.py",
         "scripts/research/sequential_registry.py",
+        "scripts/research/causal_transition_v4.py",
+        "scripts/research/causal_optimizer_v5.py",
+        "scripts/research/causal_ppo_v5.py",
+        "formal/research/causal-transition-v4-contract.md",
+        "formal/research/causal-ppo-v5-contract.md",
+        "research-notes/registrations/causal-transition-v4-engineering.json",
+        "research-notes/registrations/causal-ppo-v5-engineering.json",
         "research-notes/registrations/sequential-control-screen-v1.json",
-        "research-notes/sequential-control-2026-09-17/**"
+        "research-notes/sequential-control-2026-09-17/**",
+        "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -307,17 +1498,25 @@
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R25",
-          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. A failed update leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
+          "statement": "Offline Adam updates require a positive finite real learning rate and a nonnegative integer step counter, excluding booleans. Non-finite gradients, overflowing clipping norms and invalid Adam arithmetic fail explicitly. Candidate parameters and moments are computed without mutating current state and published with the incremented counter only after every candidate array is finite. Under non-mutating helpers and a single writer, a failure before publication leaves parameters, both moments and counter unchanged; this does not repair pre-existing corruption. Final attribute stores are sequential and require uninterrupted successful completion; interruption or concurrent observation is not atomic (CE-RL-016). Stronger atomicity remains an unresolved acceptance obligation. Valid update formulas and numerical results remain compatible. This does not certify every input representation, hidden gradient intermediate, state shape, convergence or economic value and grants no order authority."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-R26",
           "statement": "The offline screen captures its registered source and registration files once before data admission and compares those exact bytes with blobs from one resolved Git commit. It parses the registration and computes source/registration provenance from admitted snapshots, retaining the same registration hash in the manifest and every saved policy. Later pathname replacement cannot change parsed settings or relabel provenance. Mismatching captured bytes reject before dataset access or archive creation; a fresh invocation validates fresh snapshots. Valid artifact fields and hashes retain their semantics. This checks file bytes, not loaded-interpreter attestation, dependency/environment identity, Git trust, data authenticity or economic efficacy; no order authority or promotion permission is added."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R27",
+          "statement": "The separate causal-transition-v4 adapter requires explicit enabled=True, its exact version, an exact integer action 0..2 and replay-v3-admissible inputs. It consumes one next bar and aligned funding tuple. It preserves nine exact inputs and rejects invalid nonterminal next observations without publishing a partial sample; previous immutable sessions remain unchanged. It does not authenticate caller policy information, availability or funding alignment, and cannot load frozen twelve-input learner artifacts."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R28",
+          "statement": "Causal-ppo-v5 is separately versioned and default disabled, accepts a replay-v3 initial prefix, 1..4096 next outcomes and exact seed 0..2^32-2, and collects at most 256 causal transitions per batch. Its nine-value rational encoder and reward conversion reject nonfinite, subnormal, zero-underflow or relative conversion error above 2^-52. The separate functional optimizer admits exact nine-input snapshot schemas, finite buffers and nonnegative variances, and stages every update in a new immutable snapshot. Caller buffers must remain stable during copying; trusted CPython/Fraction/NumPy and availability/funding assumptions apply."
         }
       ],
       "ensures": [
         {
           "id": "A-SEQUENTIAL-RESEARCH-E1",
-          "statement": "Every simulated fill occurs after its decision, old inventory earns price/funding through the endpoint, and fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
+          "statement": "Every simulated policy-target fill occurs after its originating decision. Mandatory terminal liquidation occurs at the current terminal endpoint after old inventory earns that interval's price/funding; entry and liquidation costs both apply if a pending target fills at that endpoint. Fees, spread, slippage, impact sensitivity and terminal liquidation reconcile equity."
         },
         {
           "id": "A-SEQUENTIAL-RESEARCH-E2",
@@ -334,6 +1533,14 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E5",
           "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows or malformed v1 OPE outcome payloads for successful fits. OPE schema checks require nonempty failed/invalid outcomes or complete finite conditional-estimate/support/interval fields with reliability false; they do not establish estimator truth. Nested result fields cannot shadow validated trial identity in exported CSVs. Failed training/terminal/replay outcomes require nonblank non-reserved reasons and complete outcomes have no reason; training-row reasons must match terminal-event reasons. The runner records exception class names in training/OPE/replay failure reasons, including empty or reserved messages, so these failures remain exportable without losing trials. Manifest and summary dispositions must remain non-authorizing contaminated development with no candidate passed, no opened holdout and null v1 promotion statistics before output creation. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E6",
+          "statement": "Causal-transition-v4 records the requested action separately from the support-adjusted accounting target and preserves the actual replay-v3 receipt. Reward net-equity-delta-v4 equals after.equity minus before.equity in exact initial-equity units. Terminal samples retain loss and liquidation evidence, including nonpositive equity, with no next observation. Nonterminal samples carry an admissible next observation. Target, partial fill and realized inventory remain distinct; no probability, learner loss, float conversion, new formal closure or production authority is inferred."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E7",
+          "statement": "The causal PPO engineering successor samples requested actions from old observations before consuming each next outcome, retains their behavior probabilities even when replay support neutralizes targets, and uses actual transition receipts and terminal-safe GAE-v2 targets. It performs four actor/critic updates per rollout and publishes only a complete immutable result. Batch boundaries are nonterminal; replay termination retains adverse rows and explicit unused counts without padding or validating unused inputs. Input exhaustion is not liquidation. Any stage failure publishes no partial result. Regression evidence does not extend existing formal certificates or establish library-level arithmetic accuracy, authenticated data, physical fills, profitability or order authority."
         }
       ],
       "invariants": [
@@ -369,6 +1576,26 @@
           "level": "regression",
           "path": "test/sequential-screen.test.mjs",
           "contains": "offline sequential contracts"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal-transition.test.mjs",
+          "contains": "causal transition adapter"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal_transition_test.py",
+          "contains": "test_exact_receipts_rewards_and_nine_input_schema"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal-ppo.test.mjs",
+          "contains": "causal PPO composition"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal_ppo_test.py",
+          "contains": "test_multiple_batches_keep_boundary_nonterminal_and_publish_all_updates"
         },
         {
           "level": "regression",
@@ -1166,7 +2393,7 @@
       "ensures": [{ "id": "H-EXECUTION-E1", "statement": "closeQty + openQty = sanitized executedQty; applied exposure fraction <= intended fraction; reduce-only never increases or flips exposure; every applied live OPEN/CLOSE event preserves the legacy trade-log fields and adds versioned canonical close-cause aliases plus a snapshot of the exact pre-execution risk inputs." }],
       "invariants": [
         { "id": "H-EXECUTION-I1", "statement": "Canceled/failed status with no executed quantity applies nothing; explicit partial fill evidence dominates terminal status text." },
-        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory from status; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." },
+        { "id": "H-EXECUTION-I2", "statement": "Restart restores only identity-matched bounded closed-trade memory with admitted finite numerics and checked synthetic indices from status; malformed records are omitted and an unrepresentable selected history returns no memory; persisted position and open-trade fields cannot seed startup exposure, which remains venue-authoritative." },
         { "id": "H-EXECUTION-I3", "statement": "A schema-1.2 live trade-event risk snapshot keeps market event time distinct from processing time, preserves missing expectancy as absent, represents every non-finite numeric risk input as null with finite=false, and marks out-of-domain or unavailable-required evidence with valid=false." }
       ],
       "failures": [{ "id": "H-EXECUTION-F1", "statement": "Unsent, ambiguous, non-positive, non-finite, or unitless live evidence applies no quantity; invalid or unavailable risk snapshot evidence cannot be serialized as an actionable numeric value." }],
@@ -1233,18 +2460,20 @@
     {
       "id": "H-COMBOS",
       "title": "Top-combo scoring, portfolio selection, freshness, quarantine, tombstones, and bot adoption",
-      "features": ["combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "portfolio bootstrap selection", "bot start ordering"],
+      "features": ["bounded pinned-record retention", "combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "portfolio bootstrap selection", "bot start ordering"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs", "haskell/app/Trader/PortfolioSelection.hs"],
+      "implementation": ["haskell/app/Trader/TopComboRetention.hs", "haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs", "haskell/app/Trader/PortfolioSelection.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-IDEMPOTENT", "G-DETERMINISTIC"],
       "dependsOn": ["H-OPTIMIZER", "H-RISK"],
       "requires": [{ "id": "H-COMBOS-R1", "statement": "A deployable combo has canonical identity, finite score/risk fields, sufficient trades, fresh timestamp, walk-forward and timestamped net-return evidence, and no active tombstone/quarantine; a portfolio snapshot matches the active selector configuration." }],
       "ensures": [{ "id": "H-COMBOS-E1", "statement": "Merge deduplicates identity and preserves the newest admissible evidence; ranking is total; deterministic portfolio selection caps member and gross exposure, admits only conservative return/drawdown distributions, and preserves explicit disabled behavior." }],
-      "invariants": [{ "id": "H-COMBOS-I1", "statement": "merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos; selected portfolios contain unique symbols and never exceed configured member, gross, or drawdown caps." }],
+      "invariants": [{ "id": "H-COMBOS-I1", "statement": "Retention reserves slots for present configured pins without bypassing evidence floors or tombstones; merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos; selected portfolios contain unique symbols and never exceed configured member, gross, or drawdown caps." }],
       "failures": [{ "id": "H-COMBOS-F1", "statement": "Malformed, stale, low-evidence, losing, quarantined, platform-incompatible, or config-mismatched combos and portfolios remain visible only in their documented non-deployable state and cannot auto-start trading." }],
       "evidence": [
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPortfolioSelectionIsDeterministicAndBounded" }
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPortfolioSelectionIsDeterministicAndBounded"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testRetainedTopCombos"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testRetainedOptimizerExport"}
       ]
     },
     {
@@ -1359,7 +2588,7 @@
     {
       "id": "W-PRESENTATION",
       "title": "Web optimizer, combos, charts, telemetry, performance, and navigation presentation",
-      "features": ["optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "revenue assurance reports", "data log panel", "configuration dock", "pagination"],
+      "features": ["fleet review progress and blockers", "optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "revenue assurance reports", "data log panel", "configuration dock", "pagination"],
       "criticality": "presentation",
       "implementation": ["haskell/web/src/components/**", "haskell/web/src/app/revenueReport.ts"],
       "uses": ["G-FINITE", "G-DETERMINISTIC"],
@@ -1369,8 +2598,9 @@
       "invariants": [{ "id": "W-PRESENTATION-I1", "statement": "Rendering, sorting, filtering, pagination, or report export cannot mutate trading state or misrepresent missing evidence as zero; revenue exports preserve exchange-accounting fields and explicitly mark truncation or unclassified income as review-required evidence." }],
       "failures": [{ "id": "W-PRESENTATION-F1", "statement": "Malformed/non-finite rows are rejected or rendered as unavailable and never converted into a default deployable combo." }],
       "evidence": [
-        { "level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build" },
-        { "level": "regression", "path": "haskell/web/test/revenueReport.test.mjs", "contains": "preserves accounting authority" }
+        {"level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build"},
+        {"level": "regression", "path": "haskell/web/test/revenueReport.test.mjs", "contains": "preserves accounting authority"},
+        {"level": "regression", "path": "haskell/web/test/portfolioGraduation.test.mjs", "contains": "stale strategy sets and configurations"}
       ]
     },
     {
@@ -1603,23 +2833,23 @@
     {
       "id": "A-CALIBRATION",
       "title": "Operational analysis, optimizer wrappers, scorecards, and risk gates",
-      "features": ["edge extraction", "regime calibration", "volatility-confidence scorecard", "position-history analysis", "Binance trade summary", "ROI scorecard", "bot-day review", "optimizer wrapper", "risk schema gates"],
+      "features": ["UTC fleet evidence report", "unapplied fleet-bound graduation window proposal", "edge extraction", "regime calibration", "volatility-confidence scorecard", "position-history analysis", "Binance trade summary", "ROI scorecard", "bot-day review", "optimizer wrapper", "risk schema gates"],
       "criticality": "correctness",
-      "implementation": ["scripts/extract_edges.py", "scripts/calibrate-regime-params.py", "scripts/run-volconf-scorecard.py", "scripts/risk/**", "haskell/scripts/analyze_position_history.py", "haskell/scripts/summarize_binance_trades.py", "haskell/scripts/review_bot_day.py", "haskell/scripts/optimize_adoption_gates.py", "haskell/scripts/volatility_gating_scorecard.py", "haskell/scripts/generate_roi_scorecard.sh", "haskell/scripts/rollup_performance.sh", "haskell/scripts/run_optimize_equity_top5.sh"],
+      "implementation": ["scripts/report-live-fleet.mjs", "scripts/extract_edges.py", "scripts/calibrate-regime-params.py", "scripts/run-volconf-scorecard.py", "scripts/risk/**", "haskell/scripts/analyze_position_history.py", "haskell/scripts/summarize_binance_trades.py", "haskell/scripts/review_bot_day.py", "haskell/scripts/optimize_adoption_gates.py", "haskell/scripts/volatility_gating_scorecard.py", "haskell/scripts/generate_roi_scorecard.sh", "haskell/scripts/rollup_performance.sh", "haskell/scripts/run_optimize_equity_top5.sh"],
       "uses": ["G-FINITE", "G-NO-LOOKAHEAD", "G-SECRET", "G-DETERMINISTIC"],
       "dependsOn": ["H-TELEMETRY-CALIBRATION", "H-OPTIMIZER"],
       "requires": [{ "id": "A-CALIBRATION-R1", "statement": "Input schema/version and decision-time feature population are explicit; realized outcomes are a separate labeled population and never mixed into entry-edge calibration." }],
       "ensures": [{ "id": "A-CALIBRATION-E1", "statement": "Reports are reproducible, finite, population-labeled, and risk/schema gates exit non-zero on violated invariants." }],
       "invariants": [{ "id": "A-CALIBRATION-I1", "statement": "No secret is printed and no outcome/post-trade field is interpreted as a causal entry feature." }],
       "failures": [{ "id": "A-CALIBRATION-F1", "statement": "Unknown schema, mixed population, insufficient evidence, or non-finite statistic fails the report/gate explicitly." }],
-      "evidence": [{ "level": "regression", "path": "haskell/scripts/test_analyze_position_history.py", "contains": "unittest" }]
+      "evidence": [{"level": "regression", "path": "haskell/scripts/test_analyze_position_history.py", "contains": "unittest"}, {"level": "regression", "path": "test/live-fleet-report.test.mjs", "contains": "window proposals bind a stable fleet identity"}]
     },
     {
       "id": "A-OPERATIONS",
       "title": "Monitoring, radio maintenance, restart helpers, and local process management",
-      "features": ["Postgres disk monitor", "radio registry maintenance", "trader monitor", "stack restart", "LaunchAgent install", "Fly radio loop", "bot watchdog", "background API/UI/outbox launch"],
+      "features": ["read-only fleet concurrency and memory benchmark", "Postgres disk monitor", "radio registry maintenance", "trader monitor", "stack restart", "LaunchAgent install", "Fly radio loop", "bot watchdog", "background API/UI/outbox launch"],
       "criticality": "operational",
-      "implementation": ["scripts/check-fly-postgres-disk.mjs", "scripts/maintain-radio-stations.mjs", "scripts/fly-radio-stations-loop.sh", "scripts/trader-monitor.sh", "scripts/restart-local-stack.sh", "scripts/install-autoloop-launchagent.sh", "deploy/ensure-bot-running.sh", "haskell/scripts/start_api_bg.sh", "haskell/scripts/start_ui_bg.sh", "haskell/scripts/start_outbox_publisher_bg.sh", "haskell/scripts/run_api_with_db.sh"],
+      "implementation": ["scripts/benchmark-live-fleet.mjs", "scripts/check-fly-postgres-disk.mjs", "scripts/maintain-radio-stations.mjs", "scripts/fly-radio-stations-loop.sh", "scripts/trader-monitor.sh", "scripts/restart-local-stack.sh", "scripts/install-autoloop-launchagent.sh", "deploy/ensure-bot-running.sh", "haskell/scripts/start_api_bg.sh", "haskell/scripts/start_ui_bg.sh", "haskell/scripts/start_outbox_publisher_bg.sh", "haskell/scripts/run_api_with_db.sh"],
       "uses": ["G-BOUNDED", "G-SECRET", "G-IDEMPOTENT"],
       "dependsOn": ["H-INTERFACE"],
       "requires": [{ "id": "A-OPERATIONS-R1", "statement": "A managed PID is proven to belong to the expected command; probes/URLs are allowlisted against private/metadata targets; timeouts/retries are bounded." }],
@@ -1631,16 +2861,16 @@
     {
       "id": "A-VERIFICATION",
       "title": "Canonical build, lint, test, formal coverage, and engineering review",
-      "features": ["canonical verify wrapper", "deploy configuration validation", "Fourmolu", "HLint", "Haskell smoke", "web typecheck/test/build", "automation tests", "formal coverage check", "engineering review"],
+      "features": ["canonical verify wrapper", "deploy configuration validation", "Fourmolu", "HLint", "Haskell smoke", "web typecheck/test/build", "automation tests", "formal coverage check", "engineering review", "dependency-free source-pin preflight"],
       "criticality": "operational",
-      "implementation": ["scripts/verify.sh", "scripts/verify-formal-specs.mjs", "scripts/verify-deploy-config.sh", "scripts/validate-toml.py", "scripts/engineering_review.py", "scripts/demo_engineering_workflow.sh", "haskell/scripts/ci_smoke.sh", "haskell/scripts/hlint_check.sh"],
+      "implementation": ["scripts/verify.sh", "scripts/verify-formal-specs.mjs", "scripts/verify-deploy-config.sh", "scripts/validate-toml.py", "scripts/engineering_review.py", "scripts/demo_engineering_workflow.sh", "haskell/scripts/ci_smoke.sh", "haskell/scripts/hlint_check.sh", "scripts/check-formal-source-lock.py"],
       "uses": ["G-DETERMINISTIC", "G-PROMOTION"],
       "dependsOn": [],
-      "requires": [{ "id": "A-VERIFICATION-R1", "statement": "The selected target is one of haskell, web, automation, smoke, or full and required pinned tools are available." }],
+      "requires": [{"id": "A-VERIFICATION-R1", "statement": "The selected target is one of haskell, web, automation, smoke, or full and required pinned tools are available."}, {"id": "A-VERIFICATION-R2", "statement": "Canonical automation and formal/full verification reject source-pin or application-inventory drift before importing the solver. The dependency-free preflight validates bounded metadata, unique keys, source digests and regular in-checkout paths without symlinks. It is a stable-checkout consistency check, not revision attestation, semantic correctness or an extension of existing certificates."}],
       "ensures": [{ "id": "A-VERIFICATION-E1", "statement": "Success means every commanded build/format/lint/smoke/test/formal-coverage step completed with exit 0; full is the conjunction of all target surfaces." }],
       "invariants": [{ "id": "A-VERIFICATION-I1", "statement": "Every covered production file maps to a unique-ID formal feature specification with non-empty clauses and live evidence links." }],
       "failures": [{ "id": "A-VERIFICATION-F1", "statement": "Missing tool, uncovered file, stale evidence marker, spec cycle, or failed check returns non-zero." }],
-      "evidence": [{ "level": "integration", "path": "test/formal-specs.test.mjs", "contains": "registry is coherent" }]
+      "evidence": [{"level": "integration", "path": "test/formal-specs.test.mjs", "contains": "registry is coherent"}, {"level": "regression", "path": "test/formal-source-lock.test.mjs", "contains": "source preflight accepts matching pins"}]
     },
     {
       "id": "D-FLY-AWS-RENDER",

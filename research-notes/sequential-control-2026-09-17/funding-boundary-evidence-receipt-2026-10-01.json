@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-01",
+  "scope": "synthetic loader/timestamp engineering only; no financial trial",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "38896e1506ca4ffb08d638d49733f26d35935299",
+  "specificationCommit": "7d0b9141",
+  "sourceFreeze": "fc0ab4142e6bc7761488e0c11fa69ec11919485e",
+  "registration": "research-notes/registrations/funding-boundary-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "probe",
+      "command": "python: funding_boundary.check_funding()",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-probe-20261001.log",
+      "sha256": "062ca8a8a72c3b070cd48a2e16f87b321e5144a11594d319071d110efc3e211f",
+      "disposition": "Two conditional SMT certificates and prescribed overflow witnesses passed"
+    },
+    {
+      "stage": "targeted",
+      "command": "python scripts/formal/test_integrity.py FundingBoundaryTests",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-funding-targeted-20261001.log",
+      "sha256": "f9322063049e658d102202983227fe26a62cbe667b7ad751314bbb8ad41b198f",
+      "disposition": "Initial run before counterexample fixture existed: FileNotFoundError; seven other tests passed"
+    },
+    {
+      "stage": "loader",
+      "command": "python -m unittest test.sequential_screen_test.SequentialContracts.test_full_loader_funding_endpoint_contract test.sequential_screen_test.SequentialContracts.test_preserved_funding_overflow_full_loader_and_replay_refusal",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-funding-loader-20261001.log",
+      "sha256": "343029a7fe661af9981a3df4c53c3ca298b966c886636f3547c97cdaf6ce358a",
+      "disposition": "Incorrect module path: ModuleNotFoundError; corrected invocation uses the file path"
+    },
+    {
+      "stage": "targeted-final",
+      "command": "python scripts/formal/test_integrity.py FundingBoundaryTests",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-targeted-final-20261001.log",
+      "sha256": "a85b711bbd5d1db32c42120125554c6434b6de7db040e713abb01ff8660c7c31",
+      "disposition": "Eight targeted tests passed"
+    },
+    {
+      "stage": "loader-final",
+      "command": "python3 test/sequential_screen_test.py SequentialContracts.test_full_loader_funding_endpoint_contract SequentialContracts.test_preserved_funding_overflow_full_loader_and_replay_refusal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-loader-final-20261001.log",
+      "sha256": "bf85bdf594d30e52eace196bb43fa4510a5dc1cece4acc1692efb3a78c636d9a",
+      "disposition": "Two full-loader tests passed"
+    },
+    {
+      "stage": "record",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-record-20261001.log",
+      "sha256": "4fe788ae50c14be3a1baf9f80c51b8bcad4ec8f46caa29b2c967edb59cc77108",
+      "disposition": "Initial source-bound receipt recorded"
+    },
+    {
+      "stage": "record-final",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-record-final-20261001.log",
+      "sha256": "5ff2501f5a5ce589e109d9fcaf00f711c0dc3a9a614b5d65490c0c7b4d3da75e",
+      "disposition": "Receipt after restoring narrow JSON formatting; semantics unchanged"
+    },
+    {
+      "stage": "formal",
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-formal-20261001.log",
+      "sha256": "f95de3ef8c4841ab8e86fde4733136034385cf305c0d3814c705decc0712c9dc",
+      "disposition": "104 integrity tests and 36 scoped SMT requirements passed"
+    },
+    {
+      "stage": "full",
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-funding-full-20261001.log",
+      "sha256": "7a77351eb41f2b3c8778bbcf10f8b40e3c8b07ab8411d63b2e823dd47881322e",
+      "disposition": "Formal/Haskell/web/automation passed; no disabled tests/assertions"
+    },
+    {
+      "stage": "acceptance",
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-funding-acceptance-20261001.log",
+      "sha256": "9c19edf1b9e435574fe0e6df19f60c7b89e422351e7d7f2686a4c5d28fc8222c",
+      "disposition": "Expected acceptance refusal on open obligations; not a pass"
+    }
+  ],
+  "initialScaffoldingFailure": {
+    "result": "failed",
+    "error": "SyntaxError: unterminated string literal (generated wrapper string)",
+    "externalLog": "/private/tmp/trader-funding-initial-20261001.log",
+    "sha256": "36ce0ed4d7cb30098e2d468f9a0d0eb7652e4aeb1673167e56475f0d94d7273d",
+    "enclosingDiagnosticShellExitCode": 0,
+    "pythonExitCodeSeparatelyCaptured": false,
+    "explanation": "The shell then printed the error log, so shell success was not treated as a passing Python probe."
+  },
+  "metadataEditHelperFailures": [
+    {
+      "result": "failed",
+      "shellExitCode": 1,
+      "error": "KeyError: 'risks'",
+      "resolution": "Use existing entries key; earlier specification/ledger edits retained, not repeated."
+    },
+    {
+      "result": "failed",
+      "shellExitCode": 1,
+      "error": "KeyError: 'mitigation'",
+      "resolution": "Append to the existing verificationLimitation field; no risk severity/status change."
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000,
+    "automationPandas": "2.3.3"
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "remoteCI": {
+    "url": "https://github.com/diegueins680/trader/actions/runs/36801075943",
+    "headSha": "fc0ab4142e6bc7761488e0c11fa69ec11919485e",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "externalReceipt": "/private/tmp/trader-funding-ci-final-20261001.json",
+    "sha256": "8f0a9a57a96dc0cb515e0b72da705dd0341fcf116b0c25a5bcf091614644876f"
+  },
+  "conformance": {
+    "integrityTests": 104,
+    "newIntegrityTests": 8,
+    "newWholeLoaderTests": 2,
+    "sourceMutants": 6,
+    "gridMutants": 4,
+    "smallGridTimestamps": 32,
+    "registeredGridNeighbors": 14730,
+    "wholeLoaderEndpoints": 7,
+    "wholeLoaderWitnessPolicyCombinations": 4,
+    "totalSMTRequirements": 36,
+    "newPositiveSMTRequirements": 2,
+    "prescribedSATWitnesses": 2,
+    "lockedSources": 74,
+    "counterexample": "CE-RL-019",
+    "frozenLoaderUnchanged": true
+  },
+  "fundingBoundary": {
+    "counterexample": "CE-RL-019",
+    "grid": {
+      "firstClose": 1600847999999,
+      "firstOpen": 1600819200000,
+      "lastClose": 1742227199999,
+      "lastOpen": 1742198400000,
+      "rows": 4910
+    },
+    "scope": "conditional integer grid semantics and synthetic arithmetic; no historical-data access",
+    "smt": {
+      "F-RL-FUNDING-ENDPOINT": "unsat",
+      "F-RL-FUNDING-GRID": "unsat"
+    },
+    "witnesses": {
+      "product": {
+        "outcomes": {
+          "ignore": "positive_infinity",
+          "raise": "positive_infinity"
+        },
+        "smt": "sat"
+      },
+      "sum": {
+        "outcomes": {
+          "ignore": "positive_infinity",
+          "raise": "FloatingPointError"
+        },
+        "smt": "sat"
+      }
+    }
+  },
+  "verificationTimings": {
+    "targeted": {
+      "integritySeconds": [
+        7.033
+      ],
+      "certificateSeconds": []
+    },
+    "targeted-final": {
+      "integritySeconds": [
+        6.871
+      ],
+      "certificateSeconds": []
+    },
+    "loader-final": {
+      "integritySeconds": [
+        0.124
+      ],
+      "certificateSeconds": []
+    },
+    "formal": {
+      "integritySeconds": [
+        18.715
+      ],
+      "certificateSeconds": [
+        4.892
+      ]
+    },
+    "full": {
+      "integritySeconds": [
+        30.616
+      ],
+      "certificateSeconds": [
+        7.854
+      ]
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Conditional exact integer grid/search relation, not full NumPy or interpreter refinement",
+    "No provider first-seen/revision-time or publication causality proof",
+    "Synthetic extreme witnesses; no historical occurrence inferred",
+    "No full CSV-schema/arbitrary-registration or complete cash-flow proof",
+    "Replay refusal tested only for the specified encountered invalid transition",
+    "No new state model or full production lifecycle/ownership proof",
+    "No financial performance, inference benchmark or adoption claim"
+  ]
+}

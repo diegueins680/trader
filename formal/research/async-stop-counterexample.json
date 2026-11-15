@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-LIVE-001",
+  "requirement": "F-LIVE-STOP-ASYNC-SOURCE",
+  "claim": "botStop stops a live bot worker: once it reports success, the stopped worker places, cancels and fetches no further exchange orders.",
+  "status": "resolved",
+  "discovered": "2026-10-07 obligation-15 audit of the live worker and order paths",
+  "mechanism": "stopRuntime signals the stop MVar and then calls killThread, which returns once ThreadKilled is delivered. Every exchange step on the bot worker and order paths was wrapped in try at type SomeException, which also catches asynchronous exceptions. A worker killed mid-order recorded an order error and continued to its next exchange step (protection, trigger or algo order, cancel-by-prefix, status fetch), after botStop had reported success and while a replacement bot could own the symbol. The same swallowing defeated System.Timeout.timeout around those calls and the signing timestamp fetch. Review of the first fix found the same swallowing above and beside the order path: botApplyKlineSafe wrapped the whole kline step in try @SomeException, the Binance timestamp cache (Trader.Cache.fetchWithCache) returned a stale offset when the fetch was interrupted, request-ops logging (opsAppendMaybe) captured every exception, and the TopCombosStore lock heartbeat survived its own killThread.",
+  "witness": "Compiled GHC 9.4.8 program: a routine shaped like the order path is killed after signalling that it is inside its first exchange step. With try @SomeException it records 'entry failed' and then runs 'follow-up order'; with trySync no later step runs.",
+  "observed": "([\"entry failed\",\"follow-up order\"],[])",
+  "resolution": "Trader.App.AsyncSafe.trySync and catchSync capture synchronous exceptions exactly like try and catch and rethrow every SomeAsyncException. They replace every try and catch in haskell/app (196 trySync and 4 catchSync uses across 17 modules); no module except AsyncSafe and the already async-filtering BacktestGate may import a capture combinator, so the compiler rejects any new swallowing site. Five reviewed threads whose last act is handing their outcome to a waiter use tryForwardingAll/catchForwardingAll so the waiter is never left blocked.",
+  "regression": "scripts/formal/async_stop.py (whole-tree import certificate plus compiled regression against haskell/app) and haskell/test/Trader/Test/AsyncSafe.hs"
+}

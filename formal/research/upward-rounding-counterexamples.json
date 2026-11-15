@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-ROUND-003",
+      "requirement": "F-ROUND-UP-INTEGER",
+      "inputWord64": 4607182418800017409,
+      "scale": 1,
+      "increment": 1,
+      "oldOutput": 1,
+      "newOutput": 2,
+      "resolution": "Exact rational ceiling without epsilon.",
+      "regression": "scripts/formal/upward_rounding.py"
+    },
+    {
+      "id": "CE-ROUND-004",
+      "requirement": "F-ROUND-UP-FLOW",
+      "oldFallbackEnabled": true,
+      "legacyBranch": "                if px <= 0 || isNaN px || isInfinite px\n                    then fallback \"price unavailable\"\n                    else do\n",
+      "resolution": "Invalid numeric maker price returns an unsent result; other fallback reasons unchanged.",
+      "regression": "scripts/formal/upward_rounding.py",
+      "limitations": "Source-level stubbed regression; no exchange call or live exploit."
+    }
+  ]
+}

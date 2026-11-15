@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "kind": "engineering repair; no financial trial",
+  "sourceCommit": "61bb43bc467c9e6b0e68ac3ddc6fd0ad8e3b93dd",
+  "registrationCommit": "130dbb3a",
+  "latestMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "closure": {
+    "blockedResearchGates": [
+      "economic_evidence",
+      "reproducible_delivery"
+    ],
+    "closedMissionObligations": 3,
+    "formalObligationsComplete": false,
+    "missionComplete": false,
+    "openMissionObligations": 35
+  },
+  "broadStatuses": {
+    "partially_verified": 28,
+    "open": 7,
+    "exhaustively_checked": 3
+  },
+  "certificateStatuses": {
+    "smt_verified": 44,
+    "model_checked": 9,
+    "property_tested": 4,
+    "open": 1,
+    "refuted": 12,
+    "exhaustively_checked": 5
+  },
+  "sourceLocks": 225,
+  "newEvidence": {
+    "floatSlotsPerSnapshot": [
+      675,
+      777
+    ],
+    "groups": 3,
+    "isolation": {
+      "calls": 52,
+      "networkFileProcessOrderOperations": 0,
+      "requirement": "F-RL-SNAPSHOT-ISOLATION",
+      "status": "exhaustively_checked"
+    },
+    "legacyCounterexampleResolved": false,
+    "model": {
+      "callsPerWriter": 2,
+      "generations": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "maxShortestDepth": 29,
+      "orphanLockStates": 502,
+      "progressRankBound": 49,
+      "readers": 1,
+      "scope": "atomic snapshots, not recovery or wall-clock termination",
+      "search": "reachable_fixed_point",
+      "staleComparisons": 152,
+      "states": 3970,
+      "transitions": 9981,
+      "writers": 2
+    },
+    "outputWidths": [
+      1,
+      3
+    ],
+    "productionIntegration": false,
+    "smt": {
+      "F-RL-SNAPSHOT-CAS": "unsat",
+      "F-RL-SNAPSHOT-FINITE": "unsat"
+    },
+    "sourceSha256": "4f82f1083030f8e988aa0d8780c523f4e04fd09f22da5b109a24b8e71fd1d8aa",
+    "stateRepresentation": "frozen slotted snapshot of native bytes tuples",
+    "stepCap": 2147483647,
+    "storeAttributes": [
+      "_state"
+    ],
+    "tensorsPerGroup": 4,
+    "wallClockDeadlineVerified": false
+  },
+  "checks": {
+    "formal": {
+      "command": "bash scripts/verify.sh formal",
+      "startCommit": "61bb43bc467c9e6b0e68ac3ddc6fd0ad8e3b93dd",
+      "exitCode": 0,
+      "logSha256": "7b291093f5cb30cbad595345fdff4c7fa43bed70151f0082d84af5ea94e95e65"
+    },
+    "full": {
+      "command": "bash scripts/verify.sh full",
+      "startCommit": "61bb43bc467c9e6b0e68ac3ddc6fd0ad8e3b93dd",
+      "exitCode": 0,
+      "logSha256": "8191a04795154447d87f898487437a84fd4455007b6b47f2c884ec873b3fa947"
+    },
+    "acceptance": {
+      "command": "python scripts/formal/verify.py --require-complete",
+      "startCommit": "61bb43bc467c9e6b0e68ac3ddc6fd0ad8e3b93dd",
+      "exitCode": 1,
+      "logSha256": "6968f329a1c05077eb5be3535591cdf3a87deeb7db5bcef674837e1c438bf6d6"
+    }
+  },
+  "ci": {
+    "runId": 37172557118,
+    "headSha": "61bb43bc467c9e6b0e68ac3ddc6fd0ad8e3b93dd",
+    "conclusion": "success",
+    "url": "https://github.com/diegueins680/trader/actions/runs/37172557118",
+    "jobs": [
+      {
+        "name": "automation",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "testCounts": {
+    "formalIntegrity": 150,
+    "pairedSyntheticUpdates": 144,
+    "web": 241,
+    "automation": 185,
+    "haskell": "format/lint/build/smoke/trader-tests PASS"
+  },
+  "toolchain": {
+    "GHC": "9.4.8",
+    "Cabal": "3.12.1.0",
+    "Python": "3.13.3",
+    "Z3": "4.15.4",
+    "NumPy": "2.3.5",
+    "Node": "20.19.0"
+  },
+  "environment": {
+    "TRADER_FORMAL_PYTHON": "/Users/diegosaa/.cache/trader-proof-20261003/bin/python",
+    "nodeBin": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "formalSeconds": 31.052,
+  "benchmark": {
+    "kind": "synthetic engineering benchmark; not market evidence or real-time guarantee",
+    "platform": "macOS-14.7.7-x86_64-i386-64bit-Mach-O",
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "blasThreadLimits": 1,
+    "results": [
+      {
+        "outputs": 1,
+        "batchRows": 8,
+        "syntheticUpdates": 100,
+        "forwards": 200,
+        "updateMedianMs": 0.353672,
+        "updateMaxMs": 1.121249,
+        "forwardMedianMs": 0.044694,
+        "forwardMaxMs": 0.115218,
+        "payloadBytes": 5400
+      },
+      {
+        "outputs": 3,
+        "batchRows": 8,
+        "syntheticUpdates": 100,
+        "forwards": 200,
+        "updateMedianMs": 0.3370885,
+        "updateMaxMs": 0.689106,
+        "forwardMedianMs": 0.043274,
+        "forwardMaxMs": 0.057615,
+        "payloadBytes": 6216
+      }
+    ],
+    "modelSeconds": 0.04066460701869801,
+    "model": {
+      "states": 3970,
+      "transitions": 9981,
+      "maxShortestDepth": 29,
+      "progressRankBound": 49,
+      "writers": 2,
+      "callsPerWriter": 2,
+      "readers": 1,
+      "orphanLockStates": 502,
+      "staleComparisons": 152,
+      "generations": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "search": "reachable_fixed_point",
+      "scope": "atomic snapshots, not recovery or wall-clock termination"
+    },
+    "trainingCampaigns": 0,
+    "limitations": [
+      "Non-isolated workstation measurement",
+      "No whole-training throughput or production CPU certification",
+      "Forward timing has no hard preemption guarantee"
+    ]
+  },
+  "counterexample": {
+    "id": "CE-RL-023",
+    "fixture": "formal/research/snapshot-v2-counterexample.json",
+    "observed": "one ULP raw-byte-view forward difference",
+    "correctedPath": "native private working copies; immutable publication retained",
+    "verification": "registered parity and preserved input/parameter fixture; not universal backend equivalence",
+    "legacyCE_RL_016": "unchanged and unresolved in frozen v1"
+  },
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "liveExploration": false,
+  "candidateAdopted": false,
+  "financialExperimentTrainingSteps": 0,
+  "verificationTraining": "Synthetic update/seed fixtures and small synthetic microbenchmarks only; ten repeated suites investigated and checked the representation discrepancy.",
+  "limitations": [
+    "Only the standalone v2 optimizer/update/forward boundary is repaired; no frozen runner integration.",
+    "Runtime reference/lock and NumPy primitive assumptions remain explicit.",
+    "No exactly-once acknowledgement, orphan-lock recovery or durable publication guarantee.",
+    "No hard inference cancellation or whole-production concurrency proof.",
+    "35 broad obligations and both research acceptance gates remain unresolved."
+  ],
+  "recommendation": "No adoption; preserve champion. Continue engineering and separately preregister future financial work."
+}

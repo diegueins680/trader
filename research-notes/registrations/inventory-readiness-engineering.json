@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "902a45786f1bee407731765bd45c608a6e06cab0",
+  "version": "inventory-readiness-v1",
+  "contract": "formal/research/inventory-readiness-contract.md",
+  "financialTrials": 0,
+  "hypothesis": "Readiness must use complete inventory and strict local ownership evidence rather than permissive adoption eligibility.",
+  "budget": "Finite Boolean/side/numeric partition, fixed counterexamples and two-cycle scan model; no exchange calls.",
+  "acceptance": "Actual-helper conformance, source/caller mutation regressions, SMT and finite model, formal/full/final CI.",
+  "limitations": "Snapshot gate, not persistent ownership, continuous freshness or full obligation16 closure."
+}

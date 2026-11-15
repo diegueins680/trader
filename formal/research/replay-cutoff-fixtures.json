@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "kind": "synthetic projected traces and prescribed bad-abstraction witness; no financial evidence",
+  "badAbstraction": {
+    "kind": "prescribed abstraction mutant, not a current simulator defect",
+    "originalEvents": [
+      "continue"
+    ],
+    "sixCapEvents": [
+      "terminal"
+    ],
+    "cutoff": 6,
+    "remaining": 7,
+    "horizon": 6,
+    "elapsed": 6,
+    "failed": false
+  },
+  "conformance": {
+    "gridTraces": 486,
+    "scenarios": {
+      "ordinary": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 6,
+        "rows": 6,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.0025,
+        "equity": 0.9995,
+        "costs": 0.00025
+      },
+      "invalid_gate": {
+        "trace": [],
+        "t": 0,
+        "rows": 0,
+        "pending": -1,
+        "failure": "invalid_observation_or_position",
+        "done": true,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0
+      },
+      "invalid_market": {
+        "trace": [],
+        "t": 0,
+        "rows": 0,
+        "pending": 1,
+        "failure": "invalid_market_transition",
+        "done": true,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0
+      },
+      "solvent_risk": {
+        "trace": [
+          "mark_old_and_advance",
+          "liquidate",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": "capital_floor",
+        "done": true,
+        "units": 0.0,
+        "equity": 0.74975,
+        "costs": 0.00025
+      },
+      "insolvency": {
+        "trace": [
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 1,
+        "rows": 1,
+        "pending": -1,
+        "failure": "equity_exhausted",
+        "done": true,
+        "units": 0.0025,
+        "equity": -1.0,
+        "costs": 0.0
+      },
+      "inherited_pending": {
+        "trace": [
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 6,
+        "rows": 6,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": -0.0025,
+        "equity": 0.99995,
+        "costs": 0.00025
+      },
+      "partial_fill": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 6,
+        "rows": 6,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.00125,
+        "equity": 0.9997499999999997,
+        "costs": 0.000125
+      },
+      "missed_fill": {
+        "trace": [
+          "mark_old_and_advance",
+          "target_fill",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row",
+          "mark_old_and_advance",
+          "append_row"
+        ],
+        "t": 6,
+        "rows": 6,
+        "pending": -1,
+        "failure": null,
+        "done": false,
+        "units": 0.0,
+        "equity": 1.0,
+        "costs": 0.0
+      }
+    },
+    "scope": "synthetic actual-helper projected traces; observations/rewards are not quotiented"
+  },
+  "checkerRegression": {
+    "id": "CUT-MATCH-001",
+    "kind": "development checker counterexample; not a simulator defect",
+    "input": {
+      "remaining": 7,
+      "horizon": 6,
+      "scenario": "ordinary",
+      "mutation": "replace returned done=False with done=True; retain failure=None and ordinary trace"
+    },
+    "initialChecker": "Accepted the inconsistent terminal flag by matching an abstract insolvent risk branch, which skips liquidation.",
+    "correctedChecker": "When actual failure is None, also require the matched abstract failed tag to be False.",
+    "expected": "RuntimeError: replay cutoff: actual trace not admitted by class seven",
+    "regression": "scripts/formal/test_integrity.py::ReplayCutoffTests.test_nonterminal_six_bar_call_and_forced_terminal_mismatch",
+    "requirement": "F-RL-REPLAY-QUOTIENT"
+  }
+}

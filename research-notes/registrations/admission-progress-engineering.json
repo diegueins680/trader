@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "admission-progress-engineering-2026-10-06",
+  "sourceCommit": "fb00a66707d2e645e15fb347833a661e044a7a77",
+  "formalContract": "formal/research/admission-progress-contract.md",
+  "financialTrials": 0,
+  "marketDataReads": 0,
+  "holdoutAccess": false,
+  "deployment": false,
+  "modelBounds": {
+    "callers": 3,
+    "capacities": [
+      1,
+      2
+    ],
+    "search": "fixed point with fair-cycle checking"
+  },
+  "propertySeed": 20261006,
+  "propertyCases": 32,
+  "requirements": [
+    "F-ADMISSION-PROGRESS-SOURCE",
+    "F-ADMISSION-PROGRESS-NUMERIC",
+    "F-ADMISSION-PROGRESS-FLOW",
+    "F-ADMISSION-PROGRESS-CONFORMANCE"
+  ],
+  "acceptance": "Passing scoped progress evidence can move38 open to partial; all38 original criteria remain unchanged."
+}

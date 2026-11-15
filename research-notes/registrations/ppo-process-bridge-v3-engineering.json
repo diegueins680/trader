@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "f0903713fee9f6f60664cd1ca29e3594c0ba7694",
+  "purpose": "Compose trained immutable PPO snapshots with supervised Haskell inference through a bounded exact-bit request decoder.",
+  "version": "PPO-SNAPSHOT-V3",
+  "financialTrials": 0,
+  "data": "Synthetic ALPHA/BETA analytic 180-row price prefixes with zero funding; no historical data or holdout.",
+  "seeds": [11, 23, 47],
+  "horizons": [1, 3, 6],
+  "steps": 17,
+  "observationsPerPolicy": 3,
+  "syntheticObservationSeed": 20261005,
+  "budget": "Nine synthetic engineering fits, 27 observation cases, generated decoder round trips and bounded failure/mutation tests. Repeated canonical verification is not an independent financial trial.",
+  "contract": "formal/research/ppo-process-bridge-v3-contract.md",
+  "scope": "No serialized policy artifact, dataset loader, OPE, production Python service, deployment, risk-setting change or order interface.",
+  "acceptance": "Reproduce existing v2 process fixtures and new source-bound model/SMT/compiled conformance. No new broad closure inferred.",
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh haskell", "bash scripts/verify.sh automation", "bash scripts/verify.sh full"]
+}

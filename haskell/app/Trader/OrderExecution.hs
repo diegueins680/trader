@@ -6,10 +6,29 @@ module Trader.OrderExecution (
     applyReduceOnlyExecutedQuantity,
     applySplitReversalExecutedQuantities,
     confirmedCloseExecutedQuantity,
+    executionDustQuantity,
+    executionRelativeTolerance,
 ) where
 
 import Control.Exception (assert)
 import Trader.Text (normalizeKey, trim)
+
+{- | Base-asset quantity at or below which a fill, a residual position or a
+leg of a split is treated as zero. One dust threshold serves every execution
+accounting path here; 'Trader.Formal.Execution' restates the same literal in
+its naive spec and 'verifyFormalExecution' checks implementation and spec
+agree across quantities on both sides of it.
+-}
+executionDustQuantity :: Double
+executionDustQuantity = 1e-9
+
+{- | Relative tolerance for the fill-conservation invariant
+(@closeQty + openQty == qty@): the absolute slack is
+@max executionDustQuantity (abs qty * executionRelativeTolerance)@, so large
+fills tolerate floating-point rounding without loosening the dust threshold.
+-}
+executionRelativeTolerance :: Double
+executionRelativeTolerance = 1e-12
 
 data OrderExecutionEvidence = OrderExecutionEvidence
     { oeeSent :: !Bool
@@ -63,7 +82,7 @@ orderAppliedFraction ev mRequestedBase intendedFraction = do
 
 applyExecutedQuantity :: Int -> Double -> Bool -> Double -> (Int, Double, Double, Double)
 applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
-    let eps = 1e-9
+    let eps = executionDustQuantity
         qty = sanitizeExecutedQuantity eps qtyRaw
         currentSigned = sanitizeSignedExposure prevPos prevSize
         deltaSigned = if isBuy then qty else negate qty
@@ -90,12 +109,12 @@ applyExecutedQuantity prevPos prevSize isBuy qtyRaw =
                 then 0
                 else openQtyRaw
         -- Runtime invariant: fill quantities are conserved (within epsilon)
-        qtyConserved = abs ((closeQty + openQty) - qty) <= max eps (abs qty * 1e-12)
+        qtyConserved = abs ((closeQty + openQty) - qty) <= max eps (abs qty * executionRelativeTolerance)
      in assert qtyConserved (posNew, sizeNew, closeQty, openQty)
 
 applyReduceOnlyExecutedQuantity :: Int -> Double -> Double -> (Int, Double, Double, Double)
 applyReduceOnlyExecutedQuantity prevPos prevSize qtyRaw =
-    let eps = 1e-9
+    let eps = executionDustQuantity
         qty = sanitizeExecutedQuantity eps qtyRaw
         prevSign = sanitizePosition prevPos
         currentSize =

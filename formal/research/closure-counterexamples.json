@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-RL-021",
+      "claim": "The original mission validator permits certified closure.",
+      "status": "refuted",
+      "sourceCommit": "cff26552cb22c28e073e4cf30c20611d5cce1db9",
+      "witness": {
+        "permittedStatuses": [
+          "open",
+          "partially_verified"
+        ],
+        "countedAsOpen": [
+          "open",
+          "partially_verified"
+        ],
+        "numberOfObligations": 38,
+        "minimumOpenCount": 38
+      },
+      "resolution": "Replace the impossible status restriction with certificate sufficiency and same-run reproduction; synthetic all-certified ledgers must reach zero while economic gates remain independent.",
+      "regression": "scripts/formal/test_integrity.py:ObligationClosureTests"
+    },
+    {
+      "id": "CE-RL-022",
+      "claim": "The first closure validator prevents relabeling the aggregate claim with any supporting certificate class.",
+      "status": "refuted",
+      "sourceCommit": "0060356026d714d1b5ea207950af03c46be9d1ac",
+      "witness": {
+        "obligation": 31,
+        "supportedCertificateClasses": [
+          "exhaustively_checked",
+          "smt_verified"
+        ],
+        "canonicalAggregateClass": "exhaustively_checked",
+        "incorrectlyAdmittedAggregateClass": "smt_verified"
+      },
+      "resolution": "Require the exact canonical closureClass, not membership in component certificate classes.",
+      "regression": "scripts/formal/test_integrity.py:ObligationClosureTests.test_missing_wrong_and_unverified_certificates_cannot_close"
+    }
+  ]
+}

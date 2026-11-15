@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-ROUND-003",
+  "requirement": "F-ROUND-MIN-CAP",
+  "status": "resolved",
+  "mechanism": "buildFuturesEntryPlan capped a fraction-sized quote at maxOrderQuote, converted it to a quantity, and normalizeEntryQty then raised a too-small quantity to the exchange minimum. Nothing compared the raised notional with maxOrderQuote, so when the venue minimum exceeded the cap the order was sent above it (only balance and the optional market-risk gate were checked).",
+  "witness": "Z3 model without the guard: quote = cap, quantity rounded below the minimum, bumped to the minimum with minimum x price > cap.",
+  "resolution": "The futures entry plan refuses a bumped, fraction-sized order whose notional exceeds maxOrderQuote (\"No order: exchange minimum order size exceeds maxOrderQuote\"). Spot bumps only apply to explicit quantities, which cannot carry maxOrderQuote."
+}

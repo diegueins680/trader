@@ -60,7 +60,10 @@ module Trader.Binance (
     cancelFuturesAlgoOrderByClientId,
     FuturesAlgoOpenOrder (..),
     fetchFuturesAccountUid,
+    fetchSpotAccountUid,
     fetchOrderByClientId,
+    futuresAccountTradeMaxWindows,
+    futuresAccountTradeTimeWindows,
     fetchAccountTrades,
     fetchFuturesIncome,
     fetchFreeBalance,
@@ -82,7 +85,7 @@ module Trader.Binance (
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, ThreadId, forkIO, killThread, newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
-import Control.Exception (SomeException, displayException, fromException, throwIO, try)
+import Control.Exception (SomeException, displayException, fromException, throwIO)
 import qualified Control.Monad
 import Crypto.Hash.Algorithms (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -101,6 +104,7 @@ import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Ord
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
@@ -113,14 +117,17 @@ import Network.HTTP.Types.Header (hProxyAuthorization)
 import Network.HTTP.Types.Status (statusCode)
 import Network.HTTP.Types.URI (parseQuery, renderSimpleQuery)
 import Network.URI (URI (..), URIAuth (..), parseURI)
-import Numeric (showFFloat)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
+import Trader.App.AsyncSafe (tryForwardingAll, trySync)
+import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, insertCache, newTtlCacheWithMaxEntries)
 import Trader.Duration (parseIntervalSeconds)
-import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
+import Trader.Http (httpLbsWithRetry, newHttpManager, newVenueHttpManager, venueRetryConfig)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), validateMarketSeriesContinuity)
+import Trader.OrderNumeric (renderOrderNumber, validateMarketNumbers, validateOrderNumber)
+import Trader.QuantityRounding (quantizeDownExact)
 import Trader.Text (normalizeKey)
 
 data BinanceEnv = BinanceEnv
@@ -520,7 +527,7 @@ binanceMarketDataCacheStats =
 
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
-    mgr <- newHttpManager
+    mgr <- newVenueHttpManager
     proxyCfg <- resolveBinanceProxy
     pure
         BinanceEnv
@@ -572,7 +579,7 @@ binanceProxyHealth = do
                                         , beProxy = Just proxyCfg
                                         }
                                 req = applyBinanceProxy env req0
-                            respOrErr <- try (httpLbs req mgr) :: IO (Either SomeException (Response BL.ByteString))
+                            respOrErr <- trySync (httpLbs req mgr) :: IO (Either SomeException (Response BL.ByteString))
                             case respOrErr of
                                 Left ex ->
                                     pure
@@ -670,7 +677,7 @@ binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
 binanceHttp env label req0 = do
     t0 <- getTimestampMs
     let req = applyBinanceProxy env req0
-    respOrErr <- try (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
+    respOrErr <- trySync (httpLbsWithRetry venueRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
     t1 <- getTimestampMs
     let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         methodTxt = decodeUtf8With lenientDecode (method req)
@@ -835,14 +842,7 @@ mkStep raw =
     readMaybeInteger xs = readMaybe xs
 
 quantizeDown :: Step -> Double -> Double
-quantizeDown st x
-    | x <= 0 = 0
-    | otherwise =
-        let scaleD = fromIntegral (stepScale st) :: Double
-            scaled = floor (x * scaleD + 1e-9) :: Integer
-            stepI = stepInt st
-            q = (scaled `div` stepI) * stepI
-         in fromIntegral q / scaleD
+quantizeDown st = quantizeDownExact (stepScale st) (stepInt st)
 
 data SymbolFilters = SymbolFilters
     { sfLotMinQty :: !(Maybe Double)
@@ -1225,9 +1225,10 @@ placeFuturesPostOnlyLimitOrder ::
     Maybe String -> -- newClientOrderId
     IO BL.ByteString
 placeFuturesPostOnlyLimitOrder env mode symbol side quantity price mReduceOnly mClientOrderId = do
+    Control.Monad.when (mode == OrderLive) requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesPostOnlyLimitOrder requires MarketFutures")
-    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures LIMIT orders require quantity > 0")
-    Control.Monad.when (price <= 0) $ throwIO (userError "Futures LIMIT orders require price > 0")
+    either (throwIO . userError) pure (validateOrderNumber "Futures LIMIT orders require finite quantity > 0" quantity)
+    either (throwIO . userError) pure (validateOrderNumber "Futures LIMIT orders require finite price > 0" price)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
@@ -1571,7 +1572,7 @@ startBestEffort :: IO a -> IO (BestEffortTask a)
 startBestEffort action = do
     resultVar <- newEmptyMVar
     threadId <- forkIO $ do
-        result <- try action
+        result <- tryForwardingAll action
         putMVar resultVar result
     pure (threadId, resultVar)
 
@@ -1653,7 +1654,7 @@ getBinanceTimestampMs :: BinanceEnv -> IO Int64
 getBinanceTimestampMs env = do
     let key = binanceTimeOffsetCacheKey env
     offsetOrErr <-
-        ( try $
+        ( trySync $
             fetchWithCache binanceTimeOffsetCache binanceTimeOffsetFreshTtl binanceTimeOffsetStaleTtl key $ do
                 serverMs <- fetchBinanceServerTime env
                 localMs <- getTimestampMs
@@ -1734,6 +1735,8 @@ placeMarketOrder ::
     Maybe String -> -- newClientOrderId (optional; idempotency)
     IO BL.ByteString
 placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientOrderId = do
+    Control.Monad.when (mode == OrderLive) requireLiveOrderRole
+    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let sideTxt = case side of Buy -> "BUY"; Sell -> "SELL"
@@ -1828,8 +1831,9 @@ placeFuturesMarketOrderWithPositionSide ::
     Maybe String -> -- positionSide (optional; required in Hedge Mode)
     IO BL.ByteString
 placeFuturesMarketOrderWithPositionSide env mode symbol side quantity reduceOnly mClientOrderId mPositionSide = do
+    Control.Monad.when (mode == OrderLive) requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
-    Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures MARKET orders require quantity > 0")
+    either (throwIO . userError) pure (validateOrderNumber "Futures MARKET orders require finite quantity > 0" quantity)
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
@@ -1890,8 +1894,9 @@ placeFuturesTriggerMarketOrder ::
     Maybe String -> -- newClientOrderId (optional; idempotency)
     IO BL.ByteString
 placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientOrderId = do
+    Control.Monad.when (mode == OrderLive) requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
-    Control.Monad.when (stopPrice <= 0) $ throwIO (userError "stopPrice must be > 0")
+    either (throwIO . userError) pure (validateOrderNumber "stopPrice must be finite and > 0" stopPrice)
     let orderType' = trim orderType
     Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -1947,9 +1952,10 @@ placeFuturesAlgoTriggerMarketOrder ::
     Maybe String -> -- positionSide (optional; required in Hedge Mode)
     IO BL.ByteString
 placeFuturesAlgoTriggerMarketOrder env mode symbol side orderType triggerPrice mClientAlgoId mPositionSide = do
+    Control.Monad.when (mode == OrderLive) requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
     Control.Monad.when (mode == OrderTest) $ throwIO (userError "Algo orders are not supported in test mode")
-    Control.Monad.when (triggerPrice <= 0) $ throwIO (userError "triggerPrice must be > 0")
+    either (throwIO . userError) pure (validateOrderNumber "triggerPrice must be finite and > 0" triggerPrice)
     let orderType' = trim orderType
     Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -2031,6 +2037,32 @@ fetchOrderByClientId env symbol clientOrderId = do
     ensure2xx label resp
     pure (responseBody resp)
 
+{- | Binance USD-M futures rejects account-trade requests whose inclusive time
+range is longer than seven days. Split only fully bounded ranges; when one
+bound is absent Binance applies its own default window.
+-}
+futuresAccountTradeTimeWindows :: Maybe Int64 -> Maybe Int64 -> [(Maybe Int64, Maybe Int64)]
+futuresAccountTradeTimeWindows mStartTime mEndTime =
+    case (fmap (max 0) mStartTime, fmap (max 0) mEndTime) of
+        (Just startTime, Just endTime)
+            | startTime <= endTime -> go startTime endTime
+        normalizedRange -> [normalizedRange]
+  where
+    maxWindowSpanMs = 7 * 24 * 60 * 60 * 1000 - 1
+    go startTime endTime =
+        let windowEnd = startTime + min (endTime - startTime) maxWindowSpanMs
+         in (Just startTime, Just windowEnd)
+                : if windowEnd < endTime
+                    then go (windowEnd + 1) endTime
+                    else []
+
+{- | Binance serves only about the last six months from the synchronous
+account-trade endpoint, and each window is a signed weight-5 request on the
+trading IP, so one symbol's range is bounded to 27 windows (189 days).
+-}
+futuresAccountTradeMaxWindows :: Int
+futuresAccountTradeMaxWindows = 27
+
 fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> Maybe Int64 -> Maybe Int64 -> IO [BinanceTrade]
 fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
@@ -2046,12 +2078,12 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
             case mLimit of
                 Nothing -> []
                 Just lim -> [("limit", BS.pack (show (clampLimit lim)))]
-        startTimeParam =
-            case mStartTime of
+        startTimeParam rangeStartTime =
+            case rangeStartTime of
                 Nothing -> []
                 Just t -> [("startTime", BS.pack (show (max 0 t)))]
-        endTimeParam =
-            case mEndTime of
+        endTimeParam rangeEndTime =
+            case rangeEndTime of
                 Nothing -> []
                 Just t -> [("endTime", BS.pack (show (max 0 t)))]
         fromIdParam =
@@ -2063,12 +2095,22 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
                 MarketSpot -> ("/api/v3/myTrades", "account/myTrades")
                 MarketMargin -> ("/sapi/v1/margin/myTrades", "margin/myTrades")
                 MarketFutures -> ("/fapi/v1/userTrades", "futures/userTrades")
-        send ts = do
+        timeWindows =
+            case beMarket env of
+                MarketFutures -> futuresAccountTradeTimeWindows mStartTime mEndTime
+                _ -> [(mStartTime, mEndTime)]
+        send rangeStartTime rangeEndTime ts = do
             let baseParams =
                     [ ("timestamp", BS.pack (show ts))
                     , ("recvWindow", binanceRecvWindowMs)
                     ]
-                params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
+                params =
+                    symbolParam
+                        ++ limitParam
+                        ++ startTimeParam rangeStartTime
+                        ++ endTimeParam rangeEndTime
+                        ++ fromIdParam
+                        ++ baseParams
                 queryToSign = renderSimpleQuery False params
                 sig = signQuery secret queryToSign
                 paramsSigned = params ++ [("signature", sig)]
@@ -2081,12 +2123,24 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
                         , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
                         }
             binanceHttp env label req
+        fetchWindow (rangeStartTime, rangeEndTime) = do
+            resp <- withBinanceTimestampRetry env (send rangeStartTime rangeEndTime)
+            ensure2xx label resp
+            case eitherDecode (responseBody resp) of
+                Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
+                Right trades -> pure trades
+        dedupeTrades = go Set.empty
+          where
+            go _ [] = []
+            go seen (trade : trades)
+                | key `Set.member` seen = go seen trades
+                | otherwise = trade : go (Set.insert key seen) trades
+              where
+                key = (btSymbol trade, btTradeId trade)
 
-    resp <- withBinanceTimestampRetry env send
-    ensure2xx label resp
-    case eitherDecode (responseBody resp) of
-        Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
-        Right trades -> pure trades
+    Control.Monad.when (length (take (futuresAccountTradeMaxWindows + 1) timeWindows) > futuresAccountTradeMaxWindows) $
+        throwIO (userError "futures account-trade range cannot exceed 189 days")
+    dedupeTrades . concat <$> mapM fetchWindow timeWindows
 
 fetchFuturesIncome :: BinanceEnv -> Maybe String -> Maybe String -> Maybe Int64 -> Maybe Int64 -> Maybe Int -> Maybe Int -> IO [FuturesIncome]
 fetchFuturesIncome env mSymbol mIncomeType mStartTime mEndTime mPage mLimit = do
@@ -2223,6 +2277,7 @@ fetchFuturesOpenOrders env symbol = do
 
 cancelFuturesOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 cancelFuturesOrderByClientId env symbol clientOrderId = do
+    requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
@@ -2251,6 +2306,7 @@ cancelFuturesOrderByClientId env symbol clientOrderId = do
 
 cancelFuturesOpenOrdersByClientPrefix :: BinanceEnv -> String -> String -> IO Int
 cancelFuturesOpenOrdersByClientPrefix env symbol prefix0 = do
+    requireLiveOrderRole
     let prefix = trim prefix0
     if null prefix
         then pure 0
@@ -2263,7 +2319,7 @@ cancelFuturesOpenOrdersByClientPrefix env symbol prefix0 = do
                     ]
             results <-
                 mapM
-                    (\cid -> try (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
+                    (\cid -> trySync (cancelFuturesOrderByClientId env symbol cid) :: IO (Either SomeException BL.ByteString))
                     targetClientIds
             pure (length [() | Right _ <- results])
 
@@ -2320,6 +2376,45 @@ fetchFreeBalance env asset = do
                             (b : _) -> pure (mbaNetAsset b)
                             [] -> pure 0
         MarketFutures -> pure 0
+
+{- | The Binance account UID behind the env's credentials, from the signed
+read-only spot account endpoint (@/api/v3/account@). Every API key pair of one
+exchange account reports the same UID, so it identifies the account rather
+than the credentials.
+-}
+fetchSpotAccountUid :: BinanceEnv -> IO Int64
+fetchSpotAccountUid env = do
+    Control.Monad.when (beMarket env /= MarketSpot) $ throwIO (userError "fetchSpotAccountUid requires MarketSpot")
+    apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+    secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+    let send ts = do
+            let params =
+                    [ ("timestamp", BS.pack (show ts))
+                    , ("recvWindow", binanceRecvWindowMs)
+                    ]
+                queryToSign = renderSimpleQuery False params
+                sig = signQuery secret queryToSign
+                paramsSigned = params ++ [("signature", sig)]
+                qs = renderSimpleQuery True paramsSigned
+            req0 <- parseRequest (beBaseUrl env ++ "/api/v3/account")
+            let req =
+                    req0
+                        { method = "GET"
+                        , queryString = qs
+                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                        }
+            binanceHttp env "account" req
+    resp <- withBinanceTimestampRetry env send
+    ensure2xx "account" resp
+    case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode account: " ++ e))
+        Right (SpotAccountUid (Just uid)) -> pure uid
+        Right (SpotAccountUid Nothing) -> throwIO (userError "Binance account response has no uid")
+
+newtype SpotAccountUid = SpotAccountUid (Maybe Int64)
+
+instance FromJSON SpotAccountUid where
+    parseJSON = withObject "SpotAccountUid" $ \o -> SpotAccountUid <$> o AT..:? "uid"
 
 newtype Account = Account [Balance]
 
@@ -2617,6 +2712,7 @@ fetchFuturesOpenAlgoOrders env symbol = do
 
 cancelFuturesAlgoOrderByClientId :: BinanceEnv -> String -> IO BL.ByteString
 cancelFuturesAlgoOrderByClientId env clientAlgoId = do
+    requireLiveOrderRole
     Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesAlgoOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
@@ -2643,18 +2739,7 @@ cancelFuturesAlgoOrderByClientId env clientAlgoId = do
     pure (responseBody resp)
 
 renderDouble :: Double -> BS.ByteString
-renderDouble x =
-    -- Avoid scientific notation; Binance expects decimal strings.
-    BS.pack (trimTrailingZeros (showFFloat (Just 8) x ""))
-
-trimTrailingZeros :: String -> String
-trimTrailingZeros s =
-    case break (== '.') s of
-        (a, "") -> a
-        (a, '.' : b) ->
-            let b' = reverse (dropWhile (== '0') (reverse b))
-             in if null b' then a else a ++ "." ++ b'
-        _ -> s
+renderDouble = BS.pack . renderOrderNumber
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =

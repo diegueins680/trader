@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "baseline": "5cff8eb6379a46a50db6c37ac247212341d35738",
+  "legacyFormatter": "renderDouble :: Double -> BS.ByteString\nrenderDouble x =\n    -- Avoid scientific notation; Binance expects decimal strings.\n    BS.pack (trimTrailingZeros (showFFloat (Just 8) x \"\"))\n\ntrimTrailingZeros :: String -> String\ntrimTrailingZeros s =\n    case break (== '.') s of\n        (a, \"\") -> a\n        (a, '.' : b) ->\n            let b' = reverse (dropWhile (== '0') (reverse b))\n             in if null b' then a else a ++ \".\" ++ b'\n        _ -> s\n",
+  "legacyCore": "module Trader.OrderNumeric (validateOrderNumber, validateMarketNumbers) where\n\n-- | Validate a selected order quantity or price before effectful request work.\nvalidateOrderNumber :: String -> Double -> Either String ()\nvalidateOrderNumber message value\n    | isNaN value || isInfinite value || value <= 0 = Left message\n    | otherwise = Right ()\n\n-- | Match the existing wire selection: base wins; futures cannot use quote.\nvalidateMarketNumbers :: Bool -> Maybe Double -> Maybe Double -> Either String ()\nvalidateMarketNumbers futures quantity quoteOrderQty =\n    case quantity of\n        Just q -> validateOrderNumber \"MARKET quantity must be finite and > 0\" q\n        Nothing\n            | futures -> Left \"Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)\"\n            | otherwise ->\n                case quoteOrderQty of\n                    Just qq -> validateOrderNumber \"MARKET quoteOrderQty must be finite and > 0\" qq\n                    Nothing -> Left \"Provide quantity or quoteOrderQty for MARKET orders\"\n",
+  "prefixes": {
+    "placeFuturesPostOnlyLimitOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesPostOnlyLimitOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite quantity > 0\" quantity)\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite price > 0\" price)\n",
+    "placeMarketOrder": "    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)\n",
+    "placeFuturesMarketOrderWithPositionSide": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesMarketOrderWithPositionSide requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures MARKET orders require finite quantity > 0\" quantity)\n",
+    "placeFuturesTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesTriggerMarketOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"stopPrice must be finite and > 0\" stopPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n",
+    "placeFuturesAlgoTriggerMarketOrder": "    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesAlgoTriggerMarketOrder requires MarketFutures\")\n    Control.Monad.when (mode == OrderTest) $ throwIO (userError \"Algo orders are not supported in test mode\")\n    either (throwIO . userError) pure (validateOrderNumber \"triggerPrice must be finite and > 0\" triggerPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n"
+  },
+  "entries": [
+    {
+      "id": "CE-ORDER-WIRE-001",
+      "inputWord64": 4472406533629990549,
+      "wire": "0",
+      "claim": "Positive finite input passes the v1 guard but serializes to zero.",
+      "regression": "scripts/formal/order_numbers.py"
+    },
+    {
+      "id": "CE-ORDER-WIRE-002",
+      "inputWord64": 4472406533629990549,
+      "claim": "A finite-only maker preflight allows a zero-wire constructor rejection to enter configured market fallback.",
+      "regression": "scripts/formal/order_numbers.py"
+    }
+  ],
+  "makerAdmission": "                if not (validOrderPrice px)\n                    then pure baseOut{aorMessage = \"No order: invalid maker price.\"}\n                    else do\n",
+  "makerException": "                        case r of\n                            Left ex -> fallback (\"rejected: \" ++ shortErr ex)\n                            Right body -> do\n",
+  "previousPricePredicate": "validOrderPrice :: Double -> Bool\nvalidOrderPrice price = not (isNaN price || isInfinite price) && price > 0\n"
+}

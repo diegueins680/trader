@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "inputFixture": "formal/research/terminal-counterexamples.json",
+  "scope": "Same synthetic binary64 inputs; frozen learner remains refuted. Isolated v2 raw-target kernel only.",
+  "entries": [
+    {
+      "id": "CE-RL-010",
+      "requirement": "F-RL-TARGET-V2-TERMINAL",
+      "v1Status": "unresolved in frozen learner",
+      "v2Result": "accepted terminal target equals original reward 1 exactly",
+      "test": "TargetV2Tests.test_v1_counterexamples_corrected_or_rejected_in_v2_only"
+    },
+    {
+      "id": "CE-RL-011",
+      "requirement": "F-RL-TARGET-V2-FINITE",
+      "v1Status": "unresolved in frozen learner",
+      "v2Result": "entire batch returns None; no partial or non-finite target publication",
+      "test": "TargetV2Tests.test_v1_counterexamples_corrected_or_rejected_in_v2_only"
+    }
+  ],
+  "proofAttempt": {
+    "result": "initial generic floating-point SAT-premise admission produced no certificate",
+    "reportedError": "RuntimeError: F-RL-TARGET-V2-FINITE: unsatisfied/unknown premise",
+    "resolution": "Use a concrete satisfiable premise witness, then pop every witness constraint before the universal violation query; independent regression rejects witness leakage.",
+    "limitsUnchanged": "10-second query timeout, seed 0, full stated binary64 domain; no weakened claim"
+  }
+}

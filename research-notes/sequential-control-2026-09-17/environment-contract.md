@@ -95,6 +95,12 @@ CQL's registered ablation sets its coefficient to zero. Rewards have fixed
 raised to each independently evaluated decision cadence. No claim of CVaR
 optimization follows from this variance penalty.
 
+Each reward is normalized by that call's starting equity. Summing rewards, even
+without penalty or discount, is not generally the compounded economic return.
+The economic reporter independently uses final equity minus initial equity (one).
+The [reward accounting audit](../../formal/research/reward-accounting-contract.md)
+preserves this distinction; it does not change the v1 learning objective.
+
 ## Episodes, behavior and data boundaries
 
 Training episodes start in cash with 24 completed warmup bars, span at most
@@ -152,8 +158,10 @@ costs exactly once. Do not bootstrap through a terminal. Invalid market/observat
 or permission failures stop the path without inventing a fill or cash continuation;
 that path is incomplete and fails evidence admission. Consequently terminal
 liquidation is guaranteed only for valid-price normal/risk-triggered endings,
-not for missing-price/invalid-observation failures. Equity must reconcile exactly
-to initial equity plus gross P&L plus funding minus cash costs.
+not for missing-price/invalid-observation failures. The exact-real accounting contract is initial equity plus gross P&L plus funding
+minus cash costs. The binary64 reporter checks this with explicit tolerances
+(1e-10 for equity and 1e-12 for row returns); a universal rounding-error bound or
+bitwise equality is not established.
 
 Collection now rejects incomplete transitions before appending a learning sample.
 A nonterminal transition must span the full decision interval and supply a real,

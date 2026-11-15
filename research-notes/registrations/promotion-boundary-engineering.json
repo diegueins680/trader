@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "56980e3ffd1506d5b8da7305c50c721b13acda0d",
+  "contract": "formal/research/promotion-boundary-contract.md",
+  "version": "promotion-boundary-v1",
+  "financialTrials": 0,
+  "hypothesis": "Actual numerical-policy, persistence and production-consumer composition can discharge unchanged obligations23/26 without integration or changing production behavior.",
+  "budget": "Full finite source/call/metadata inventories, finite lifecycle, source-derived SMT predicates, deterministic artifact and mutation fixtures; no market input.",
+  "acceptance": "No uncovered delivered write/consumer/callback; source-bound SMT/model/conformance plus all composed certificates, formal/full and final CI.",
+  "failureCondition": "Keep affected obligations partial if any necessary boundary remains unsupported."
+}

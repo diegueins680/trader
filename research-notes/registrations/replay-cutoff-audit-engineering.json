@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "id": "replay-cutoff-audit-v1-2026-10-01",
+  "kind": "engineering only; no financial trial",
+  "sourceCommit": "1ded9950d4633008b0b97e301752086145a3e086",
+  "formalContract": "formal/research/replay-cutoff-contract.md",
+  "requirements": [
+    "F-RL-REPLAY-CUTOFF",
+    "F-RL-REPLAY-QUOTIENT"
+  ],
+  "financialTrialBudget": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "orderingModel": "scripts/formal/replay_order.py",
+  "orderingModelSha256": "9977a79c6195d37395dd41e17721a91fd5746cdc7c96bc92ef29e43004d529fb",
+  "cutoff": 7,
+  "model": {
+    "remainingBars": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "initialPendingDue": [
+      null,
+      1,
+      2
+    ],
+    "riskCategories": [
+      "clear",
+      "solvent_failure",
+      "insolvent_failure"
+    ],
+    "fullReachability": true
+  },
+  "liftRemainingBars": [
+    7,
+    8,
+    12,
+    97,
+    9223372036854775808
+  ],
+  "conformance": {
+    "targets": [
+      -0.25,
+      0.0,
+      0.25
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "extraDelays": [
+      0,
+      1
+    ],
+    "remainingBars": [
+      7,
+      8,
+      12
+    ],
+    "initialUnits": [
+      -0.0025,
+      0.0,
+      0.0025
+    ],
+    "nextBarReturns": [
+      -0.01,
+      0.0,
+      0.01
+    ],
+    "fundingCoefficient": 0.02,
+    "scenarios": [
+      "ordinary",
+      "invalid_gate",
+      "invalid_market",
+      "solvent_risk",
+      "insolvency",
+      "inherited_pending",
+      "partial_fill",
+      "missed_fill"
+    ]
+  },
+  "prescribedBadAbstraction": {
+    "cutoff": 6,
+    "remaining": 7,
+    "horizon": 6,
+    "elapsed": 6,
+    "failed": false
+  },
+  "solverSeed": 0,
+  "solverTimeoutMilliseconds": 10000,
+  "promotion": "None; frozen Replay and prior ordering model unchanged",
+  "failureConditions": [
+    "Source or registration drift",
+    "SMT SAT violation, UNKNOWN or timeout",
+    "Ordering invariant failure, deadlock or nonterminal cycle",
+    "Lifted successor mismatch",
+    "Actual trace not admitted by cutoff model",
+    "Protected data access"
+  ],
+  "limitations": [
+    "Cutoff equivalence concerns ordering abstraction only, not observations/rewards/policy actions",
+    "Observation time-to-end depends on actual episode length",
+    "Stable ordinary dataclass fields and returning helpers assumed",
+    "Finite lift samples supplement universal integer branch lemma; no universal Python refinement",
+    "No numeric accounting, market realism, production lifecycle or profitability proof"
+  ]
+}

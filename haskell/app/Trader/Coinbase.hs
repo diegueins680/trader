@@ -50,12 +50,13 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Types.Status (statusCode)
-import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
+import Trader.App.LiveRole (requireLiveOrderRole)
 import Trader.Cache (TtlCache, TtlCacheStats, cacheStats, fetchWithCache, newTtlCacheWithMaxEntries)
-import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
+import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newVenueHttpManager, venueRetryConfig)
 import Trader.MarketDataIntegrity (MarketSeriesBar (..), normalizeClosedMarketSeries, validateMarketSeriesBars, validateMarketSeriesContinuity)
+import Trader.OrderNumeric (renderOrderNumber, validateOrderNumber)
 import Trader.Symbol (splitSymbol)
 import Trader.Text (trim)
 
@@ -171,11 +172,11 @@ data CoinbaseEnv = CoinbaseEnv
 
 newCoinbaseEnv :: Maybe BS.ByteString -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO CoinbaseEnv
 newCoinbaseEnv apiKey apiSecret apiPassphrase = do
-    mgr <- newHttpManager
+    mgr <- newVenueHttpManager
     pure CoinbaseEnv{ceManager = mgr, ceBaseUrl = coinbaseBaseUrl, ceApiKey = apiKey, ceApiSecret = apiSecret, ceApiPassphrase = apiPassphrase}
 
 coinbaseHttp :: CoinbaseEnv -> String -> Request -> IO (Response BL.ByteString)
-coinbaseHttp env label = httpLbsWithRetry defaultRetryConfig (Just label) (ceManager env)
+coinbaseHttp env label = httpLbsWithRetry venueRetryConfig (Just label) (ceManager env)
 
 fetchCoinbaseAccounts :: CoinbaseEnv -> IO BL.ByteString
 fetchCoinbaseAccounts env = do
@@ -233,6 +234,7 @@ fetchCoinbaseOrderById env orderIdRaw = do
 
 placeCoinbaseMarketOrder :: CoinbaseEnv -> String -> String -> Maybe Double -> Maybe Double -> Maybe String -> IO BL.ByteString
 placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId = do
+    requireLiveOrderRole
     let cleanedProduct = map toUpperAscii (trim product)
     side <-
         case map toLowerAscii (trim sideRaw) of
@@ -244,6 +246,12 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
     case (mSize, mFunds) of
         (Nothing, Nothing) -> throwIO (userError "Coinbase market orders require size or funds.")
         _ -> pure ()
+    -- The wire renderer truncates rather than rounds up, so an amount below 1e-8 would be sent as "0": reject it here.
+    mapM_
+        (either (throwIO . userError) pure)
+        ( maybe [] (\q -> [validateOrderNumber "Coinbase order size rounds to 0 at 8 decimals." q]) mSize
+            ++ maybe [] (\q -> [validateOrderNumber "Coinbase order funds round to 0 at 8 decimals." q]) mFunds
+        )
     let body =
             encode $
                 object $
@@ -580,18 +588,9 @@ ensure2xx label resp = do
     let code = statusCode (responseStatus resp)
     Control.Monad.when (code < 200 || code >= 300) $ throwIO (userError (label ++ " request failed (HTTP " ++ show code ++ ")"))
 
+-- | Coinbase order sizes and funds use the shared wire renderer (truncates non-grid values; obligation 9).
 renderDoubleText :: Double -> String
-renderDoubleText x =
-    trimTrailingZeros (showFFloat (Just 8) x "")
-
-trimTrailingZeros :: String -> String
-trimTrailingZeros s =
-    case break (== '.') s of
-        (a, "") -> a
-        (a, '.' : b) ->
-            let b' = reverse (dropWhile (== '0') (reverse b))
-             in if null b' then a else a ++ "." ++ b'
-        _ -> s
+renderDoubleText = renderOrderNumber
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =

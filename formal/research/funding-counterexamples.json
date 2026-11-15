@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-RL-019",
+  "requirement": "F-RL-FUNDING-FINITE",
+  "claim": "Finite funding input scalars guarantee finite accumulated coefficients.",
+  "status": "refuted",
+  "source": "scripts/research/run_sequential_screen.py:load_development",
+  "syntheticCloses": [
+    9,
+    19,
+    29
+  ],
+  "eventTimes": [
+    10,
+    11
+  ],
+  "witnesses": {
+    "product": {
+      "rates": [
+        2.0
+      ],
+      "marks": [
+        "0x1.fffffffffffffp+1023"
+      ]
+    },
+    "sum": {
+      "rates": [
+        0.75,
+        0.75
+      ],
+      "marks": [
+        "0x1.fffffffffffffp+1023",
+        "0x1.fffffffffffffp+1023"
+      ]
+    }
+  },
+  "outcomes": {
+    "product": {
+      "smt": "sat",
+      "outcomes": {
+        "ignore": "positive_infinity",
+        "raise": "positive_infinity"
+      }
+    },
+    "sum": {
+      "smt": "sat",
+      "outcomes": {
+        "ignore": "positive_infinity",
+        "raise": "FloatingPointError"
+      }
+    }
+  },
+  "scope": "Synthetic registered bytes only; no observed historical occurrence; no frozen source repair. Replay rejects before booking the invalid funding transition.",
+  "regression": "test/sequential_screen_test.py:test_preserved_funding_overflow_full_loader_and_replay_refusal"
+}

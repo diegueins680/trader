@@ -120,6 +120,7 @@ const SAFE_VERIFICATION_COMMANDS = new Set([
   VERIFY_AUTOMATION_COMMAND,
   VERIFY_FORMAL_COMMAND,
   VERIFY_FULL_COMMAND,
+  "python3 scripts/check-formal-source-lock.py",
   "cd haskell && cabal build",
   "cd haskell && cabal test",
   "cd haskell && bash scripts/ci_smoke.sh",

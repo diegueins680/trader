@@ -1,6 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Trader.TopCombosStore (
+    TopCombosSyncFingerprint (..),
+    etagMatches,
+    topCombosSyncCanSettle,
+    topCombosSyncCanSkip,
+    topCombosSyncFingerprintComplete,
+    withTopCombosBuildGate,
+    TopCombosBuildGateEvent (..),
+    withTopCombosBuildGateObserved,
+    writeTopCombosBuildGateEvent,
+    TopCombosSyncPhase (..),
+    TopCombosSyncPhaseEvent (..),
+    withTopCombosSyncPhaseObserved,
+    writeTopCombosSyncPhaseEvent,
+    TopCombosDbReadStage (..),
+    TopCombosDbReadEvent (..),
+    withTopCombosDbReadObserved,
+    writeTopCombosDbReadEvent,
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
@@ -44,19 +61,28 @@ module Trader.TopCombosStore (
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStats,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
     normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     normalizeComboPlatform,
     readTopCombosValueLocal,
     sanitizeComboSymbolForPlatform,
     sanitizeTopCombosValue,
+    sanitizeTopCombosValueWithRetention,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
     topCombosPayloadEquivalent,
+    topCombosPayloadEquivalentWithRetention,
+    TopCombosPayloadComparison,
+    prepareTopCombosPayloadComparison,
+    topCombosPayloadMatches,
     topCombosGeneratedAtMs,
+    topCombosHaveAtLeastWithRetention,
     validateComboBacktestRefreshPolicy,
+    validateTopCombosReplicaPayload,
     withTopCombosLock,
     writeTopCombosValue,
 ) where
@@ -64,7 +90,8 @@ module Trader.TopCombosStore (
 import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, bracket, throwIO, try)
+import Control.Exception (SomeException, bracket, finally, mask, throwIO)
+import Control.Monad (when)
 import Data.Aeson (object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -73,9 +100,11 @@ import qualified Data.Aeson.Types as AT
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isSpace)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, sortBy)
+import Data.List (dropWhileEnd, foldl', intercalate, isInfixOf, isPrefixOf, sortBy, sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import qualified Data.Maybe
@@ -84,12 +113,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
+import Data.Word (Word64)
+import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, removeFile, renameFile, setModificationTime)
 import System.FilePath (takeDirectory)
 import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
@@ -103,6 +135,7 @@ import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import qualified Trader.Symbol as Symbol
 import Trader.Text (normalizeKey, trim)
+import Trader.TopComboRetention (comboUuidText, retainRankedCombos, retainedComboUuidsFromEnv)
 import Trader.TopComboScoring (
     clampLiveAnnualizedReturnWithConfig,
     defaultTopComboScoringConfig,
@@ -124,6 +157,10 @@ data TopCombosStore = TopCombosStore
     { tcsPath :: !FilePath
     , tcsHistoryDir :: !(Maybe FilePath)
     , tcsLock :: !(MVar ())
+    , tcsBuildGate :: !(MVar ())
+    -- ^ Serializes full leaderboard decodes and merges (see 'withTopCombosBuildGate').
+    , tcsResponseCache :: !(IORef (Maybe (String, BS.ByteString)))
+    -- ^ Last encoded @/optimizer/combos@ body with the fingerprint it was built for.
     }
 
 data TopCombosMergeStats = TopCombosMergeStats
@@ -136,7 +173,191 @@ data TopCombosMergeStats = TopCombosMergeStats
 newTopCombosStore :: FilePath -> Maybe FilePath -> IO TopCombosStore
 newTopCombosStore path historyDir = do
     lock <- newMVar ()
-    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock}
+    gate <- newMVar ()
+    cache <- newIORef Nothing
+    pure TopCombosStore{tcsPath = path, tcsHistoryDir = historyDir, tcsLock = lock, tcsBuildGate = gate, tcsResponseCache = cache}
+
+{- | Run one full leaderboard decode-and-merge at a time. Each is a multi-gigabyte
+transient, and two overlapping ones (a sync pass plus a request, or two browser tabs)
+were enough to exhaust the 15.6 GiB trading box on 2026-10-12. Callers take this gate
+before 'withTopCombosLock', never the other way round.
+-}
+withTopCombosBuildGate :: TopCombosStore -> IO a -> IO a
+withTopCombosBuildGate store action = withMVar (tcsBuildGate store) (const action)
+
+data TopCombosBuildGateEvent
+    = TopCombosBuildWaiting
+    | TopCombosBuildAcquired !Double
+    | TopCombosBuildFinished !Double !(Maybe Double)
+    deriving (Eq, Show)
+
+{- | Observe queue and occupancy times in milliseconds using a monotonic clock.
+The finished event runs after the gate is released, including on cancellation
+or action failure; an absent occupancy means acquisition was not observed.
+Synchronous observer failures are ignored, while asynchronous exceptions propagate.
+Events report gate lifetime, not whether the protected action succeeded.
+-}
+withTopCombosBuildGateObserved :: TopCombosStore -> (TopCombosBuildGateEvent -> IO ()) -> IO a -> IO a
+withTopCombosBuildGateObserved store observe action = mask $ \restore -> do
+    requestedAt <- getMonotonicTimeNSec
+    queuedRef <- newIORef requestedAt
+    acquiredRef <- newIORef Nothing
+    endedRef <- newIORef Nothing
+    let emit event = do
+            _ <- trySync (observe event) :: IO (Either SomeException ())
+            pure ()
+        elapsedMs :: Word64 -> Word64 -> Double
+        elapsedMs start end = fromIntegral (toInteger end - toInteger start) / 1000000
+        finish = do
+            endedAt <- getMonotonicTimeNSec
+            queuedAt <- readIORef queuedRef
+            acquiredAt <- readIORef acquiredRef
+            heldUntil <- readIORef endedRef
+            emit $
+                case acquiredAt of
+                    Nothing -> TopCombosBuildFinished (elapsedMs queuedAt endedAt) Nothing
+                    Just at -> TopCombosBuildFinished (elapsedMs queuedAt at) (elapsedMs at <$> heldUntil)
+        run = do
+            emit TopCombosBuildWaiting
+            queuedAt <- getMonotonicTimeNSec
+            writeIORef queuedRef queuedAt
+            withTopCombosBuildGate
+                store
+                ( ( do
+                        acquiredAt <- getMonotonicTimeNSec
+                        writeIORef acquiredRef (Just acquiredAt)
+                        emit (TopCombosBuildAcquired (elapsedMs queuedAt acquiredAt))
+                        action
+                  )
+                    `finally` (getMonotonicTimeNSec >>= writeIORef endedRef . Just)
+                )
+    restore run `finally` finish
+
+{- | Fixed caller labels and numeric observations only. One strict write also
+keeps concurrent records intact on an unbuffered handle such as stderr.
+-}
+writeTopCombosBuildGateEvent :: Handle -> String -> String -> Int64 -> TopCombosBuildGateEvent -> IO ()
+writeTopCombosBuildGateEvent handle origin attemptId atMs event = do
+    let (phase, waitMs, heldMs) = case event of
+            TopCombosBuildWaiting -> ("waiting", Nothing, Nothing)
+            TopCombosBuildAcquired waited -> ("acquired", Just waited, Nothing)
+            TopCombosBuildFinished waited held -> ("finished", Just waited, held)
+        record =
+            object
+                [ "event" .= ("top_combos_build_gate" :: String)
+                , "origin" .= origin
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "phase" .= (phase :: String)
+                , "waitMs" .= waitMs
+                , "heldMs" .= heldMs
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
+
+{- | IO boundaries within one sync gate attempt. Payload evaluation can be
+deferred into a later boundary; these are wall times, not CPU attributions.
+-}
+data TopCombosSyncPhase
+    = SyncReadDb
+    | SyncReadS3
+    | SyncReadState
+    | SyncPlan
+    | SyncWriteDb
+    | SyncWriteRemote
+    deriving (Eq, Show)
+
+data TopCombosSyncPhaseEvent
+    = TopCombosSyncPhaseStarted !TopCombosSyncPhase
+    | TopCombosSyncPhaseFinished !TopCombosSyncPhase !Double
+    deriving (Eq, Show)
+
+{- | Preserve the action's masking, result and exceptions. A finished event
+closes the observed lifetime, including cancellation; it does not certify
+success. Synchronous observer errors do not affect the protected action.
+-}
+withTopCombosSyncPhaseObserved :: TopCombosSyncPhase -> (TopCombosSyncPhaseEvent -> IO ()) -> IO a -> IO a
+withTopCombosSyncPhaseObserved phase observe action = mask $ \restore -> do
+    startedAt <- getMonotonicTimeNSec
+    let emit event = do
+            _ <- trySync (observe event) :: IO (Either SomeException ())
+            pure ()
+        finish = do
+            endedAt <- getMonotonicTimeNSec
+            let elapsedMs = fromIntegral (toInteger endedAt - toInteger startedAt) / 1000000
+            emit (TopCombosSyncPhaseFinished phase elapsedMs)
+    restore (emit (TopCombosSyncPhaseStarted phase) >> action) `finally` finish
+
+{- | Only enum labels, an internally generated gate attempt ID and numeric
+observations are emitted. Keep each concurrent JSON record in one write.
+-}
+writeTopCombosSyncPhaseEvent :: Handle -> String -> Int64 -> TopCombosSyncPhaseEvent -> IO ()
+writeTopCombosSyncPhaseEvent handle attemptId atMs event = do
+    let (phase, state, elapsedMs) = case event of
+            TopCombosSyncPhaseStarted value -> (value, "started", Nothing)
+            TopCombosSyncPhaseFinished value elapsed -> (value, "finished", Just elapsed)
+        label = case phase of
+            SyncReadDb -> "read-db"
+            SyncReadS3 -> "read-s3"
+            SyncReadState -> "read-state-sync"
+            SyncPlan -> "plan"
+            SyncWriteDb -> "write-db"
+            SyncWriteRemote -> "write-remote"
+        record =
+            object
+                [ "event" .= ("top_combos_sync_phase" :: String)
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "phase" .= (label :: String)
+                , "state" .= (state :: String)
+                , "elapsedMs" .= elapsedMs
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
+
+data TopCombosDbReadStage = DbReadConnectionWait | DbReadQuery
+    deriving (Eq, Show)
+
+data TopCombosDbReadEvent = TopCombosDbReadEvent
+    { tcdrStage :: !TopCombosDbReadStage
+    , tcdrQueryAttempt :: !Int
+    , tcdrElapsedMs :: !Double
+    }
+    deriving (Eq, Show)
+
+{- | Observe initial connection acquisition and each query invocation without
+changing the provider's retry policy or forcing its result. Query completion
+records lifetime, including failure/cancellation, rather than success.
+-}
+withTopCombosDbReadObserved :: (TopCombosDbReadEvent -> IO ()) -> ((connection -> IO a) -> IO a) -> (connection -> IO a) -> IO a
+withTopCombosDbReadObserved observe provide action = do
+    startedAt <- getMonotonicTimeNSec
+    attempts <- newIORef 0
+    let emit stage attempt begin = do
+            endedAt <- getMonotonicTimeNSec
+            let elapsedMs = fromIntegral (toInteger endedAt - toInteger begin) / 1000000
+            _ <- trySync (observe (TopCombosDbReadEvent stage attempt elapsedMs)) :: IO (Either SomeException ())
+            pure ()
+    provide $ \connection -> do
+        attempt <- atomicModifyIORef' attempts (\n -> (n + 1, n + 1))
+        when (attempt == 1) (emit DbReadConnectionWait attempt startedAt)
+        mask $ \restore -> do
+            queryStartedAt <- getMonotonicTimeNSec
+            restore (action connection) `finally` emit DbReadQuery attempt queryStartedAt
+
+writeTopCombosDbReadEvent :: Handle -> String -> Int64 -> TopCombosDbReadEvent -> IO ()
+writeTopCombosDbReadEvent handle attemptId atMs event = do
+    let label = case tcdrStage event of
+            DbReadConnectionWait -> "connection-wait"
+            DbReadQuery -> "query"
+        record =
+            object
+                [ "event" .= ("top_combos_db_read" :: String)
+                , "attemptId" .= attemptId
+                , "atMs" .= atMs
+                , "stage" .= (label :: String)
+                , "queryAttempt" .= tcdrQueryAttempt event
+                , "elapsedMs" .= tcdrElapsedMs event
+                ]
+    BS.hPut handle (BL.toStrict (Aeson.encode record) <> "\n")
 
 withTopCombosLock :: TopCombosStore -> IO a -> IO a
 withTopCombosLock store action =
@@ -151,14 +372,14 @@ withTopCombosProcessLock path action =
     acquireProcessLock :: FilePath -> IO FilePath
     acquireProcessLock basePath = do
         let lockPath = basePath ++ ".lock"
-        dirResult <- try (createDirectoryIfMissing True (takeDirectory lockPath)) :: IO (Either IOError ())
+        dirResult <- trySync (createDirectoryIfMissing True (takeDirectory lockPath)) :: IO (Either IOError ())
         case dirResult of
             Left err -> throwIO err
             Right _ -> pure ()
         let startDelay = 50000
             maxDelay = 1000000
             loop delay = do
-                result <- try (createDirectory lockPath) :: IO (Either IOError ())
+                result <- trySync (createDirectory lockPath) :: IO (Either IOError ())
                 case result of
                     Right _ -> pure lockPath
                     Left err ->
@@ -167,7 +388,7 @@ withTopCombosProcessLock path action =
                                 stale <- isLockStale lockPath
                                 if stale
                                     then do
-                                        _ <- try (removeDirectory lockPath) :: IO (Either IOError ())
+                                        _ <- trySync (removeDirectory lockPath) :: IO (Either IOError ())
                                         loop delay
                                     else do
                                         threadDelay delay
@@ -177,7 +398,7 @@ withTopCombosProcessLock path action =
 
     releaseProcessLock :: FilePath -> IO ()
     releaseProcessLock lockPath = do
-        _ <- try (removeDirectory lockPath) :: IO (Either IOError ())
+        _ <- trySync (removeDirectory lockPath) :: IO (Either IOError ())
         pure ()
 
     startLockHeartbeat :: FilePath -> IO ThreadId
@@ -189,7 +410,7 @@ withTopCombosProcessLock path action =
     heartbeatLoop :: FilePath -> IO ()
     heartbeatLoop lockPath = do
         now <- getCurrentTime
-        _ <- try (setModificationTime lockPath now) :: IO (Either SomeException ())
+        _ <- trySync (setModificationTime lockPath now) :: IO (Either SomeException ())
         threadDelay lockHeartbeatDelayMicros
         heartbeatLoop lockPath
 
@@ -200,7 +421,7 @@ withTopCombosProcessLock path action =
             then pure False
             else do
                 now <- getCurrentTime
-                modifiedAtResult <- try (getModificationTime lockPath) :: IO (Either SomeException UTCTime)
+                modifiedAtResult <- trySync (getModificationTime lockPath) :: IO (Either SomeException UTCTime)
                 case modifiedAtResult of
                     Left _ -> pure True
                     Right modifiedAt -> pure (diffUTCTime now modifiedAt > processLockStaleAfter)
@@ -217,7 +438,7 @@ readTopCombosValueLocal path = do
     if not exists
         then pure (Left "Top combos JSON not found.")
         else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+            contentsOrErr <- (trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
                 Right contents ->
@@ -227,32 +448,33 @@ readTopCombosValueLocal path = do
 
 writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
 writeTopCombosValue path val = do
-    let (filteredVal, _) = sanitizeTopCombosValue val
+    retained <- retainedComboUuidsFromEnv
+    let (filteredVal, _) = sanitizeTopCombosValueWithRetention retained val
     let dir = takeDirectory path
-    dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+    dirResult <- trySync (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
     case dirResult of
         Left e -> pure (Left ("Failed to create top combos directory: " ++ show e))
         Right _ -> do
-            tempResult <- try (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
+            tempResult <- trySync (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
             case tempResult of
                 Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
                 Right (tmpPath, handle) -> do
-                    writeResult <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
-                    closeResult <- try (hClose handle) :: IO (Either SomeException ())
+                    writeResult <- trySync (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
+                    closeResult <- trySync (hClose handle) :: IO (Either SomeException ())
                     case writeResult of
                         Left e -> do
-                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                            _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                             pure (Left ("Failed to write top combos JSON: " ++ show e))
                         Right _ ->
                             case closeResult of
                                 Left e -> do
-                                    _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                    _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                                     pure (Left ("Failed to finalize top combos JSON: " ++ show e))
                                 Right _ -> do
-                                    renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                                    renameResult <- trySync (renameFile tmpPath path) :: IO (Either SomeException ())
                                     case renameResult of
                                         Left e -> do
-                                            _ <- try (removeFile tmpPath) :: IO (Either SomeException ())
+                                            _ <- trySync (removeFile tmpPath) :: IO (Either SomeException ())
                                             pure (Left ("Failed to write top combos JSON: " ++ show e))
                                         Right _ -> pure (Right ())
 
@@ -273,7 +495,10 @@ compactTopCombosPayloadForSync payload =
             _ -> combo
 
 sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
-sanitizeTopCombosValue val =
+sanitizeTopCombosValue = sanitizeTopCombosValueWithRetention Set.empty
+
+sanitizeTopCombosValueWithRetention :: Set.Set T.Text -> Aeson.Value -> (Aeson.Value, Int)
+sanitizeTopCombosValueWithRetention retained val =
     case val of
         Aeson.Object o ->
             case KM.lookup (AK.fromString "combos") o of
@@ -282,15 +507,7 @@ sanitizeTopCombosValue val =
                         combosList = V.toList combos
                         (kept, changed) = foldl' apply ([], 0) combosList
                         apply (acc, count) comboVal =
-                            -- A below-floor combo carrying a refresh stamp is an honest
-                            -- re-backtest reading, not junk: it must survive into the
-                            -- merge so it can beat the stale, inflated copies peer
-                            -- instances still publish (see 'pickBestCombo') and then
-                            -- become a tombstone. Dropping it here would resurrect the
-                            -- stale copy on every union merge.
-                            if comboDroppedByTombstones dropTombstones comboVal
-                                || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal))
-                                || not (comboOpenThresholdDeployable comboVal)
+                            if comboExcludedBySanitization retained dropTombstones comboVal
                                 then (acc, count + 1)
                                 else
                                     let (comboVal', updated) = sanitizeComboValue comboVal
@@ -301,19 +518,57 @@ sanitizeTopCombosValue val =
                 _ -> (val, 0)
         _ -> (val, 0)
 
+{- | Test the normalized row-count floor without ranking or annotating rows.
+Stop as soon as the floor is met; these are surviving rows before merge
+deduplication and admission, exactly as in normalization.
+-}
+topCombosHaveAtLeastWithRetention :: Set.Set T.Text -> Int -> Aeson.Value -> Bool
+topCombosHaveAtLeastWithRetention retained minimumCount val
+    | minimumCount <= 0 = True
+    | otherwise =
+        case val of
+            Aeson.Object o ->
+                case KM.lookup "combos" o of
+                    Just (Aeson.Array combos)
+                        | V.length combos >= minimumCount -> countSurvivors minimumCount (V.toList combos)
+                    _ -> False
+            _ -> False
+  where
+    tombstones = comboDropTombstoneMap val
+
+    countSurvivors :: Int -> [Aeson.Value] -> Bool
+    countSurvivors remaining _ | remaining <= 0 = True
+    countSurvivors _ [] = False
+    countSurvivors remaining (combo : rest) =
+        countSurvivors
+            (if comboExcludedBySanitization retained tombstones combo then remaining else remaining - 1)
+            rest
+
+comboExcludedBySanitization :: Set.Set T.Text -> M.Map BS.ByteString Int64 -> Aeson.Value -> Bool
+comboExcludedBySanitization retained tombstones comboVal =
+    -- Refreshed below-floor evidence must reach the merge, where it can beat
+    -- a stale profitable copy and become a tombstone. Retention keeps adverse
+    -- evidence visible, while existing tombstones remain authoritative.
+    comboDroppedByTombstones tombstones comboVal
+        || (not (comboEquityMeetsMinimum comboVal) && not (comboCarriesRefreshStamp comboVal) && not (comboIsRetained retained comboVal))
+        || (not (comboOpenThresholdDeployable comboVal) && not (comboIsRetained retained comboVal))
+
 comboOpenThresholdDeployable :: Aeson.Value -> Bool
 comboOpenThresholdDeployable val =
     maybe True signalEntryOpenThresholdFeasible (comboMetricDouble "openThreshold" val)
 
 normalizeTopCombosPayload :: Aeson.Value -> Aeson.Value
-normalizeTopCombosPayload payload =
-    let (sanitized, _) = sanitizeTopCombosValue payload
+normalizeTopCombosPayload = normalizeTopCombosPayloadWithRetention Set.empty
+
+normalizeTopCombosPayloadWithRetention :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+normalizeTopCombosPayloadWithRetention retained payload =
+    let (sanitized, _) = sanitizeTopCombosValueWithRetention retained payload
      in case sanitized of
             Aeson.Object o ->
                 case KM.lookup (AK.fromString "combos") o of
                     Just (Aeson.Array arr) ->
                         let combos = V.toList arr
-                            combosRanked = zipWith addRank [1 ..] (sortBy compareCombos combos)
+                            combosRanked = zipWith addRank [1 ..] (sortOn comboPerformanceKey combos)
                             o' = KM.insert (AK.fromString "combos") (Aeson.Array (V.fromList combosRanked)) o
                          in Aeson.Object o'
                     _ -> sanitized
@@ -325,12 +580,28 @@ normalizeTopCombosPayload payload =
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 
-    compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
-    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
-
 topCombosPayloadEquivalent :: Aeson.Value -> Aeson.Value -> Bool
-topCombosPayloadEquivalent a b =
-    stripEphemeralRootFields (normalizeTopCombosPayload a) == stripEphemeralRootFields (normalizeTopCombosPayload b)
+topCombosPayloadEquivalent = topCombosPayloadEquivalentWithRetention Set.empty
+
+topCombosPayloadEquivalentWithRetention :: Set.Set T.Text -> Aeson.Value -> Aeson.Value -> Bool
+topCombosPayloadEquivalentWithRetention retained a =
+    topCombosPayloadMatches (prepareTopCombosPayloadComparison retained a)
+
+-- Keep the policy with the lazy comparison value so every replica uses the same
+-- retention rules and repeated comparisons share the reference normalization.
+data TopCombosPayloadComparison = TopCombosPayloadComparison (Set.Set T.Text) Aeson.Value
+
+prepareTopCombosPayloadComparison :: Set.Set T.Text -> Aeson.Value -> TopCombosPayloadComparison
+prepareTopCombosPayloadComparison retained value =
+    TopCombosPayloadComparison retained (topCombosComparablePayload retained value)
+
+topCombosPayloadMatches :: TopCombosPayloadComparison -> Aeson.Value -> Bool
+topCombosPayloadMatches (TopCombosPayloadComparison retained reference) value =
+    reference == topCombosComparablePayload retained value
+
+topCombosComparablePayload :: Set.Set T.Text -> Aeson.Value -> Aeson.Value
+topCombosComparablePayload retained value =
+    stripEphemeralRootFields (normalizeTopCombosPayloadWithRetention retained value)
   where
     stripEphemeralRootFields val =
         case val of
@@ -356,6 +627,13 @@ isTopCombosPayload val =
                 Just (Aeson.Array _) -> True
                 _ -> False
         _ -> False
+
+-- Validate shape only: pruning must wait until the merge has the retention policy.
+validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
+validateTopCombosReplicaPayload name val =
+    if isTopCombosPayload val
+        then Right val
+        else Left (name ++ " payload missing combos array.")
 
 comboMetricValue :: String -> Aeson.Value -> Maybe Aeson.Value
 comboMetricValue key val =
@@ -705,6 +983,7 @@ comboBacktestFreshEnoughForMaxAge maxAgeMsRaw now val =
 
 data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
     { cbrpStaleAfterMs :: !Int64
+    , cbrpRetainedUuids :: !(Set.Set T.Text)
     , cbrpPruneFinalEquityFloor :: !Double
     }
     deriving (Eq, Show)
@@ -712,7 +991,8 @@ data ComboBacktestRefreshPolicy = ComboBacktestRefreshPolicy
 defaultComboBacktestRefreshPolicy :: ComboBacktestRefreshPolicy
 defaultComboBacktestRefreshPolicy =
     ComboBacktestRefreshPolicy
-        { cbrpStaleAfterMs = 3 * 86400000
+        { cbrpRetainedUuids = Set.empty
+        , cbrpStaleAfterMs = 3 * 86400000
         , cbrpPruneFinalEquityFloor = topComboMinimumFinalEquity
         }
 
@@ -909,6 +1189,9 @@ recalculateComboPerformanceFromOperation now mInterval mStoredFinalEq mStoredAnn
                     then fromExponent
                     else fallback
          in max (-1) chosen
+
+comboIsRetained :: Set.Set T.Text -> Aeson.Value -> Bool
+comboIsRetained retained value = maybe False (`Set.member` retained) (comboUuidText value)
 
 comboEquityMeetsMinimum :: Aeson.Value -> Bool
 comboEquityMeetsMinimum val =
@@ -1370,6 +1653,7 @@ comboDrawdownBucket val =
 comboProcessingTier :: Aeson.Value -> String
 comboProcessingTier val
     | comboLiveQuarantined val = "quarantined"
+    | not (comboEquityMeetsMinimum val && comboOpenThresholdDeployable val) = "raw"
     | not tradeCountMeetsFloor = "raw"
     | isNothingFinite (comboAnnualizedReturnValue val) = "raw"
     | comboMinEdgeMeetsAdoptionFloor (comboParamDouble "minEdge" val)
@@ -1396,6 +1680,8 @@ comboProcessingReasons :: Aeson.Value -> [String]
 comboProcessingReasons val =
     concat
         [ ["live-quarantined" | comboLiveQuarantined val]
+        , ["final-equity-below-floor" | not (comboEquityMeetsMinimum val)]
+        , ["open-threshold-infeasible" | not (comboOpenThresholdDeployable val)]
         , case comboTradeCountValue val of
             Nothing -> ["trade-count-missing"]
             Just trades
@@ -1550,9 +1836,13 @@ raw and quarantined rows remain fail-closed. The original failed gates stay in
 @processing.relaxedReasons@ so the exception remains visible and auditable.
 -}
 mergeTopCombosPayloadsWithStatsAndDeployableOverrides :: [T.Text] -> Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
-mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxItems now payloads =
+mergeTopCombosPayloadsWithStatsAndDeployableOverrides = mergeTopCombosPayloadsWithStatsAndRetention Set.empty
+
+-- Retained rows keep their current evidence; existing tombstones still win.
+mergeTopCombosPayloadsWithStatsAndRetention :: Set.Set T.Text -> [T.Text] -> Int -> Int64 -> [Aeson.Value] -> (Aeson.Value, TopCombosMergeStats)
+mergeTopCombosPayloadsWithStatsAndRetention retained deployableOverrides maxItems now payloads =
     let rawCount = sum (map payloadComboCount payloads)
-        sanitized = map (fst . sanitizeTopCombosValue) payloads
+        sanitized = map (fst . sanitizeTopCombosValueWithRetention retained) payloads
         dropTombstones = mergeComboDropTombstones sanitized
         combos =
             concatMap
@@ -1560,14 +1850,17 @@ mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxIte
                 sanitized
         payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         payloadMetadata = mergePayloadMetadata sanitized
-        mergedMap = foldl' mergeCombo M.empty combos
+        retainedIdentities = Set.fromList (Data.Maybe.mapMaybe comboMergeKey (filter (comboIsRetained retained) combos))
+        mergedMap = foldl' (mergeCombo retainedIdentities) M.empty combos
         mergedValues = M.elems mergedMap
-        belowFloorMerged = filter (not . comboEquityMeetsMinimum) mergedValues
-        eligibleMerged = filter comboEquityMeetsMinimum mergedValues
+        belowFloorMerged = filter (\combo -> not (comboEquityMeetsMinimum combo) && not (comboIsRetained retained combo)) mergedValues
+        eligibleMerged = filter (\combo -> comboEquityMeetsMinimum combo || comboIsRetained retained combo) mergedValues
         mergedUniqueCount = length eligibleMerged
         belowFloorTombstones = tombstonesForBelowFloorWinners belowFloorMerged
         dropTombstones' = M.unionWith max dropTombstones belowFloorTombstones
-        merged = take (max 0 maxItems) (sortBy compareCombos eligibleMerged)
+        -- Ranking validates several metric families. Share each row's key across
+        -- comparisons, preserving the stable order of rows with equal keys.
+        merged = retainRankedCombos comboUuidText retained maxItems (sortOn comboPerformanceKey eligibleMerged)
         ranked = zipWith addRank [1 ..] merged
         sourceVal = fromMaybe "top-combos-store" payloadSource
         sanitizedCount = length combos
@@ -1638,22 +1931,23 @@ mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxIte
             || key == AK.fromString "combos"
             || key == comboDropTombstonesKey
 
-    mergeCombo acc comboVal =
+    mergeCombo retainedIdentities acc comboVal =
         case comboMergeKey comboVal of
             Nothing -> acc
-            Just key ->
-                case M.lookup key acc of
-                    Nothing -> M.insert key comboVal acc
-                    Just prev -> M.insert key (pickBestCombo comboVal prev) acc
+            Just identity | not (comboIsRetained retained comboVal) && Set.member identity retainedIdentities -> acc
+            Just identity ->
+                let key = case comboUuidText comboVal of
+                        Just uuid | Set.member uuid retained -> "retained:" <> TE.encodeUtf8 uuid <> ":" <> identity
+                        _ -> identity
+                 in case M.lookup key acc of
+                        Nothing -> M.insert key comboVal acc
+                        Just prev -> M.insert key (pickBestCombo comboVal prev) acc
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
         case annotateComboProcessingWithDeployableOverrides deployableOverrideSet val of
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
-
-    compareCombos :: Aeson.Value -> Aeson.Value -> Ordering
-    compareCombos a b = compare (comboPerformanceKey a) (comboPerformanceKey b)
 
     pickBestCombo newer prev =
         let objNew = comboMetricString "objective" newer
@@ -1889,7 +2183,7 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                                         mTrades = comboMetricInt "tradeCount" (cbuMetrics upd)
                                         -- A zero-trade update is not a verdict; keep the combo as-is.
                                         zeroTradeUpdate = mTrades == Just 0
-                                        keep = not pruneUnprofitable || maybe True (>= cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
+                                        keep = comboIsRetained (cbrpRetainedUuids policy) comboVal || not pruneUnprofitable || maybe True (>= cbrpPruneFinalEquityFloor policy) mEquity || zeroTradeUpdate
                                      in if keep
                                             then (updated : acc, updCount + 1, pruneCount, pKeys, tKeys)
                                             else case comboIdentityKey comboVal of
@@ -1906,3 +2200,51 @@ applyComboUpdatesWithStatsPrune policy pruneUnprofitable now updates val =
                     Right (Aeson.Object o', stats)
                 _ -> Left "Top combos JSON missing combos array."
         _ -> Left "Top combos JSON root must be an object."
+
+{- | Cheap per-replica fingerprints (file size and mtime, a database aggregate, an S3
+ETag) taken before any leaderboard payload is decoded. 'Nothing' means the replica
+could not be fingerprinted and the sync must fall back to a full pass.
+-}
+data TopCombosSyncFingerprint = TopCombosSyncFingerprint
+    { tcsfLocal :: !(Maybe String)
+    , tcsfDb :: !(Maybe String)
+    , tcsfS3 :: !(Maybe String)
+    , tcsfStateSyncConfigured :: !Bool
+    -- ^ A state-sync peer has no cheap fingerprint, so its presence disables skipping.
+    }
+    deriving (Eq, Show)
+
+topCombosSyncFingerprintComplete :: TopCombosSyncFingerprint -> Bool
+topCombosSyncFingerprintComplete fp =
+    not (tcsfStateSyncConfigured fp) && all isJust [tcsfLocal fp, tcsfDb fp, tcsfS3 fp]
+
+{- | Missing retained records remain a diagnostic, but decoding the same replicas
+again cannot recover them. Storage errors (including unknown error sources) and
+pending repairs must keep retrying. A settled pass still needs complete, unchanged
+fingerprints before 'topCombosSyncCanSkip' permits skipping.
+-}
+topCombosSyncCanSettle :: Bool -> [String] -> Bool
+topCombosSyncCanSettle repairsPlanned errorSources =
+    not repairsPlanned && all (== "retention") errorSources
+
+{- | A sync pass may be skipped only when every replica could be fingerprinted and
+nothing changed since the last pass that found nothing to repair.
+-}
+topCombosSyncCanSkip :: Maybe TopCombosSyncFingerprint -> TopCombosSyncFingerprint -> Bool
+topCombosSyncCanSkip settled current =
+    maybe False (\prev -> topCombosSyncFingerprintComplete current && prev == current) settled
+
+-- | RFC 7232 If-None-Match evaluation for a single strong ETag (weak tags compare equal).
+etagMatches :: String -> String -> Bool
+etagMatches ifNoneMatch etag =
+    let trimmed = trimWs ifNoneMatch
+        wanted = stripWeak (trimWs etag)
+        candidates = map (stripWeak . trimWs) (splitCommas trimmed)
+     in trimmed == "*" || (not (null wanted) && wanted `elem` candidates)
+  where
+    trimWs = dropWhileEnd isSpace . dropWhile isSpace
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
+    splitCommas str =
+        case break (== ',') str of
+            (a, []) -> [a]
+            (a, _ : rest) -> a : splitCommas rest

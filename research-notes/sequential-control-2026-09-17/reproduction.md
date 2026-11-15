@@ -163,10 +163,7 @@ Offline neural forward evaluation rejects non-finite hidden preactivations befor
 `tanh` can hide them by saturation. Inference returns absence and OPE/training
 retain explicit failure. See the [network-numerics audit](network-numerics-audit.md).
 
-Offline Adam updates reject invalid controls, overflowing norms and invalid
-arithmetic without partially changing model or optimizer state. See the
-[optimizer-atomicity audit](optimizer-atomicity-audit.md); no protected historical
-period is needed to reproduce these deterministic engineering tests.
+Frozen offline Adam updates reject numerical/control failures before publication without changing state. The stronger all-interruption claim is refuted by CE-RL-016: four separate final stores can be observed partially. See the [publication contract](../../formal/research/optimizer-publication-contract.md). The separate default-disabled [snapshot v2 repair](../../formal/research/optimizer-snapshot-v2-contract.md) publishes one immutable bundle; it does not replace this frozen reproduction path. No protected historical period is needed for these engineering tests.
 
 The offline runner now captures registered source and registration files once,
 validates those bytes against Git and retains their hashes for the entire run.

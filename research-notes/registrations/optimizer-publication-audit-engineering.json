@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "id": "optimizer-publication-audit-2026-09-30",
+  "kind": "engineering/formal audit only",
+  "sourceCommit": "5d724155910fde228ea58e3d525813f19733d16c",
+  "formalContract": "formal/research/optimizer-publication-contract.md",
+  "hypothesis": "The optimizer validates and stages before sequential publication, but all-failure/concurrent atomicity is stronger than source and existing evidence establish.",
+  "financialTrialBudget": 0,
+  "trainingStepBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "candidateChanges": "None; unchanged optimizer and algorithms",
+  "formalRequirements": [
+    "F-RL-OPTIMIZER-PUBLISH",
+    "F-RL-GRADIENT-CLIP",
+    "F-RL-OPTIMIZER-ATOMIC"
+  ],
+  "modelBounds": {
+    "calls": 1,
+    "parameterKeys": 4,
+    "publicationFields": [
+      "p",
+      "m",
+      "v",
+      "steps"
+    ],
+    "observers": 1,
+    "interruption": "after partial publication"
+  },
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "syntheticSeeds": [
+    11,
+    23,
+    47
+  ],
+  "networkOutputWidths": [
+    1,
+    3
+  ],
+  "stateModes": [
+    "cold",
+    "warm"
+  ],
+  "failureProbes": [
+    "invalid controls",
+    "non-finite gradient",
+    "gradient norm overflow",
+    "late invalid candidates"
+  ],
+  "clipGrid": {
+    "gradients": [
+      -2,
+      -1,
+      -0.5,
+      0,
+      0.5,
+      1,
+      2
+    ],
+    "extraNorm": [
+      0,
+      1,
+      10
+    ]
+  },
+  "prescribedCounterexample": {
+    "id": "CE-RL-016",
+    "observationMasks": [
+      0,
+      1,
+      3,
+      7,
+      15
+    ],
+    "interruptionBeforeField": "m",
+    "expectedInterruptedMask": 1,
+    "scope": "single-thread opcode observer and injected exception, not a demonstrated unassisted race"
+  },
+  "failureConditions": [
+    "Unknown positive SMT query",
+    "Positive invariant violation",
+    "Unreproduced prescribed observation/interruption",
+    "Source drift",
+    "Any market/holdout access"
+  ],
+  "promotion": "None; stronger atomicity remains a blocker",
+  "limitations": [
+    "Trusted primitives and non-mutation",
+    "No full interpreter/production refinement",
+    "No floating-point norm premise proof",
+    "No optimizer convergence or empirical gain claim"
+  ]
+}

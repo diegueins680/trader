@@ -1,5 +1,6 @@
 """SMT obligations for the documented abstraction, not compiler refinement."""
 import z3 as z
+from gap_risk import check_obligations
 
 
 def obligations():
@@ -50,4 +51,5 @@ def check_all():
     witness.add(acceptance)
     if witness.check() != z.sat:
         raise RuntimeError('non-vacuity witness failed')
+    results.update(check_obligations())
     return results

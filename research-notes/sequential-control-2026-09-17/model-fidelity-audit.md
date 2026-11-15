@@ -73,3 +73,64 @@ is historical context, not a current open task. No comments or messages were
 sent to maintainers. This research neither enabled trading nor changed existing
 production authorization; the checked-in production profile already has its own
 live fleet, so claiming the entire repository was live-disabled would be false.
+
+## PPO/GAE numerical scope — 2026-09-28
+
+The [terminal-target audit](terminal-numerics-followup-2026-09-28.md) identifies
+current-source cancellation and non-finite carry from finite inputs. The GAE
+recurrence has the expected terminal masks, but abstract real-number identities
+do not establish binary64 reconstruction fidelity. The implementation, version,
+frozen trials and rejected policy artifacts remain unchanged. No historical
+prevalence is inferred; a repair must be separately identified and preregistered
+before new financial trials.
+
+The [isolated gae-targets-v2 kernel](target-v2-followup-2026-09-28.md) now supplies
+direct terminal targets and whole-batch finite-output admission under a distinct,
+default-disabled function contract. It is not connected to PPO, normalization or
+optimizer updates; the frozen learner classification and numerical counterexamples
+above are unchanged. No faithful full-PPO or economic claim follows.
+
+## PPO objective continuation — 2026-09-28
+
+The [source-linked audit](ppo-objective-followup-2026-09-28.md) verifies exact-real
+ratio/loss and coefficient branches for the registered clipped surrogate, with
+explicit binary64 literal values and conditional simplex assumptions. It does not
+verify full softmax, array/runtime or learner behavior. CE-RL-012 returns finite loss
+with NaN gradient; CE-RL-013 confirms the intended absence of a universal multiplier
+cap. Keep the current learner frozen and rejected; no implicit successor or
+financial rerun. Objective fidelity alone cannot justify candidate adoption.
+
+## Value-based continuation — 2026-09-30
+
+The [focused audit](value-objective-followup-2026-09-30.md) checks the unchanged
+Double DQN target slice and scalar CQL gradient. The former preserves the named
+selection/evaluation mechanism; the latter is a fixed-alpha CQL(H)-inspired
+regularizer, not the original Atari QR-DQN reproduction. Conditional exact-real
+SMT results do not establish conservative policy-value bounds or full training
+correctness. CE-RL-014/015 preserve NaN loss and common-shift cancellation in the
+current helper. All economic rejection decisions and identifiers remain unchanged.
+
+## Optimizer publication continuation — 2026-09-30
+
+The [audit](optimizer-publication-followup-2026-09-30.md) classifies the unchanged
+optimizer as Adam with explicit global clipping and validation/staging semantics,
+not an unconditional convergence or transaction guarantee. Exact-real clipping is
+conditionally checked; rounded norm bounds remain open. CE-RL-016 refutes the
+strong all-interruption publication model and preserves a pinned-runtime diagnostic.
+The opcode exception has documented interpreter limitations. Learner identifiers,
+parameters, formulas, economic rejection and champion behavior are unchanged.
+
+## Inference boundary continuation — 2026-09-30
+
+The [audit](inference-boundary-followup-2026-09-30.md) confirms representation and
+measured-time admission, first-maximum tie breaking and fixed bounded proposals.
+Equal valid scores select short exposure; this wrapper has no uncertainty-aware
+abstention rule. The second clock read precedes output validation and selection;
+its post-call limit neither preempts a stalled call nor bounds end-to-end runtime.
+These are unchanged semantics, not a new policy or a whole-neural-network proof.
+CE-RL-017 preserves the pending-call model. Full deadline/production readiness
+remains unverified and all economic rejection decisions stand.
+
+## OPE assurance continuation (2026-09-30)
+
+The [source-linked audit](ope-algebra-followup-2026-09-30.md) separates exact-real ESS/WIS/DR algebra from a preserved general-helper ESS underflow witness. The current deterministic six-step weights are checked separately. The source remains unchanged; all 108 invalid OPE batches retain their status and no new economic or holdout evidence is produced. WDR/MAGIC are not implemented by the existing ordinary DR plus trajectory WIS helper.

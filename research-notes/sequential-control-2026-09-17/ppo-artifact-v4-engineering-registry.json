@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "financialTrials": 0,
+  "distinctTrainingConfigurations": 10,
+  "scope": "Engineering only; repeated canonical verification of the same configuration is not independent economic evidence. All failed verification invocations are retained in the follow-up.",
+  "registration": "research-notes/registrations/ppo-artifact-v4-engineering.json",
+  "deviations": [
+    "One additional unregistered synthetic single-symbol smoke fit preceded the nine registered conformance configurations; it was not used for financial or candidate selection."
+  ],
+  "trials": [
+    {
+      "id": "artifact-v4-smoke",
+      "registered": false,
+      "seed": 11,
+      "horizon": 1,
+      "steps": 17,
+      "symbols": [
+        "ALPHA"
+      ],
+      "data": "180 points: price[t]=100*exp(0.001*t), funding[t]=0",
+      "result": "Training and exact artifact roundtrip succeeded; observed artifact length 24817 bytes.",
+      "sourceState": "Initial uncommitted codec implementation; no historical data or economic evaluation."
+    },
+    {
+      "id": "artifact-v4-conformance-11-1",
+      "registered": true,
+      "seed": 11,
+      "horizon": 1,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-11-3",
+      "registered": true,
+      "seed": 11,
+      "horizon": 3,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-11-6",
+      "registered": true,
+      "seed": 11,
+      "horizon": 6,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-23-1",
+      "registered": true,
+      "seed": 23,
+      "horizon": 1,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-23-3",
+      "registered": true,
+      "seed": 23,
+      "horizon": 3,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-23-6",
+      "registered": true,
+      "seed": 23,
+      "horizon": 6,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-47-1",
+      "registered": true,
+      "seed": 47,
+      "horizon": 1,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-47-3",
+      "registered": true,
+      "seed": 47,
+      "horizon": 3,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    },
+    {
+      "id": "artifact-v4-conformance-47-6",
+      "registered": true,
+      "seed": 47,
+      "horizon": 6,
+      "steps": 17,
+      "symbols": [
+        "ALPHA",
+        "BETA"
+      ],
+      "data": "Analytic 180-row prefixes defined in scripts/formal/artifact_v4.py; zero funding.",
+      "result": "All registered configurations passed isolated receipt reproduction; canonical full and final-head checks are separately reported."
+    }
+  ]
+}

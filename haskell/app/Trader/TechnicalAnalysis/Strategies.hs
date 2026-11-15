@@ -560,15 +560,7 @@ lastValue values
     | otherwise = Just (V.last values)
 
 laggedJust :: Int -> V.Vector (Maybe a) -> Maybe a
-laggedJust offset values =
-    go (V.length values - 1 - offset)
-  where
-    go idx
-        | idx < 0 = Nothing
-        | otherwise =
-            case values V.! idx of
-                Just value -> Just value
-                Nothing -> go (idx - 1)
+laggedJust = laggedJustWithin defaultMaxIndicatorStaleBars
 
 safeDivide :: Double -> Double -> Double
 safeDivide _ 0 = 0

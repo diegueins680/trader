@@ -152,6 +152,7 @@ optimizerArgsParser =
         <*> option auto (long "max-wf-sharpe-std" <> value 1.0 <> metavar "FLOAT")
         <*> option auto (long "search-max-wf-sharpe-std" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "wf-sharpe-std-score-penalty" <> value 0.05 <> metavar "FLOAT")
+        <*> option auto (long "wf-sharpe-trials-haircut" <> value 0.0 <> metavar "FLOAT" <> help "Multiple-testing haircut on the walk-forward Sharpe gate: subtract scale*sqrt(2 ln trials)*sharpeStd/sqrt(folds) from each trial's mean Sharpe before comparing it to --min-wf-sharpe-mean. 0 disables (default); 1.0 is a reasonable starting point.")
         <*> strOption (long "tune-objective" <> value "roi" <> metavar "NAME")
         <*> option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
         <*> option auto (long "tune-penalty-turnover" <> value 0.2 <> metavar "FLOAT")
@@ -820,6 +821,8 @@ validateArgs args = do
         Left "--search-max-wf-sharpe-std must be a finite value >= 0."
     when (oaWfSharpeStdScorePenalty args < 0 || not (finiteDouble (oaWfSharpeStdScorePenalty args))) $
         Left "--wf-sharpe-std-score-penalty must be a finite value >= 0."
+    when (oaWfSharpeTrialsHaircut args < 0 || not (finiteDouble (oaWfSharpeTrialsHaircut args))) $
+        Left "--wf-sharpe-trials-haircut must be a finite value >= 0."
     when (oaTuneMaxThresholdCandidates args < 0) $
         Left "--tune-max-threshold-candidates must be >= 0."
     when (oaSensorVarianceEwmaAlpha args < 0 || oaSensorVarianceEwmaAlpha args > 1) $

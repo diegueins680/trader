@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "906ad455bef2b6706bd44667679596aa75766aae",
+  "version": "upward-rounding-v1",
+  "hypothesis": "Exact upward grid rounding and invalid-price direct rejection remove epsilon under-rounding and numeric-error market fallback.",
+  "financialTrials": 0,
+  "data": "Synthetic numeric and stubbed IO only; final holdout remains sealed.",
+  "budget": "130 boundary plus 4096 generated binary64 cases, both compiled Main delegates and four validity/fallback combinations; deterministic Haskell properties; no model training.",
+  "seed": 20261005,
+  "contract": "formal/research/upward-rounding-contract.md",
+  "acceptance": "Source-bound SMT, finite dispatch model, compiled actual caller conformance, formal/full pass; obligation 9 remains partial.",
+  "limitations": "No final wire, complete minimum-size, position-classification or order-cap proof. Other fallback reasons remain unchanged."
+}

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "91e96444afabc58e16208fb1f942cb7eaa5ea5f0",
+  "scope": "Literal baseline latch/pool functions, plus source-matched stale-ingress schedule adapter; not a full HTTP server execution.",
+  "entries": [
+    {
+      "id": "CE-DRAIN-POOL-001",
+      "claim": "async reservation can commit after a stale ingress snapshot and beginDrain",
+      "before": "(\"async post-drain\",True)",
+      "after": "(\"async post-drain\",False)",
+      "trace": [
+        "read ingress=False",
+        "beginDrain commits True",
+        "attempt reservation using stale ingress",
+        "legacy accepts; shared-transaction guard rejects"
+      ],
+      "fixture": "formal/research/fixtures/drain-pool-witness.hs",
+      "requirement": "F-DRAIN-POOL-LIFECYCLE"
+    },
+    {
+      "id": "CE-DRAIN-POOL-002",
+      "claim": "backtest reservation can commit after a stale ingress snapshot and beginDrain",
+      "before": "(\"backtest post-drain\",True)",
+      "after": "(\"backtest post-drain\",False)",
+      "trace": [
+        "read ingress=False",
+        "beginDrain commits True",
+        "attempt reservation using stale ingress",
+        "legacy accepts; shared-transaction guard rejects"
+      ],
+      "fixture": "formal/research/fixtures/drain-pool-witness.hs",
+      "requirement": "F-DRAIN-POOL-LIFECYCLE"
+    },
+    {
+      "id": "CE-DRAIN-POOL-003",
+      "claim": "waiting reservation can commit after a stale ingress snapshot and beginDrain",
+      "before": "(\"waiting post-drain\",True)",
+      "after": "(\"waiting post-drain\",False)",
+      "trace": [
+        "read ingress=False",
+        "beginDrain commits True",
+        "attempt reservation using stale ingress",
+        "legacy accepts; shared-transaction guard rejects"
+      ],
+      "fixture": "formal/research/fixtures/drain-pool-witness.hs",
+      "requirement": "F-DRAIN-POOL-LIFECYCLE"
+    }
+  ]
+}

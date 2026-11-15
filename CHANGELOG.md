@@ -1,5 +1,293 @@
 ## Unreleased
 
+- Trading/Live Bot: record orders placed at bot startup. A worker that starts with a signal differing from its position sends its order inside `initBotState`, which wrote nothing to the journal, the `bot.order` operation history, order metrics, the webhook or `position_origins`; the 2026-11-12 BCH startup entry was therefore missing from graduation evidence and had no recorded origin combo. Startup orders are now recorded like candle-loop orders and carry `"startup": true`.
+- Trading/Execution: name the execution accounting epsilons in `Trader.OrderExecution` — `executionDustQuantity` (1e-9, fills and residual positions at or below it are zero) and `executionRelativeTolerance` (1e-12, fill-conservation slack) — and use them in both accounting paths. Values unchanged, no behavior change. Record the constants review closing audit §2.4 (gate thresholds are CLI flags and optimizer-swept) and §2.5 in `TRADING_ALGORITHM_AUDIT_2026-06-24.md`.
+- Research/Formal: add default-disabled `causal-ope-v8`, an adapter that evaluates `causal-value-v6` and `causal-ppo-v7` runs with the exact `ope-rational-v2` estimator; its import closure contains no frozen v1 module. A run shorter than the horizon rejects the whole evaluation, evaluated behavior probabilities are floored at 2^-10, and the gap between recorded and drawing probabilities is bounded (2^-50 absolute, 2^-34 per trajectory weight). The estimator's 8192-bit limit keeps capacity small (six fixture runs at horizon 32 reject). New requirements F-RL-OPE-V8-SOURCE/ARITH/FLOW/CONFORMANCE; frozen evaluation unchanged, obligation 10 stays open. No runtime, live or deployment change.
+- Research/Formal: add default-disabled `causal-ppo-v7`, a PPO learner composing `ppo-objective-v2` and `gae-targets-v2` with causal replay v3, transition v4 and optimizer v5; its import closure contains no frozen v1 module. Action probabilities are floored at 2^-100, consumed values are guarded at 2^99, normalization underflow is counted and published, and actor and critic update together or not at all. New requirements F-RL-PPO-V7-SOURCE/ARITH/FLOW/CONFORMANCE; causal-ppo-v5 and frozen learners unchanged, obligation 10 stays open. No runtime, live or deployment change.
+- Research/Formal: correct the reported value-objective-v2 bound exponents to loss < 2^202 and gradient < 2^102. The proof script took a float logarithm of an exact bound slightly above a power of two and rounded it down by one; exponents are now computed by exact rational comparison. The 2^220 finiteness margin and the kernel are unchanged.
+- Research/Formal: add default-disabled `ppo-objective-v2`, a finite clipped-PPO objective (scalar fsum arithmetic, bounded admission with an old-probability floor, branch-selected coefficient, published underflow count). It rejects CE-RL-012 inputs and reproduces CE-RL-013 as intended behavior. New requirements F-RL-PPOOBJ-V2-SOURCE/ARITH/FLOW/CONFORMANCE; frozen `ppo_gradient` and causal-ppo-v5 unchanged, obligation 10 stays open. No runtime, live or deployment change.
+- Research/Formal: add default-disabled `causal-value-v6`, a conservative Double-DQN learner composing `value-objective-v2` with causal replay v3, transition v4 and optimizer v5; its import closure contains no frozen v1 module. Rewards and network values are guarded at 2^99 (targets proved within 2^100), underflow is counted and published, and any stage failure publishes nothing. New requirements F-RL-VALUE-V6-SOURCE/ARITH/FLOW/CONFORMANCE; frozen learners unchanged, obligation 10 stays open. No runtime, live or deployment change.
+
+- Trading/Live Fleet: reduce the Hetzner trading profile from 18 workers to six (SOL, BCH, NEAR, ARB, DOGE, ETH) and raise the per-combo adoption cap from 1% to 16.66% (`TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0.1666`), for at most 99.96% aggregate configured exposure. At 1% an ~800 USDT account sized entries near or below Binance's 5 USDT minimum notional and the only entry signal since 2026-10-27 was dropped. The five relaxed pins (including the SUI and ETC combos whose stored open thresholds can never be met) are no longer started; dropped pins stay retained. Selector, graduation, protection-order and market-risk settings are unchanged.
+
+- Deploy/Optimizer: enable the walk-forward Sharpe multiple-testing haircut in the research optimizer deployments: `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT=1.0` in `deploy/hetzner/trader.research.env.managed` (and its example), `fly.research.toml` and `.env.example`, with the matching passthrough in `deploy/hetzner/docker-compose.yml` so the overlay value reaches the container. The trading box leaves it unset (code default 0). Each trial's mean WF Sharpe is now deflated by `√(2 ln trials) × sharpeStd/√folds` before the 0.3 gate, so fewer candidates are admitted; set it to `0` to revert.
+- Tests/Optimization: pin the train/backtest split contract that keeps the threshold sweep fold-local (`testSplitKeepsTuneWindowOutOfBacktest`): the tune window ends at `splitTrainEnd` and every tune bar precedes every backtest bar. Record the audit follow-up status (#377, #378, #379, §1.2/§1.3 verified) in `TRADING_ALGORITHM_AUDIT_2026-06-24.md`. No runtime behavior change.
+- Trading/Signals: bound how far "latest indicator" lookups may fall back past missing readings. `latestJust`/`laggedJust` scanned back without limit, so during flat or illiquid stretches a technical signal could fire on an indicator reading from an arbitrarily old bar; they now reject readings older than `defaultMaxIndicatorStaleBars` (2) and fail closed, matching the strict precomputed per-bar paths. New `laggedJustAgeWithin`/`laggedJustWithin`/`latestJustWithin` expose the reading's age and an explicit cap.
+- Optimizer/Walk-Forward: add an opt-in multiple-testing haircut (`--wf-sharpe-trials-haircut`, env `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`) to the walk-forward Sharpe promotion gate. Each trial's mean Sharpe is deflated by scale × √(2 ln trials) × sharpeStd/√folds before it is compared to `--min-wf-sharpe-mean`, so selecting the best of N candidates cannot promote a lucky draw. Disabled by default (0); scoring, filter-reason counters and all other gates are unchanged.
+
+- Trading/Live Fleet: refresh SOL after its recovery pin became raw, selecting a newer strict-tier candidate verified on both Hetzner roles. Retain the adverse predecessor across both Hetzner and Fly profiles (44 UUIDs); preserve risk caps, startup pacing, admission checks and the graduation window.
+
+- Trading/Live Fleet: replace the unavailable ETH recovery pin and newly relaxed DOGE pin with current strict-tier candidates verified on both Hetzner roles. Retain their predecessors across both Hetzner and Fly profiles (43 UUIDs); preserve all risk, admission and graduation settings.
+
+- Operations/Portfolio: retain independently collected execution and status evidence when a fleet equity baseline is missing. Persist the specific performance-evidence error, display unavailable daily progress, and keep graduation pending without changing its review window or requirements.
+- Trading/Live Fleet: replace missing AAVE, DOGE, ETH, FIL and SOL pins with current strict-tier candidates, retaining all previous pins across the Hetzner and Fly profiles (41 UUIDs). ATOM and LINK remain idle pending qualifying evidence; the 1% adoption cap and startup pacing are unchanged.
+- Operations: add a manual Hetzner inspection workflow using the pinned deployment SSH connection to inspect both roles, optimizer activity, strategy admission and graduation coverage, and run the trading server's Binance test-order permission check.
+- CI/Toolchain: pin the formal and Haskell jobs to Ubuntu 24.04 so the reviewed Python 3.13.3 and GHC 9.4.8 compiler/linker environments remain available after `ubuntu-latest` moves to Ubuntu 26.04.
+
+- Operations/Portfolio: trace the shared graduation-review connection interval and its five query lifetimes, using fixed labels and numeric timings. Preserve query order, retries, cancellation, graduation criteria and the review window.
+
+- Trading/Live Fleet: refresh the unavailable ARB pin with a fresh strict-tier candidate within runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (36 UUIDs). AAVE, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence; risk caps, startup pacing, admission checks and graduation settings are unchanged.
+
+- Performance/Top Combos: batch database replica writes across up to 100 distinct UUIDs per group. Preserve repeated-UUID order, first non-null creation timestamps, richer live evidence, parameter replacement, strategy associations, transaction rollback and invalid-row fallback.
+
+- Operations/Top Combos: correlate initial database-connection wait and each query-attempt lifetime with the existing sync gate. Preserve serialization, retries, lazy results, masking and cancellation; emit only fixed labels and numeric timings, without query text or payloads.
+
+- Trading/Live Fleet: refresh the raw OP pin using a fresh strict-tier candidate within runtime compute limits and retain every previous pin across both Hetzner roles and both Fly profiles (35 UUIDs). AAVE, ARB, ATOM, DOGE, ETH, FIL, LINK and SOL still need qualifying evidence. Preserve risk caps, startup pacing, admission checks and the graduation window.
+
+- Performance/Top Combos: share one retention-aware reference across replica comparisons in each sync pass, reducing repeated leaderboard normalization during planning.
+
+- Trading/Live Fleet: refresh XRP after its pinned record became raw, using a fresh strict-tier candidate within runtime compute limits. Keep all previous pins in shared retention (34 UUIDs). SOL now joins ARB, ATOM, ETH, LINK and OP awaiting qualifying evidence; risk caps, startup pacing, admission checks and the graduation window are unchanged.
+
+- Operations/Top Combos: trace sync read, planning and persistence phase lifetimes with the same attempt ID as the shared build gate. Preserve action results, exceptions, cancellation and masking; keep records limited to fixed labels and numeric timings. Phase completion does not certify persistence success, and deferred work may execute in a later IO phase.
+
+- Trading/Live Fleet: qualify XRP and refresh newly raw AAVE, FIL and SOL pins using fresh strict-tier candidates within existing compute limits. Preserve all prior pins in shared retention (33 UUIDs), the 1% adoption cap, startup pacing, retirement/admission checks and graduation window. ARB, ATOM, ETH, LINK and OP still need qualifying evidence.
+
+- Operations/Fleet Benchmark: report fixed readiness-state counts from `/health` and bounded JSON `/ready` 503 bodies, distinguishing recovery readiness from draining without copying response text. Preserve HTTP failures, false/missing-readiness failures, worker targets and deadline checks; inventory-scan readiness revocation remains unchanged.
+
+- Trading/Live Fleet: refresh AAVE and FIL pins after their previous candidates became raw, using fresh strict-tier alternatives within the existing runtime compute limits. Retain all previous pins across both Hetzner roles and both Fly profiles (29 UUIDs). ARB, ATOM, ETH, LINK, OP and XRP still need qualifying evidence; preserve the 1% adoption cap, startup pacing, admission gates and graduation window.
+
+- Performance/Top Combos: batch each combo's parameter replica into one PostgreSQL insert instead of one insert per key, reducing database round trips during leaderboard persistence. Preserve parameter replacement, JSON values, strategy associations and caller-transaction rollback.
+
+- Trading/Live Fleet: correct a one-character NEAR pin transcription error in the active pin and shared retention lists. Match the exact exported candidate UUID so the existing guarded auto-start can launch NEAR; keep risk settings and retirement handling unchanged.
+
+- Trading/Live Fleet: replace the retired AAVE, BCH, DOGE, DOT, ETH, FIL, NEAR, OP and SOL pins with current strict-tier candidates and add their UUIDs to shared retention on both Hetzner roles and both Fly profiles, preserving the previous 18 pins for position recovery. Keep the 1% adoption cap, worker limits, retirement checks and graduation window. ARB, ATOM, LINK and XRP remain idle on retired pins pending qualifying evidence; the 18-worker target is not a capacity result.
+
+- Performance/Top Combos: run fresh database fingerprint reads on a separate, bracketed connection behind a dedicated gate, allowing at most one extra fingerprint connection per API process. Avoid queueing conditional responses behind full replica reads and operation writes; preserve the digest query, transaction visibility and fail-closed ETag behavior.
+
+- Performance/Top Combos: allow unchanged replicas to settle when the only remaining diagnostic is an unavailable retained UUID. Keep missing-pin warnings, retry storage failures and pending repairs, and rerun reconciliation when any replica fingerprint changes.
+
+- Operations/Top Combos: trace actual response-build and replica-sync gate attempts with correlated waiting, acquired and finished events, monotonic queue/occupancy times and UTC timestamps. Record completion after releasing the gate, preserve cancellation and action failures, and keep credentials, payloads and exception text out of these diagnostics.
+
+- Operations: fail fleet benchmarks when measured request latency exceeds `--timeout-ms`, including successful late responses. Report deadline overruns by endpoint and original HTTP status, plus probe-process event-loop delay, so delayed abort timers cannot silently produce a passing latency check.
+
+- Performance/Top Combos: stop the response's persistence-floor count once enough rows survive the existing sanitization rules, avoiding a full normalization just to count rows. Preserve retention, tombstones, refreshed adverse evidence and database/history repair behavior.
+
+- Performance/Top Combos: compute validation and performance ranking keys once per strategy when normalizing or merging leaderboard rows, preserving stable ties, ranks, retention and admission behavior while reducing full-response rebuild work.
+
+- Performance/Top Combos: backfill PostgreSQL-generated JSON digests in schema migration 6 and reuse them for database fingerprints, preserving exact payload-change invalidation while avoiding large JSON rehashes on every ETag/sync read. Add PostgreSQL 16 migration and transaction regressions to CI.
+
+- Operations: separate fleet-probe latency, time to response headers, bytes and failed probes by original HTTP status. Count ETag requests and validated conditional `200` replies, expose minimum sampled values and worker-count mismatches, and distinguish missing worker samples from observed zero workers.
+
+- Performance/Operations: skip leaderboard decoding on bot-status polls when the saved portfolio selection is absent, expired or for another rollout mode. Current selections still receive full evidence validation. Fleet benchmarks now report fixed failure categories and original HTTP status counts alongside validated probe statuses, without retaining response bodies or exception text.
+
+- Operations: let the read-only fleet benchmark enforce `--max-memory-bytes` against sampled peaks, report explicit measured/unmeasured memory assessments, and reject unsolicited `304` responses or malformed worker-status evidence.
+
+- CI: install the checksum-verified HLint 3.8 release bundle directly instead of pulling another GHC through the distro package manager. Bound linter and formatter download timeouts and retries in CI and the hosted autoloop.
+
+- Retention deduplication: suppress unretained twins of present retained rows even with spare leaderboard capacity, while preserving ordinary rows when the configured UUID is absent.
+
+- Research assurance: register the immutable causal engineering consumers with exact source/import/call inventories, restricted helper capabilities and six strict default guards. Unknown or effectful consumers remain rejected; learner numerical/data/flow certification and original38 statuses remain unchanged.
+
+- Verification: check formal source pins and the Haskell module inventory before solver imports and during automation checks, so missing solver dependencies cannot hide stale source locks. Refresh reviewed retention integration locks while preserving all registered control bodies, proof criteria and obligation statuses.
+
+- Research: compose causal replay transitions with a separate default-disabled nine-input PPO v5 learner, checked exact-to-float encoding and functional immutable Adam snapshots. Preserve requested-action probabilities under neutralization, terminal losses, and explicit unused-outcome counts; reject numeric or training failures without publishing partial results. Synthetic regression evidence only; no inherited formal closure, frozen artifact compatibility, financial trial or live setting change.
+
+- Research: add default-disabled `causal-transition-v4` to expose exact nine-input replay transitions, support-adjusted targets, accounting receipts, net-equity-delta rewards and terminal observations for future learner composition. Synthetic conformance only; no frozen learner, artifact, financial trial, live setting or proof-closure change.
+
+- Web/Fleet review: show UTC review timing, evidence-day progress, human-readable pending reasons, and the enforcing selector's bot/gross-weight caps. Saved reviews for another UUID set or configuration do not appear as current graduation evidence.
+- Operations: add `scripts/report-live-fleet.mjs` for tenant-scoped UTC daily reports from bounded GET collection or native operation exports. Report sampled bot equity separately from complete exact-day venue income, distinguish live submissions from policy denials and non-live events, charge missing status intervals, and generate an optional fleet-versioned future review-window proposal without applying it. Missing, truncated, invalid or unattributed evidence remains explicit.
+
+- Operations: add a read-only fleet benchmark for concurrent leaderboard/ETag requests, readiness/status probes, worker counts, latency, and local RSS or cgroup memory samples. Reports omit credentials and distinguish observed measurements from untriggered sync/startup coverage.
+
+- Live fleet retention: add `TRADER_TOP_COMBOS_RETAIN_UUIDS` independently of deployable overrides, with the same 18 UUIDs on managed Hetzner trading/research and Fly standby/research roles. Retain current pinned evidence through scheduled refresh pruning, replica validation, normal reads, imports, repair comparisons, capacity limits, and optimizer exports, including unstamped losses and infeasible open thresholds. Database recovery includes pins beyond the ranking limit and preserves retained legacy rows during deduplication. Distinct retained UUIDs survive merging even when their strategy parameters match. Existing tombstones remain authoritative; adverse evidence stays visible and ineligible. The combos API reports missing/ineligible retained UUIDs, and sync logs missing pins.
+
+- Trading/Live Fleet: re-pin NEAR and OP to the current strict-tier leaders (`9d121903…`, `fdde9030…`). Their previous pins were pruned from the shared leaderboard by the research refresh, and the fail-closed guard correctly left those two symbols idle rather than starting unpinned. Pinned-record retention is now configured separately on both managed roles.
+- Trading/Live Fleet: restore the Hetzner worker caps to 18 (one worker per pinned symbol). They were held at 8 on 2026-10-12 while the leaderboard sync and build memory churn was fixed; with the sync change detection, the ETag/304 path and the single-flight cached build in place the API idles near 0.5 GiB and a single build peaks near 7 GiB on the 15.6 GiB box. Aggregate configured exposure cap returns to 18%. `TRADER_BOT_START_MAX_SYMBOLS` stays at 8 so a manual or recovery bulk start launches at most eight initialisation workers at once.
+- Performance/Top Combos: full leaderboard builds are now serialized through one gate shared by the replica sync pass and `GET /optimizer/combos`, and the last built body is kept in memory and reused while its fingerprint still matches, so several browser tabs or a tab plus a sync pass can no longer stack multi-gigabyte builds (that stacking OOM-killed the trading API on 2026-10-12 at 16:11Z). The sync also skips re-uploading an identical leaderboard to S3 (object ETag equals the body md5), which previously changed every fingerprint each pass.
+- API/Key check: the `/binance/keys` trade-test probe now says why it could not size the test order from `orderQuoteFraction` (the available quote balance for the supplied keys is zero, the fraction is not positive, or the fraction or `maxOrderQuote` sizes the order at zero) instead of the generic "set orderQuoteFraction with sufficient quote balance" hint.
+- Performance/Top Combos: the database fingerprint behind the sync skip and the `/optimizer/combos` ETag now hashes the payload-visible columns (including each JSON column's content) and excludes volatile bookkeeping (`operation_count`, `updated_at_ms`, tuple version), so per-minute bot operation counters no longer invalidate every ETag or keep the sync from settling. `/optimizer/combos` decodes each replica file once per request instead of twice, and the web UI polls the leaderboard every 5 minutes instead of every 30 seconds.
+- Performance/Top Combos: the replica sync now fingerprints every replica (local file size and mtime, a database row-count/updated-at aggregate, the S3 object ETag via HEAD) before decoding anything and skips the pass while nothing changed since the last reconciled pass; a configured state-sync peer disables skipping. `GET /optimizer/combos` now carries an `ETag` and answers `304 Not Modified` to a matching `If-None-Match`, and the web UI sends the last ETag on each poll. Together these remove the per-minute multi-gigabyte decode-and-merge churn that pushed the trading API to the box's memory limit on 2026-10-12.
+- Trading/Live Fleet: hold the Hetzner worker caps at 8 (first eight base symbols) instead of 18. With 12 workers the API process reached 14-15 GiB on the 15.6 GiB trading box and the kernel OOM-killed it; the 13 additional pinned UUIDs stay in the profile for when the memory growth is fixed. Aggregate configured exposure cap is 8%. The trading box's top-combos sync now runs every 15 minutes instead of every minute: each pass fetches and fully decodes the ~80 MB leaderboard from S3, the database and the local file, and that churn was the bulk of the memory swings.
+- API/Compute Limits: the LSTM bars cap (`TRADER_API_MAX_BARS_LSTM`) no longer rejects technical-analysis methods, which train no LSTM (`cross_sectional_momentum` and `online_nn` remain capped for now). Pinned `ta_regime_switch` combos with long lookbacks were refused as auto-start targets by this cap; epoch and hidden-size limits are unchanged.
+- Trading/Live Fleet: the Hetzner trading profile now runs 18 live workers, one per symbol, instead of five. It keeps the five reviewed relaxed UUIDs (AVAX, UNI, SUI, ETC, ADA) and pins one strict-tier `deployable` UUID each for AAVE, ARB, ATOM, BCH, DOGE, DOT, ETH, FIL, LINK, NEAR, OP, SOL, and XRP. The 1% per-combo adoption cap is unchanged, so aggregate configured exposure rises from 5% to 18%. BNB, BTC, LTC, and TRX stay out because they have no strict-tier combo. Automatic graduation stays pending for the expanded fleet because the graduation window was not reset.
+- Trading/Pinned Fleet: live auto-start now fails closed when a pinned combo is unavailable. A flat symbol with no resolved pinned UUID is refused instead of starting from the latest-compatible or environment-default fallback; existing-position recovery is unchanged.
+- Web/API Binance: fetch explicit futures account-trade ranges in contiguous seven-day requests, then merge and deduplicate the results, avoiding Binance `-4165` failures for longer history ranges. Ranges longer than 189 days (27 requests per symbol, about Binance's six-month retention for this endpoint) or queries needing more than 160 requests across all symbols are rejected with HTTP 400 so one history query cannot exhaust the trading IP's Binance rate limit.
+- Exchange order/cancel requests are never retried by the HTTP layer, whatever `TRADER_HTTP_RETRY_WRITES` says (CE-IDEMP-001). Closes obligation 35.
+
+- Shutdown: while the server drains, bot starts are refused, bots make no new order decisions and the optimizer launches no new process (CE-DRAIN-001). Closes obligation 14.
+
+- Order sizing: with `orderQuoteFraction` and `maxOrderQuote`, a futures entry whose exchange minimum exceeds `maxOrderQuote` is now refused instead of being raised above the cap (CE-ROUND-003).
+- Order amounts never round up on the wire: non-grid Binance/Coinbase quantities and prices are truncated at 8 decimals (grid values unchanged), and DEX token amounts are converted exactly. Closes obligation 9.
+
+- Live readiness: `/ready` and the `ready`/`botRecoveryReady` fields of `/health` now drop as soon as a bot starts, stops or is replaced or a live manual trade completes, and expire if the inventory scan is stale; they report ready again after the next reconciled scan (CE-READY-001). Closes obligation 16.
+
+- Live safety: research, read-only and Fly servers (by `TRADER_SERVER_ROLE`, `fly` when unlabelled on Fly) can no longer place, cancel or swap live; the Hetzner research managed env sets `TRADER_SERVER_ROLE=research`. Live Binance ownership is now keyed by the exchange account UID (fail-closed: 503 for manual trades, refused bot start if it cannot be resolved). Closes obligation 15 for the system's own actors.
+
+- Live safety: manual `POST /trade` and `/trade/async` now return 409 when a live bot owns the same account and symbol, and bot start refuses an account+symbol that a manual trade is in flight on or that another tenant's bot already trades (CE-LIVE-002, CE-LIVE-003). Dry runs, Binance test-mode trades and close-position are unaffected.
+
+- Add disabled `causal-replay-v3`: pre-decision burn-in normalization, availability-ordered immutable bar steps and exact accounting; separate versioned observation schema, source/SMT/control-model checks, Haskell rational oracle and fail-closed regressions. No frozen learner, artifact, historical result, production setting or original38 status changes.
+
+- Fix: stopping a live bot is now a hard stop. A worker killed mid-order no longer converts `ThreadKilled` into an order error and continues to place or cancel orders (CE-LIVE-001). Every `try`/`catch` in `haskell/app` now goes through `trySync`/`catchSync`, which rethrow asynchronous exceptions (including the kline-step wrapper, Binance timestamp cache, request-ops logging and the TopCombosStore lock heartbeat, which previously survived `killThread`), so `timeout` also works there; other capture imports are rejected by a formal source check. Synchronous error handling is unchanged.
+
+- Close obligation 8 (accounting) for the delivered offline path: per-row binary64 reconciliation of the frozen `Replay` ledger (roll-forward, gross, funding, fee/spread/slippage/impact) within exactly derived error bounds, with SMT lemmas and a 5,578-row probe. No source or data change. Counts become 15 scoped closures / 22 partial / 1 open.
+
+- Close obligation 7 (bounded values) for the delivered offline path under the explicit assumption A-GAP-BOUND: realized-state invariant, solvent flat liquidation and post-cost target bounds, with SMT lemmas and a stress probe. The unconditional capital floor stays refuted; no source or data change. Counts become 14 scoped closures / 23 partial / 1 open.
+
+- Preserve CE-RL-025: the frozen screen's prefix-wide training scale makes in-prefix training observations depend on later bars (obligation 17 stays open). Add an executable witness and a fixed-scale Replay causality probe; no source or data change.
+
+- Close obligation 2 (split isolation) for the delivered offline screen under the owner-approved standard purge/embargo definition: source-bound fold-loop data uses, SMT region lemmas, registered fold/holdout arithmetic and a metamorphic future-rewrite probe. No source, registration or data change; counts become 13 scoped closures / 24 partial / 1 open.
+
+- Add default-disabled `value-objective-v2`, a finite, shift-stable conservative Double-DQN objective (scalar fsum arithmetic, bounded admission, penalty skipped at alpha = 0, published underflow count). It rejects CE-RL-014 inputs, makes CE-RL-015 shift-invariant, and preserves and resolves new CE-RL-024 (signed zero). Frozen learner unchanged; no broad closure.
+
+- Add default-disabled `replay-runner-v2`, composing exact funding buckets with exact replay transitions over a fixed target schedule. Add SMT index/telescoping/funding-causality lemmas, a bounded step model, Haskell-reconciled receipts and metamorphic no-lookahead tests that reject leaky variants. No policy, production path or broad closure.
+
+- Add default-disabled `funding-events-v2`: exact canonical-decimal funding settlement bucketing that rejects CE-RL-019 overflow inputs before arithmetic and publishes exact per-bar coefficients for `replay-accounting-v2`. Preserve the frozen development loader and its refuted finiteness claim. Add source-bound SMT size/endpoint lemmas, exhaustive sweep checks, a publication model and 146 Haskell oracle comparisons; obligation 10 stays open and nothing is integrated into production.
+
+- Add default-disabled `replay-accounting-v2` with bounded exact funding, wealth and cost arithmetic, conservative impact rounding and explicit failed-liquidation receipts. Preserve frozen v1 semantics and financial evidence. Add source-bound SMT, finite publication model and 1166 exact Haskell oracle comparisons; no broad closure or production integration.
+
+- Prevent repeated immediate backtests from overtaking registered waiters: use FIFO STM admission, remove cancelled tickets, and wake waiters on drain. Preserve execution-only timeout, concurrency limits and error/API shapes. Add source-bound weak-fairness model, SMT arithmetic and compiled starvation/cancellation regressions; obligation38 gains partial evidence without narrowing any closure criterion.
+
+- Verify delivered candidate stage preservation from actual writers/loaders through artifact and production-exclusion boundaries. Close scoped obligation25 only through fresh source, SMT, finite-model and conformance composition; preserve all original criteria and reject every eligibility advancement. No runtime, model, configuration or research-evidence change.
+
+- Add opt-in `--report-bundle-v2` to verified offline report export: complete bundle encoding, bounded inputs, exclusive staging/link publication, file/directory fsync, exact-byte retry validation and conflict refusal. Preserve default export bytes and existing files. Add crash/retry model, SMT, process-kill and filesystem-failure regressions; recovery gains partial evidence, with training archives and bot persistence still unresolved. No candidate or live behavior is enabled.
+
+- Add default-disabled `ope-rational-v2` for complete exact-rational probability-to-estimate arithmetic, preserving positive weights lost by floating-point products and rejecting oversized batches. Add source-bound SMT, publication model, independent oracle and failure regressions. Preserve frozen OPE evidence, champion, holdouts and all live settings; no broad obligation is closed by this component.
+
+- Add a versioned, default-disabled point-in-time training entry with immutable per-bar revision witnesses and all-or-nothing admission before PPO training. Preserve frozen v1/v2 semantics; add timestamp SMT, a finite admission model, differential tests and required boundary composition. Revision timing gains partial evidence; no candidate or live behavior is enabled.
+
+- Verify shield-to-consumer composition for every delivered offline replay caller, including pending targets across calls and deterministic terminal liquidation. Add source-derived ownership/guard checks, SMT origin preservation, repeated-call model and actual trace conformance; conditionally close obligation 12 without runtime, risk, configuration or research-evidence changes.
+
+- Refuse report-file collisions with exclusive binary creation, preserving existing files and linked champion data. Retain byte-compatible reports and deterministic collision/failure fixtures; compose source, SMT, state-model and capability evidence for scoped champion-preservation obligation 28. No model, live configuration, risk limit or frozen financial evidence changes.
+
+- Gate bot initialization until its runtime-map entry commits. Preserve duplicate-start checks and reject unpublished children on failure; add compiled rollback/cancellation regressions and source-bound model/SMT evidence. Persistent ownership, live settings and risk rules are unchanged; full ownership/lifecycle obligations remain incomplete.
+
+- Fix offline v1 policy loading to snapshot expected provenance before file I/O. Preserve the old race as a regression; compose version, hash, helper, byte-snapshot and non-authorizing consumer checks for scoped obligations29/30. Stable v1 artifacts and numerical policy behavior remain compatible; no live configuration or financial evidence changes.
+
+- Add source-derived candidate promotion composition: audit research writers/callbacks, verify v1/v4 metadata and native-schema exclusion, model retries/successors, and test actual codecs. Close scoped obligations23/26 only through freshly reproduced certificates; no runtime, artifact semantics, configuration or trading changes.
+
+- Separate readiness certification from permissive position-adoption eligibility. Check all inventory rows, require matching running local ownership evidence, clear old readiness before scans, and remove optimistic post-start readiness. Preserve adoption and ownership behavior; add SMT, finite scan-model and actual-Haskell predicate regressions.
+
+- Reject malformed closed-trade snapshot equities, returns, durations and optional probabilities. Derive only missing returns with finite results; reconstruct indices with checked Integer arithmetic and reject unrepresentable selected histories. Preserve valid memory and venue-authoritative exposure; add SMT, local state-model, compiled-helper and JSON regressions.
+
+- Validate effective quantity/notional metadata and sizing prices before quantity normalization or minimum-size retry. Reject negative raw quantities before zero-clamping/minimum expansion, missing prices needed by positive minimum notional, non-finite probe expansion and non-finite quote amounts. Preserve valid-input results and configured limits; add scoped SMT, retry-model and compiled Main regressions.
+
+- Reject selected Binance quantities/prices whose unchanged eight-decimal wire representation parses as zero or fails parsing, before credential access. Share the legacy formatter between validation and request construction; add exact Integer guard obligations, compiled prefix regressions and wire-byte compatibility checks. Zero-wire maker prices reject before market fallback. No new configuration or live authorization.
+
+- Reject NaN, infinity and nonpositive selected quantities/prices at all five Binance order constructors before credentials or request work. Preserve base-before-quote selection and valid request formats; report missing amounts before missing credentials. Add source-bound SMT, finite guard-model and compiled-prefix regressions.
+
+- Replace both upward-rounding epsilon helpers with exact rational ceiling and finite non-decrease checks. Reject invalid maker prices without market fallback; preserve other fallback reasons and existing configuration. Add scoped SMT, finite dispatch and compiled caller regressions.
+
+Quantity-normalization callers reject non-finite values and invalid grid metadata before minimum-size fallback, preventing a zero rejection from becoming a positive minimum order.
+
+- Fix Binance downward rounding: remove epsilon overshoot, use exact rational grid flooring, and reject non-finite inputs or invalid steps before partial arithmetic. Preserve the API; boundary values may round one step lower. Add scoped SMT and compiled conformance evidence; wire serialization and complete order-cap proofs remain open.
+
+## PPO artifact byte codec (2026-10-05)
+
+- Add a separate default-disabled v4 byte format for completed immutable PPO
+  results, exact finite numeric buffers, expected digest/provenance checks and
+  composition with the existing Haskell request. Preserve frozen v1 semantics.
+- Add source-bound SMT, finite gate-model and trained-policy conformance checks.
+  This is engineering infrastructure, with no artifact activation or new broad
+  closure; expected provenance is not authenticated.
+
+- Research: connect trained PPO snapshots to supervised Haskell inference through
+  a versioned, default-disabled exact-bit encoder and checked pure decoder. Keep
+  existing v2 flags and worker protocol; add an explicit v3 request mode, source-
+  bound model/SMT evidence and actual trained-policy/process conformance. Require
+  an optimized research build for the new codec without widening the 20 ms guard.
+  No persisted artifact, production integration, live permission or financial
+  result changes; broader unresolved obligations remain blocked.
+
+- Add a default-disabled, versioned PPO engineering successor connecting actual
+  collection/training to checked GAE and immutable actor/critic snapshots. Reject
+  invalid funding, non-finite objectives and incomplete updates before final
+  result publication. Add source-bound model/SMT and synthetic conformance checks.
+  Preserve frozen financial trials and all unresolved broader gates.
+
+- Research verification: compose actual dataset loading, training-prefix fitting, immutable scale use, and symbol-paired replay/OPE calls. Close affected-scope obligations 3 and 5 under named Python/pandas/NumPy assumptions; 26 partial and 7 open remain. Add source mutation and real-loader conformance tests. No research algorithm, live setting, deployment, or holdout change.
+
+- Compose async/backtest capacity reservations with the server drain latch in STM.
+  Reject stale-ingress reservations after drain; return HTTP 503 for drained
+  synchronous backtests and stop waiting retries. Preserve pre-drain ownership,
+  independent offline constructors and existing error JSON. Add three preserved
+  regressions, bounded model checking, SMT and compiled conformance. Broader
+  bot/order draining and durable recovery remain open.
+
+- Backtest execution: preserve timeout classification and external cancellation,
+  mask capacity ownership through cleanup installation, and prevent timeout-unit
+  overflow. Extract a small Haskell gate with source-bound SMT/model evidence and
+  five preserved regression witnesses. Existing admission limits and waiting
+  semantics remain unchanged.
+
+- Seal async job admission before shutdown snapshots and acknowledge completion only after every reserved job finishes its cleanup. Reject late admissions explicitly; preserve existing queue-full and job JSON semantics. Add source-bound seal model, SMT obligations and two deterministic shutdown regressions.
+
+- Async jobs: make slot reservation exception-safe and publish the job entry before allowing its callback to run. Preserve queue/API contracts; add source-bound integer proofs, a two-caller lifecycle model, interrupted-admission regressions and compiled conformance. Durable recovery and HTTP drain coordination remain unresolved.
+- Shutdown: retain unfinished supervised workers across timed-out stops, reject registration after closure, and wait for callback finalizers instead of cancellation delivery. Add three compiled legacy regressions, concurrent/interrupted-stop tests, a bounded lifecycle model and SMT predicate checks. Broader server lifecycle obligations remain open.
+- Shutdown: replace UTC-derived cleanup deadlines with monotonic, overflow-safe budgets; pass remaining time to nested waits and report incomplete cleanup after any failed/expired stage. Add source-bound SMT, six-stage model checking and compiled regression tests. This does not prove thread quiescence or resolve admission races.
+
+## Offline inference cancellation engineering follow-up (2026-10-03)
+
+- Add a separately registered, default-disabled Haskell subprocess fixture for
+  one-shot synthetic inference, strict versioned reply frames and a 20 ms request
+  budget including input parsing, cleanup and final admission. Startup is separate.
+- Add source-bound integer SMT, a 57-state/143-transition conditional lifecycle
+  model, compiled guard/property tests and real process fault fixtures including
+  ignored TERM, CPU hangs and cleanup failure. General-purpose OS timing is not proved.
+- Preserve frozen v1, the sealed holdout, champion and all production controls.
+  Obligations 21/36 gain implementation evidence but remain partial; three of 38
+  broader obligations are closed only for their explicit affected scope.
+
+
+- Research infrastructure: add `optimizer-snapshot-v2`, disabled by default, with immutable numeric state, single-snapshot forward/update reads, nonblocking conditional publication and pinned runtime admission. Verify two-writer publication and preserve the byte-view one-ULP regression as CE-RL-023; use native working copies for arithmetic. Frozen algorithms, artifacts and production behavior are unchanged; broad atomicity/race obligations remain partial.
+
+- Research assurance: extract all six executable dependency graphs with pinned GHC/Cabal parsers, check admitted inference effects and prove emitted RL/native LSTM artifact key incompatibility. Close obligations 11 and 24 only for the delivered research boundary under explicit compiler/runtime assumptions; 35 remain unresolved. Production and frozen research behavior are unchanged.
+
+- Research assurance: replace the impossible obligation-closure restriction with same-run certificate validation, audit all 38 closure criteria, and close delivered default-disabled control paths. Preserve unresolved production, numerical and economic gates.
+
+
+- Research assurance: verify source-derived reward/wealth reconciliation, clarify floating-point tolerances, and preserve a counterexample to additive reward-as-return interpretation. Frozen simulation and economic reporting remain unchanged.
+
+- Research assurance: verify a seven-or-more-bars ordering abstraction, preserve the nonterminal six-bar-call regression, and tighten synthetic trace conformance after a false-terminal mutation. No simulator or production behavior changes.
+
+- Research assurance: specify and check replay admission/mark/risk/fill/liquidation ordering, clarify policy-target versus terminal-liquidation timing, and preserve terminal round-trip costs without changing the simulator.
+
+- Research assurance: add conditional development funding timestamp proofs and synthetic overflow regressions, including full-loader and replay refusal checks. Preserve frozen data/learner behavior and all promotion blockers.
+
+- Research infrastructure: add a versioned, default-disabled exact ESS diagnostic with source-linked accumulator bounds and bounded publication checks. Preserve frozen OPE results and CE-RL-018; no policy or estimator integration.
+
+- Research assurance: verify scoped ESS/WIS and DR algebra; preserve positive-weight ESS underflow as CE-RL-018 and distinguish it from current deterministic short-OPE weights. No OPE rerun, learner change or promotion.
+
+- Research assurance: verify unchanged inference admission/selection predicates and preserve a pending-call liveness counterexample. Document the post-call timing boundary without adding cancellation, changing policies or relaxing acceptance gates.
+
+- Research assurance: qualify optimizer failure preservation to prepublication failures; model ordered stores and preserve an instrumented interruption counterexample. Add conditional exact-real gradient clipping checks without changing training or relaxing atomicity gates.
+
+- Research assurance: audit unchanged Double DQN target/CQL gradient semantics and preserve NaN-loss and common-shift cancellation witnesses. Conditional SMT checks and conformance tests do not establish CQL policy lower bounds or candidate readiness.
+
+- Research assurance: verify source-linked PPO surrogate algebra and preserve finite-loss/NaN-gradient and nonuniform-clipping witnesses. Keep frozen training and economic evidence unchanged; no full numerical, trust-region or policy-safety guarantee is claimed.
+
+- Formal tooling: isolate numerical premise/witness and universal violation queries; preserve formulas, pinned solver limits and fail-closed behavior. Add complete result-status and assertion-scope regressions without changing trading or training code.
+
+- Research infrastructure: add an explicitly enabled, versioned raw GAE target kernel with direct terminal targets and atomic finite-batch admission. Keep frozen training, artifacts and economic evidence unchanged; normalization and learner integration remain out of scope.
+
+
+- Research assurance: preserve current-source PPO/GAE cancellation and overflow
+  counterexamples; distinguish exact-real terminal algebra from conditional
+  binary64 mask guarantees. No learner repair, retuning or financial rerun;
+  numerical blockers remain explicit in the proof ledger and risk report.
+
+- Research assurance: add source-derived training-transition admission checks, a
+  terminal-inventory bypass counterexample and actual replay/collector regressions.
+  Preserve frozen research semantics; terminal flatness is not a complete cash-flow
+  or simulator-correctness proof.
+
+- Research assurance: add source-linked offline artifact admission checks, two preserved bypass mutants and constructor-order regressions. Loader semantics and candidate eligibility are unchanged; primitive/provenance trust and broader proof gaps remain explicit.
+
+- Research assurance: verify source-derived normalization-prefix and collector
+  episode bounds, preserve leakage/overrun mutant fixtures and connect them to
+  actual runner and NumPy conformance tests. Keep historical-panel admission and
+  full runtime refinement explicitly unproved; no financial rerun or live change.
+
+- Research assurance: derive the existing feature core's read bounds from its Python
+  AST and check them with SMT; reject unsupported dependencies and lookahead
+  mutations. Add source/NumPy future-corruption conformance without changing
+  frozen research semantics, data, policies or production behavior.
+
+- Research assurance: add conditional SMT gap-loss, drawdown-composition and
+  post-cost-exposure lemmas; preserve two actual-replay loss-floor counterexamples
+  and 180 exact-accounting conformance cases. Refresh literature through
+  2026-09-28 and reproduce existing negative reports without new financial trials
+  or holdout access. No candidate, production risk limit or live setting changes.
+
 ## Research assurance — 2026-09-20
 
 - Add `verify.sh formal` and include it in `full`: pinned Z3 binary64/index/accounting lemmas, a bounded research-call model, compiled Haskell conformance, source-bound receipts and explicit proof gaps.

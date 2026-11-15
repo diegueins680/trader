@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "kind": "synthetic accounting fixtures; reward interpretation witness, not a current reporter defect",
+  "nonadditivity": {
+    "requirement": "F-RL-REWARD-ADDITIVE",
+    "status": "refuted",
+    "solverResult": "sat",
+    "summedReward": "0",
+    "finalEquity": "1599/1600",
+    "economicReturn": "-1/1600",
+    "scope": "interpretation counterexample; not a defect in current economic reporting"
+  },
+  "failureScenarios": {
+    "invalid_gate": {
+      "rewards": [
+        0.0
+      ],
+      "equity": 1.0,
+      "netReturn": null,
+      "rows": 0,
+      "failure": "invalid_observation_or_position",
+      "positiveWealth": true,
+      "cashError": 0.0,
+      "rewardError": 0.0
+    },
+    "invalid_market": {
+      "rewards": [
+        0.0
+      ],
+      "equity": 1.0,
+      "netReturn": null,
+      "rows": 0,
+      "failure": "invalid_market_transition",
+      "positiveWealth": true,
+      "cashError": 0.0,
+      "rewardError": 0.0
+    },
+    "solvent_risk": {
+      "rewards": [
+        -25.025
+      ],
+      "equity": 0.74975,
+      "netReturn": -0.25025,
+      "rows": 1,
+      "failure": "capital_floor",
+      "positiveWealth": true,
+      "cashError": 0.0,
+      "rewardError": 0.0
+    },
+    "insolvency": {
+      "rewards": [
+        -200.0
+      ],
+      "equity": -1.0,
+      "netReturn": -2.0,
+      "rows": 1,
+      "failure": "equity_exhausted",
+      "positiveWealth": false,
+      "cashError": 0.0,
+      "rewardError": 0.0
+    }
+  },
+  "nonadditiveReplay": {
+    "rewards": [
+      0.0,
+      2.499999999999991,
+      -2.5000000000000013
+    ],
+    "equity": 0.9993749999999999,
+    "netReturn": -0.0006250000000000977,
+    "rows": 3,
+    "failure": null,
+    "positiveWealth": true,
+    "cashError": 0.0,
+    "rewardError": 8.881784197001252e-16
+  },
+  "regression": "scripts/formal/test_integrity.py::RewardAccountingTests.test_nonadditive_witness_reports_economic_loss"
+}

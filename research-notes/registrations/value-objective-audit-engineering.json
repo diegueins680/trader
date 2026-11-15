@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "value-objective-audit-2026-09-30",
+  "kind": "engineering and fidelity audit only",
+  "formalContract": "formal/research/value-objective-contract.md",
+  "sourceCommit": "ec3c5b2ada09151f374fac2d5bae31a3712d5e08",
+  "hypothesis": "Double DQN selection/evaluation and CQL gradient algebra match the stated mechanism, while finite inputs and alpha zero do not imply numerically safe loss evaluation.",
+  "financialTrialBudget": 0,
+  "trainingStepBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "solverTimeoutMilliseconds": 10000,
+  "solverSeed": 0,
+  "candidateChanges": "None; frozen training and economic artifacts unchanged",
+  "targetGrid": {
+    "onlineEach": [
+      -1,
+      0,
+      1
+    ],
+    "targetEach": [
+      -1,
+      0,
+      1
+    ],
+    "rewards": [
+      -1,
+      0,
+      1
+    ],
+    "horizons": [
+      1,
+      3,
+      6
+    ],
+    "terminal": [
+      false,
+      true
+    ]
+  },
+  "gradientGrid": {
+    "qRows": [
+      [
+        -1,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        -1,
+        0.5
+      ]
+    ],
+    "actions": [
+      0,
+      1,
+      2
+    ],
+    "targets": [
+      -1,
+      0,
+      1
+    ],
+    "alpha": [
+      0,
+      0.1,
+      1
+    ],
+    "batchSizes": [
+      1,
+      2,
+      64,
+      256
+    ]
+  },
+  "finiteDifference": {
+    "q": [
+      0.2,
+      -0.1,
+      0.4
+    ],
+    "target": 0.7,
+    "actions": [
+      0,
+      1,
+      2
+    ],
+    "alpha": [
+      0,
+      0.1,
+      1
+    ],
+    "epsilon": 1e-06,
+    "absoluteTolerance": 1e-08
+  },
+  "numericProbes": [
+    {
+      "id": "CE-RL-014",
+      "q": "[maxFloat,maxFloat,-maxFloat]",
+      "action": 2,
+      "target": "-maxFloat",
+      "alpha": 0
+    },
+    {
+      "id": "CE-RL-015",
+      "q": "[0,0,0] versus [2^54,2^54,2^54]",
+      "action": 0,
+      "target": "0 versus 2^54",
+      "alpha": 0.1
+    }
+  ],
+  "formalRequirements": [
+    "F-RL-DOUBLE-TARGET",
+    "F-RL-CQL-GRADIENT",
+    "F-RL-Q-FINITE",
+    "F-RL-CQL-SHIFT"
+  ],
+  "failureConditions": [
+    "Unknown positive query",
+    "SAT violation of positive claim",
+    "Unreproduced prescribed witness",
+    "Unsupported source drift",
+    "Any financial or holdout access"
+  ],
+  "promotion": "None",
+  "limitations": [
+    "Trusted softmax/logarithm and scalarization",
+    "No end-to-end witness reachability",
+    "No historical prevalence",
+    "No policy lower-bound theorem",
+    "No economic efficacy claim"
+  ]
+}

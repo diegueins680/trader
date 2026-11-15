@@ -1,5 +1,161 @@
 # Trader Firm — Risk Register
 
+Order idempotence (2026-10-09): obligation 35 **closes**. Exchange order and cancel requests are never re-sent by the HTTP layer, even with `TRADER_HTTP_RETRY_WRITES=true` (CE-IDEMP-001: a lost response could otherwise duplicate a filled order); an unknown outcome is recovered by re-reading venue position or balance on the next decision, or by client order id. Reads still retry.
+
+Drain gates (2026-10-09): obligation 14 **closes**. After SIGTERM, running bots, the bot auto-start loop and the auto-optimizer used to keep starting new work until their own shutdown step (CE-DRAIN-001). Now, once the server drains, bot start is refused, bots make no new order decisions (a routine already in flight still places its protection orders; positions carry over to adoption after restart), and no optimizer process is launched. HTTP work routes and backtests were already gated; credential probes stay available.
+
+Minimum-size cap (2026-10-08): a fraction-sized futures entry (`orderQuoteFraction` with `maxOrderQuote`) is no longer raised to the exchange minimum above `maxOrderQuote`; such an order is refused with "No order: exchange minimum order size ... exceeds maxOrderQuote" (CE-ROUND-003). Without `maxOrderQuote`, or for explicit quantities, nothing changes. Order amounts now never round up on the wire (owner-approved): exchange-grid values (e.g. 0.29) are sent exactly as before, while raw, unquantized sizes - Binance orders sent without fetched filters, Coinbase sizes - are truncated at 8 decimals instead of rounded to nearest, and DEX token amounts are converted exactly (the old floating nudge could round up). Obligation 9 **closes**.
+
+Readiness epoch (2026-10-08): obligation 16 **closes**. `/ready` and `/health`'s `ready`/`botRecoveryReady` used to keep reporting a reconciled inventory after a bot stopped (leaving its position open) or a manual trade changed inventory, until the next scan, which can take minutes during adoption (CE-READY-001). Readiness is now tied to the runtime epoch its scan snapshot was taken at: every bot start, promotion, stop, cleanup and live manual trade bumps the epoch under the runtime lock, and readers report ready only at the scanned epoch and while the scan is fresh (ten scan intervals, at least five minutes). A live manual trade suspends readiness from admission to completion. Readiness covers the auto-start account (the server credentials the bot fleet trades); other users' accounts in multi-user mode are not reported. Readiness gates no order path, and deploy health (`/health` status) is unchanged.
+
+Live ownership closure (2026-10-07): obligation 15 **closes** for the trading system's own actors. Two production changes: **(1) server-role gate** — every Binance place/cancel, the Coinbase market order and the DEX transaction send refuse on a server whose `TRADER_SERVER_ROLE` is `research`, `read-only`, `readonly` or `fly` (also the default on an unlabelled Fly machine), before any network call; test-mode orders are unaffected, and the Hetzner research box now gets `TRADER_SERVER_ROLE=research` from its managed env (it holds the trading key pair). **(2) exchange-account identity** — live mainnet Binance ownership is keyed by the Binance account UID (signed read-only `/api/v3/account`, cached per key pair), so two key pairs on one account are one owner; if the UID cannot be resolved, the manual trade returns 503 and the bot start is refused. Out of scope by design: the exchange web UI, an operator running the one-shot CLI trade, other software with the same keys.
+
+Live ownership guard (2026-10-07): a live bot and a manual trade can no longer act on the same position at once. A position identity is the API credential pair an order is signed with plus the symbol (so each exchange account should be traded through a single key pair). `POST /trade` and `/trade/async` now return **409** when a live bot owns the same account and symbol (dry runs and Binance test-mode trades are unaffected), and bot start refuses an identity while a manual trade is in flight or another tenant's bot already trades it on that account (counterexamples CE-LIVE-002 and CE-LIVE-003). Close-position remains available as a reduce-only operator override. `/trade/async` refuses before queuing; a bot that starts while the job waits makes the job fail with the same conflict. A bot with live trading enabled owns its symbol even when `dryRun` is set, because the bot order path ignores `dryRun`. See the closure note above for cross-process and account-level identity.
+
+Causal replay successor (2026-10-07): `causal-replay-v3` composes immutable consumed-bar observations with exact replay accounting. Its scale uses only a strict pre-decision burn-in; late bars, forged scales and invalid values reject, and unsupported targets become neutral before accounting. The new nine-component rational schema intentionally differs from frozen observations and cannot load existing PPO artifacts. Eight SMT lemmas, a 32-state/39-transition control model and 512 Haskell-oracle rows provide scoped evidence under A-CAUSAL-REPLAY-V3; truthful timestamps, funding alignment and runtime semantics remain assumptions. No learner or historical-data campaign is integrated. CE-RL-025 stays refuted in frozen training; counts remain **15 scoped closures / 22 partial / 1 open**.
+
+Live stop fix (2026-10-07): `botStop` is now a hard stop. A bot worker killed mid-order used to swallow `ThreadKilled` inside `try @SomeException` and keep placing protection, trigger or algo orders or cancelling by prefix after the stop had been reported (counterexample CE-LIVE-001, reproduced on GHC 9.4.8). Every `try` and `catch` in `haskell/app` (17 modules) now goes through `Trader.App.AsyncSafe.trySync`/`catchSync`, which rethrow asynchronous exceptions, and no other module may import a capture combinator, so the compiler rejects new swallowing sites. This also covers the kline-step wrapper above the order path, the Binance timestamp cache, request-ops logging and the TopCombosStore lock heartbeat. `System.Timeout.timeout` now fires through these calls; five reviewed threads that only forward their outcome to a waiter still capture everything. Synchronous errors are handled exactly as before. Obligation 15 gains evidence but stays open.
+
+Accounting reconciliation (2026-10-07): obligation 8 **closes** for the delivered offline path. Every recorded `Replay` row reconciles in binary64. The wealth roll-forward is within 15u·M + 15H of prior equity + gross + funding − costs. Gross, funding and each cost term are within stated multiples of u of their formulas on the executed inputs, and invalid market data rejects before any row. Z3 certifies the rounding, product-chain, accumulation and ledger-identity lemmas, and each constant is derived exactly and checked against its stated bound. The identity lemma caught a sign error in the first draft. Fill calibration against real venues is empirical and not claimed. Counts are now **15 scoped closures / 22 partial / 1 open**. [Contract](../formal/research/accounting-reconciliation-contract.md).
+
+Bounded values (2026-10-06): obligation 7 **closes** for the delivered offline path under an explicit, registered gap/solvency assumption A-GAP-BOUND: per-bar |return| <= 1/2, funding <= 3% of the prior price, and the registered stress maxima. Source binding, Z3-certified generic rounding lemmas and an exact per-operation binary64 error propagation (literal values, underflow terms, normal-range premise) show that every non-terminal `Replay` state satisfies the floor and computed exposure bounds and an exact drawdown below 3/20 + 2^-50, every risk or horizon termination liquidates flat with positive equity, and proposal rejections place no order. A 288-episode stress probe adds tested evidence. The unconditional floor stays refuted (CE-RL-002/003 lie outside the assumption). Counts are now **14 scoped closures / 23 partial / 1 open**. [Contract](../formal/research/bounded-values-contract.md).
+
+Observation causality audit (2026-10-06): obligation 17 **stays open** with a new counterexample, CE-RL-025. The frozen runner fits `Scale` on the whole training prefix, and `collect` normalizes in-prefix training observations (and `supported()` gating) with it, so a training-time observation at t changes when only bars after t change (witness: max change 1.05). A fixed-scale probe (250 per-decision checks) shows `Replay` itself is causal, and evaluation observations are unaffected. Frozen code is not edited; a causal-scale successor needs a new registration. Counts stay **13 scoped closures / 24 partial / 1 open**. [Contract](../formal/research/observation-causality-contract.md).
+
+Split isolation (2026-10-06): obligation 2 **closes** for the delivered offline research path. The owner resolved the long-open purge/embargo question in favor of the standard definition (embargo applies only to training rows after a fold's test window, so it is vacuous for these forward folds; the six-bar gap is still not described as two additive regions). Fresh AST binding of every fold-loop data use, six SMT region lemmas, registered fold and holdout arithmetic, and the complete research-module certificates reproduce; a metamorphic probe shows evaluation results ignore every value at or after `testStop`. Counts are now **13 scoped closures / 24 partial / 1 open**. [Contract](../formal/research/split-isolation-contract.md).
+
+Causal OPE v8 (2026-11-13) adds a default-disabled adapter that feeds the recorded transitions and behavior probabilities of `causal-value-v6` and `causal-ppo-v7` runs to the exact estimator `ope-rational-v2`. It imports no frozen v1 module and neither trains nor samples. Each run contributes its first H transitions (H at most 32); a run shorter than H rejects the whole evaluation, so no run is dropped or padded. The gap between a recorded probability and the probability with which the learner draws that action is now bounded: at most 2^-50 absolutely, at most 2^-40 relatively above the 2^-10 evaluation floor, and at most 2^-34 on a trajectory weight, under the standard rounding model and a uniform draw on the 2^-53 grid. Four SMT implications with one floor-removal control, a 48-state publication model, 9 evaluations (24 episodes) matched field by field against an independent exact-rational oracle, 9 on-policy controls and 96 integer-counted sampling-law checks provide scoped evidence. The estimator's 8192-bit size limit makes capacity small: six fixture runs at H = 32 reject, four are admitted. Target probabilities and value models are caller-supplied, the estimate is marked unreliable, and no unbiasedness, independence or economic claim follows. Frozen evaluation and its counterexamples are unchanged; obligation 10 stays open. Counts stay **20 scoped closures / 17 partial / 1 open**. [Contract](../formal/research/causal-ope-v8-contract.md).
+
+Causal PPO v7 (2026-11-12) adds a default-disabled PPO learner that composes `ppo-objective-v2` and `gae-targets-v2` with causal replay v3, transition v4 and the functional optimizer v5. Unlike causal PPO v5 it imports no frozen v1 module: softmax, sampling and advantage normalization are local scalar code. The action is drawn before the step's outcome is read with one uniform draw per step, all three action probabilities are floored at 2^-100, every consumed reward, network value, advantage, target and residual is guarded at 2^99, normalization underflow is counted and published, and actor and critic candidates are accepted together or not at all. Six SMT implications with one guard-removal control, a 240-state training-stage model, 822 replayed sampling checks and 822 exact-rational GAE target checks provide scoped evidence. The simplex, sampling and normalization lemmas are exact-real; binary64 softmax, normalization, network and optimizer arithmetic are guarded, not bounded by proof. Causal PPO v5, the frozen learner and its counterexamples are unchanged and not retired; obligation 10 stays open. Counts stay **20 scoped closures / 17 partial / 1 open**. [Contract](../formal/research/causal-ppo-v7-contract.md).
+
+PPO objective v2 (2026-11-11) adds a default-disabled, disconnected clipped-PPO loss/gradient kernel: scalar IEEE operations with `math.fsum` (no NumPy/BLAS), logits and advantages bounded at 2^100, old probabilities floored at 2^-100 so the ratio is bounded, and a coefficient selected by branch instead of multiplied by an activity flag, so no `0 · inf` can form. CE-RL-012 inputs reject (the in-domain analogue has a finite loss and an exactly zero gradient); CE-RL-013 is reproduced as intended clipped-objective behavior. Eight SMT implications, an exact rounding chain (loss < 2^201, gradient < 2^202), a 60-digit decimal oracle and a frozen-helper differential provide scoped evidence. The frozen helper and causal-ppo-v5 are unchanged; obligation 10 stays open. Counts stay **20 scoped closures / 17 partial / 1 open**. [Contract](../formal/research/ppo-objective-v2-contract.md).
+
+Causal value v6 (2026-11-11) adds a default-disabled conservative Double-DQN learner that composes `value-objective-v2`, causal replay v3, transition v4 and the functional optimizer v5. It is the first learner whose import closure contains no frozen v1 module. The action is drawn before the step's outcome is read, behavior probabilities are exact rationals (11/12 greedy, 1/24 otherwise), terminal rows take no bootstrap, and every consumed reward and network value is guarded at 2^99 so targets stay within 2^100; bootstrap and objective underflow are counted and published, and any stage failure publishes nothing. Six SMT implications with two guard-removal controls, a 292-state training-stage model and 822 exact-rational target checks provide scoped evidence. Network forward and optimizer arithmetic are finiteness-guarded, not bounded by proof. The frozen learner and its counterexamples are unchanged and not retired; obligation 10 stays open. Counts stay **20 scoped closures / 17 partial / 1 open**. [Contract](../formal/research/causal-value-v6-contract.md).
+
+Value objective v2 (2026-10-06) adds a default-disabled, disconnected conservative Double-DQN loss/gradient kernel: scalar IEEE operations with `math.fsum` (no NumPy/BLAS), magnitudes bounded at 2^100, the penalty skipped when alpha = 0 and computed from differences only, and underflowed `exp` terms counted and published. CE-RL-014 inputs reject (in-domain analogues are finite: loss < 2^202), CE-RL-015 becomes shift-invariant, and a new counterexample found during proof, CE-RL-024 (signed-zero bitwise difference), is preserved and resolved by zero canonicalization. Six SMT queries, an exact rounding chain, a 60-digit decimal oracle and a frozen-helper differential provide scoped evidence. The frozen learner is unchanged. Counts stay **12 scoped closures / 25 partial / 1 open**. [Contract](../formal/research/value-objective-v2-contract.md).
+
+Exact replay runner v2 (2026-10-06) composes `funding-events-v2` and `replay-accounting-v2` into a default-disabled episode runner over a fixed target schedule. Step k reads only bar left+k and the matching funding bucket; the final step is forced terminal. Seven SMT index/telescoping/funding-causality queries, a horizon-1..8 step model, 157 Haskell-reconciled receipt rows and 64 metamorphic future-rewrite episodes provide scoped evidence; the metamorphic check rejects deliberately leaky future-price and future-funding variants. It has no policy and assumes settlement grid time is availability time. Counts stay **12 scoped closures / 25 partial / 1 open**. [Contract](../formal/research/replay-runner-v2-contract.md).
+
+Exact funding events v2 (2026-10-06) adds a default-disabled, disconnected funding-settlement loader successor: canonical ASCII fixed-point decimal and integer-time admission, exact Fraction coefficients, first-close-no-earlier bucketing and all-or-nothing immutable publication. Eleven SMT size/endpoint queries, 256 exhaustive sweep cases, an 8-state publication model and 146 Haskell Rational oracle loads provide scoped evidence; both CE-RL-019 witnesses reject as out-of-domain text before arithmetic, and admitted coefficients compose exactly with replay-accounting-v2. The frozen loader stays refuted (F-RL-FUNDING-FINITE) and unchanged. The original 38 remain **12 scoped closures / 25 partial / 1 open**; obligation 10 stays open. [Contract](../formal/research/funding-events-v2-contract.md). No candidate, champion, fleet, live flag, market data or holdout changes.
+
+Exact replay accounting v2 (2026-10-06) adds a default-disabled rational transition kernel, explicit flat/failed terminal liquidation receipts, bounded raw funding aggregation and conservatively rounded impact. Nine SMT queries, a 28-state/52-edge publication model and 128 generated episodes/1166 Haskell Rational comparisons provide scoped evidence. The original 38 remain **12 scoped closures / 25 partial / 1 open**: the kernel is not connected to frozen learning/replay and does not close a whole-system criterion. [Contract](../formal/research/replay-accounting-v2-contract.md). No candidate, champion, fleet, live flag or holdout changes.
+
+
+FIFO progress (2026-10-06): **12 scoped closures /25 partial /1 open**, still26 unresolved. Original38 gains source-bound FIFO, eight SMT queries, an838-state/3356-edge weak-fairness model and compiled conformance; it does not close. A-ADMISSION-PROGRESS assumes finite resources, terminating callback/cleanup and weak scheduler fairness, with no latency or whole-server guarantee. CE-BACKTEST-STARVATION preserves a fair polling-starvation cycle. No learned candidate or live authorization is introduced. See the [contract](../formal/research/admission-progress-contract.md). Earlier counts below are historical.
+
+
+A-ROUND-DOWN / CE-ROUND-001: downward epsilon rounding could increase quantity; the exact pure core and final binary64 guard repair this defect. Source-bound SMT and compiled properties do not certify wire rendering, upward rounding, minimum-size increases or all venue adapters. GHC primitives and sufficient resources remain assumptions. RL-OFFLINE-001 remains HIGH/OPEN; five scoped closures, 27 partial, six open. See [contract](../formal/research/quantity-rounding-contract.md).
+
+
+PPO artifact v4 adds a bounded pure byte codec and integrity/provenance comparison
+under A-ARTIFACT-V4. Caller trust anchors, hash/JSON primitives and source-to-model
+correspondence are explicit assumptions. Exact byte round trips do not establish
+training truth, freshness, causal normalization application or Haskell-side
+artifact admission. No path selection, activation or order capability is added.
+RL-OFFLINE-001 remains HIGH/OPEN; five scoped closures, 26 partial and seven open
+remain. See [the contract](../formal/research/ppo-artifact-v4-contract.md).
+
+
+PPO snapshot bridge v3: trained-policy requests now pass through checked integer
+bit decoding and the existing supervised Haskell inference guard. A-BRIDGE-V3
+names the parser, bit-cast, Show/Read, runtime and process assumptions. The first
+unoptimized build safely timed out on some policies; `-O2` passed the targeted
+per-policy conformance test without changing the deadline, but a later loaded-host
+benchmark had 30/30 absences in both builds. Operational timing is not qualified. Request metadata is not authenticated provenance and supplied
+observations have no new availability witness. No persistent artifact or order
+capability is added. RL-OFFLINE-001 remains HIGH/OPEN; no broad obligation closes.
+See the [contract](../formal/research/ppo-process-bridge-v3-contract.md).
+
+
+PPO successor v2: actual offline training now uses checked GAE and private immutable
+actor/critic snapshots under A-PPO-SUCCESSOR. Numeric and partial-update failure
+publishes no TrainingResult. Runtime/helper semantics and training-prefix selection
+remain assumptions; this does not certify accounting error, funding provenance,
+artifact/process inference, OPE, production integration or economic superiority.
+Five scoped closures remain; 26 partial and seven open remain. RL-OFFLINE-001 is
+HIGH/OPEN. See the [contract](../formal/research/ppo-successor-v2-contract.md).
+
+See [shutdown contract](../formal/research/shutdown-deadline-contract.md) and CE-SHUTDOWN-001/002/003. The repair changes server cleanup code but is not deployed by this research task.
+
+Inference process v2 follow-up: A-INFERENCE-PROCESS assumes bounded OS creation,
+pipe, signal and scheduler service, a trusted self executable and exclusive child
+reaping. The new research-only executable can kill noncooperating workers, rejects
+expired replies after cleanup and reports cleanup failure explicitly. It has no
+production component, order interface or artifact loader. It is not a hostile-code
+sandbox; parent process death/repeated cancellation and inherited server shutdown
+remain unverified. CE-RL-017 remains valid for frozen v1; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
+Closure audit (2026-10-03): [criteria and scope](../formal/research/obligation-closure-audit.md) replace the impossible completion guard (CE-RL-021). Default-disabled, capability separation and no production learning are closed only for delivered offline boundaries under explicit language/runtime assumptions (A-CAPABILITY-BUILD). Actual deployment images and inherited live authority remain unverified; Dockerfile.optimized still names GHC 8.10.4 rather than canonical 9.4.8. The remaining 35 obligations, numerical counterexamples and economic rejection keep `RL-OFFLINE-001` HIGH/OPEN. Earlier 38-open counts below are historical.
+
+Snapshot v2 follow-up: A-SNAPSHOT-V2 trusts pinned CPython/GIL reference/lock semantics and NumPy scan/serialization, with ordinary immutable snapshot discipline. New update/forward consumers use coherent snapshots; interrupted acknowledgement and orphan-lock recovery remain limitations. CE-RL-023 records backend-dependent raw-byte-view numerical parity and its tested native-copy correction. CE-RL-016 in frozen v1 and broader production synchronization remain unresolved; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
+Reward accounting evidence (2026-10-03): [contract](../formal/research/reward-accounting-contract.md) separates call-relative reward from compounded economic return. The reporter correctly records the preserved synthetic loss. Exact-real SMT and tolerance tests do not discharge floating-point/production refinement; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Replay cutoff evidence (2026-10-01): [contract](../formal/research/replay-cutoff-contract.md) extends abstract single-call ordering through an integer cutoff lemma and class-seven graph. Observation/reward and Haskell runtime refinement remain open. A checker mutation is preserved and corrected; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Replay ordering evidence (2026-10-01): [contract](../formal/research/replay-order-contract.md) checks a source-bound single-call abstraction and synthetic helper traces. Terminal liquidation is distinct from a delayed policy target; early rejected calls can retain simulated state. Runtime, cash arithmetic and production lifecycle remain open; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Funding boundary evidence (2026-10-01): [contract](../formal/research/funding-boundary-contract.md) records CE-RL-019 product/sum overflow from finite synthetic inputs. Scoped endpoint proofs do not prove provider availability; replay rejects the encountered invalid transition. Frozen loader unchanged; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Exact ESS diagnostic (2026-09-30): [contract](../formal/research/ess-v2-contract.md) introduces a disabled, disconnected rational kernel. Its supplied-weight arithmetic avoids CE-RL-018 locally; the frozen helper retains the witness. Upstream lost weights, statistical support, full runtime refinement and promotion remain unresolved. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+OPE numerical evidence (2026-09-30): [contract](../formal/research/ope-algebra-contract.md) records CE-RL-018, where squared positive weights underflow and ESS reports zero. This prescribed helper fixture is outside the current deterministic six-step weight domain. Exact-real identities do not establish binary64 accuracy or statistical reliability; `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Inference timing evidence (2026-09-30): [contract](../formal/research/inference-boundary-contract.md) and CE-RL-017 preserve the known non-preemptive call limitation. Measured time excludes later output validation/selection; predicate, clock and cancellation failures remain assumptions or open scope. `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Optimizer publication evidence (2026-09-30): [contract](../formal/research/optimizer-publication-contract.md) and CE-RL-016 expose partial publication under an injected interruption. Prepublication failure tests and a single-writer model do not establish concurrent atomicity. Rounded gradient-norm bounds remain assumptions; `RL-OFFLINE-001` stays HIGH/OPEN and the learner is unchanged.
+
+Value-objective audit (2026-09-30): [contract](../formal/research/value-objective-contract.md) records CE-RL-014/015: finite value inputs can produce a NaN loss at zero CQL weight or lose the conservative loss under a common shift. Finite gradients can pass optimizer admission despite invalid loss. The learner is unchanged and `RL-OFFLINE-001` remains HIGH/OPEN.
+
+
+PPO objective audit (2026-09-28): [contract](../formal/research/ppo-objective-contract.md) separates exact-real clipping algebra from binary64 safety. CE-RL-012 returns finite loss with NaN gradient; optimizer refusal is tested, the frozen learner remains unchanged and `RL-OFFLINE-001` stays HIGH/OPEN. CE-RL-013 shows the intended absence of a universal clipping multiplier bound; it is not an external action-shield failure.
+
+Numerical proof-query reliability (2026-09-28): [query-isolation contract](../formal/research/query-isolation-contract.md) separates non-vacuity and universal queries without changing arithmetic, domains or the 10-second solver limit. Unknown/canceled checks remain blocking. Timing reliability and trusted solver/compiler semantics remain limitations; no mission obligation or candidate is promoted.
+
+Isolated target-kernel mitigation (2026-09-28): [gae-targets-v2](../research-notes/sequential-control-2026-09-17/target-v2-followup-2026-09-28.md) is disabled by default and not called by training or production. It corrects terminal reward reconstruction or rejects the two numerical fixtures in that kernel only. The frozen learner retains CE-RL-010/011; `RL-OFFLINE-001` stays HIGH/OPEN.
+
+
+Terminal-target numerical evidence (2026-09-28):
+[CE-RL-010/011](../formal/research/terminal-counterexamples.json) are current-source
+research-learner counterexamples, not mutations. Finite inputs can lose terminal
+reward through cancellation or yield infinity/NaN through residual/carry arithmetic.
+No historical-market impact is established. Exact-real and finite-product proofs
+do not repair these open blockers; `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Training-transition admission evidence (2026-09-28 continuation):
+[source-derived predicates](../formal/research/transition-admission-contract.md)
+establish necessary terminal-flatness and successor-admission conditions under
+trusted scalar/vector helper semantics. Complete cash accounting, genuine risk
+classification and simulator/runtime refinement remain open. `RL-OFFLINE-001`
+remains HIGH/OPEN.
+
+Artifact-admission evidence (2026-09-28 continuation): the
+[source-linked gate model](../formal/research/artifact-admission-contract.md) and
+metadata SMT checks assume trusted helpers and externally supplied expected
+provenance. They do not establish authenticity, full runtime refinement or a
+production artifact path. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Training-prefix evidence (2026-09-28 continuation):
+[source-derived fit and episode checks](../formal/research/training-prefix-contract.md)
+certify index bounds conditional on admitted arrays and trusted primitive/constructor
+semantics. Whole-panel validation is not online admission causality; complete
+Replay refinement remains open. `RL-OFFLINE-001` remains HIGH/OPEN.
+
+Source-linked causality evidence (2026-09-28 continuation): the
+[feature read-footprint check](../formal/research/causal-footprint-contract.md)
+links SMT index bounds to the actual Python AST. Base-array, runtime and primitive
+semantics remain assumptions; publication timing, caller symbol selection and
+full replay-state causality remain open. `RL-OFFLINE-001` stays HIGH/OPEN.
+
+Gap-risk evidence (2026-09-28): `RL-OFFLINE-001` remains HIGH/OPEN.
+[CE-RL-002/003](../formal/research/gap-counterexamples.json) reproduce capital-floor
+breaches after shielded targets in the offline replay. Conditional real-arithmetic
+[risk lemmas](../formal/research/gap-risk-contract.md) require bounded price moves
+and cash debits; these are unestablished environmental assumptions, not live risk
+guarantees. No production limit or risk lifecycle status changes.
+
 `formal/risk-register.json` is the canonical machine-readable source for risk
 IDs, severities, and lifecycle statuses. This table and the typed Haskell
 projection in `app/Trader/Formal/RiskRegister.hs` must contain exactly the same
@@ -37,6 +193,7 @@ change severity and a fixed risk is `CLOSED`, never encoded as a severity.
 | RISK-METRIC-INVALID-001 | Malformed loss or drawdown evidence could bypass live halt checks | CRITICAL | trader-firm-risk | CLOSED | `specRiskHalt` validates risk evidence before threshold comparisons |
 | RL-OFFLINE-001 | Simulator policies can exploit costs, coverage, episode boundaries or contaminated history | HIGH | trader-firm-research | OPEN | Keep sequential-control v1 offline and non-authorizing; require explicit boolean gates, finite real proposal/inference inputs and typed replay and training bounds/budgets/modes; validate immutable normalization snapshots and policy parameters before persistence, and reject incomplete learning transitions while retaining accounted risk losses; reject duplicate keys and non-finite numbers while parsing verified evidence snapshots, preserve their admitted hashes, pin registration/source provenance to the exact Git-validated snapshots and reconcile registry/result summaries with versioned completed/truncated episode coverage; require stopped and consistent completion state, contiguous finite bar ledgers and per-bar return/equity reconciliation for economic reports while retaining failed paths; abort archives on terminal-ledger or return-path publication failure; pin export paths and prohibit destinations within the source archive; validate resource metadata domains, timing agreement and explicit RSS units; reject invalid baseline observations, rule names, fitted parameters and non-finite intermediate scores; admit complete short-OPE windows, integer budgets and aligned symbol coverage before sampling; validate policy observations/outputs before selection or transition and reject non-finite neural hidden arithmetic before activation; reject invalid optimizer controls and overflowing update arithmetic, publishing parameters and moments only after whole-update validation; reject masked OPE inputs before coercion and malformed or overflowing OPE evidence without weight clipping; require fresh data, matched champion, credible OPE, complete risk-safe paths and separate human review before any integration |
 | SCHEMA-001 | Live trade-log schema could drift from its declared contract | CRITICAL | trader-firm-cio | CLOSED | The schema contract and executable validation are tracked |
+| SHUTDOWN-DEADLINE-001 | Shutdown timing and completion may diverge from the promised lifecycle bound | HIGH | trader-firm-cto | OPEN | Monotonic budgets, worker closure/completion, async reservation/publication, sealed completion and backtest cancellation and shared STM drain/pool ordering repair eighteen counterexamples (including a reserve-gap schedule adapter and three stale-ingress schedules); named clock/worker/async/seal/backtest/STM runtime assumptions, pre-drain owners, other HTTP/bot/order admission, durable recovery and full IO refinement remain open |
 | THRESHOLD-FACTOR-001 | `thresholdFactor` may not be wired into simulation configuration | MEDIUM | trader-firm-research | CLOSED | CLI validation, optimizer serialization, both simulation constructors, causal simulator application, and an enabled-versus-disabled admission regression are verified |
 | TRADE-LOG-GAP-001 | Trade-log records lacked required exit and halt evidence | HIGH | trader-firm-cio | CLOSED | The schema includes `exit_reason` and the trade-log implementation is tracked |
 | TRADE-LOG-GAP-002 | Trade logs lack a native snapshot of derived risk-state metrics | MEDIUM | trader-firm-cio | CLOSED | Schema 1.2 live event rows carry null-safe pre-execution risk snapshots while backtest rows retain explicit v1.1 semantics |
@@ -64,3 +221,151 @@ execution or production lifecycle correctness. No verified candidate or promotio
 is implied; [CE-RL-001](../formal/research/counterexamples.json) documents retained
 non-authorizing proposals after disable. Existing canonical IDs/statuses and the
 typed Haskell risk projection remain unchanged.
+
+The [worker registry contract](../formal/research/worker-registry-contract.md) scopes CE-WORKER-001/002/003 and the source-bound model/SMT/conformance repair. Completion covers tracked callbacks and their finalizers, not descendants or exchange/resource reconciliation. Cancellation timeout remains an explicit failure.
+
+A-ASYNC-ADMISSION and [its contract](../formal/research/async-job-admission-contract.md) scope CE-ASYNC-001/002: failed preparation leaked a queue slot and failed publication could leave an untracked callback. The repaired in-memory boundary does not reconcile persisted running records or close the HTTP drain gate.
+
+### RL-OFFLINE-001 — data composition follow-up (2026-10-04)
+
+The offline screen now has source-composed evidence for causal normalization
+and local symbol isolation: 28 checked scale-use sites, six source-derived key
+SMT checks, immutable snapshots, and actual loader/fit/replay/OPE conformance.
+Obligations 3 and 5 close under A-DATA-COMPOSITION (trusted pinned Python, pandas,
+NumPy, cryptographic identity and source grammar; no hostile objects or concurrent
+mutation). The shared training transform/policy is explicitly global. Historical
+publication/revision witnesses, online admission causality, full split isolation,
+numeric/accounting refinement and inherited production correctness remain open.
+Risk remains HIGH/OPEN; current broad count is 5 closed, 26 partial, 7 open.
+
+CE-DATA-COMPOSITION-001 records and fixes a verifier coverage omission: the first
+source-composition checker did not require its full skeleton roster. The corrected
+checker requires every reviewed block and rejects omitted coverage. No historical
+market leakage or trading behavior change is inferred from this injected mutant.
+
+
+Upward rounding follow-up (2026-10-05): [the contract](../formal/research/upward-rounding-contract.md)
+adds F-ROUND-UP-INTEGER/FINITE/FLOW/CONFORMANCE and A-ROUND-UP. Exact Integer/Real
+ceiling lemmas and binary64 guard checks are distinct from the eight-state local
+dispatch model and compiled actual-caller properties. CE-ROUND-003 preserves
+unit-grid under-rounding; CE-ROUND-004 preserves invalid-price market fallback.
+Invalid maker prices now return an unsent result. Other configured fallback
+reasons remain unchanged. Runtime/compiler primitives and source-to-model
+mapping remain assumptions; no whole-Main, final-wire or complete order-cap
+proof. Five scoped closures, 27 partial, six open; RL-OFFLINE-001 stays HIGH/OPEN.
+
+
+The [order-number contract](../formal/research/order-number-contract.md) adds
+F-ORDER-NUMBER-FINITE/SELECTION/FLOW/CONFORMANCE under A-ORDER-NUMBER. Five
+binary64/selection SMT queries and a 40-state local guard model supplement
+compiled actual current/legacy prefixes for all five Binance constructors.
+CE-ORDER-NUM-001/002 preserve non-finite guard bypasses. Runtime and source-mapping
+assumptions remain explicit. No full IO, caller retry, venue acceptance, wire-grid,
+cap or authorization proof. Counts remain 5 scoped closures, 27 partial, 6 open;
+RL-OFFLINE-001 remains HIGH/OPEN and no research candidate is promoted.
+
+
+The [wire-admission extension](../formal/research/order-wire-contract.md) adds
+F-ORDER-WIRE-POSITIVE and A-ORDER-WIRE to the existing numeric boundary. The
+formatter is unchanged and shared by validation and wire generation; exact
+Fixed E12 parsing rejects zero-wire values before credentials. Seven conditional
+SMT queries, an 80-state local model, 5728 compiled rows across three prefix
+versions and 11456 wire-byte comparisons are checked by the formal wrapper.
+Parsing/formatting remain explicit pinned-library assumptions. No wire cap/grid,
+whole-caller or complete IO theorem; 5 scoped closures, 27 partial, 6 open remain.
+CE-ORDER-WIRE-001 is preserved; RL-OFFLINE-001 remains HIGH/OPEN.
+
+The wire-aware maker-price preflight also rejects zero-wire prices before constructor exceptions can enter configured market fallback (CE-ORDER-WIRE-002). Other maker fallback reasons and the fallback flag are unchanged; this is a source-bound local guard with compiled conformance, not a whole-caller proof.
+
+
+The [sizing admission contract](../formal/research/sizing-input-contract.md)
+adds F-SIZING-INPUT/PUBLISH/RETRY/FLOW/CONFORMANCE under A-SIZING-INPUT.
+Fourteen conditional SMT queries cover binary64 predicates, publication bounds
+and non-retryable errors. A 56-state/32-transition/depth-three local model and
+6214 compiled input rows connect metadata/price admission to actual Main
+normalizers and the minimum retry classifier. Negative raw quantities also
+reject before clamping; zero semantics remain. CE-SIZING-001–006 preserve six
+synthetic failures; no historical incident is inferred. Parsing/freshness,
+missing optional filters, direct minimum consumers, exact notional arithmetic,
+wire caps/grid and complete caller/lifecycle refinement remain unresolved.
+Five scoped closures, 27 partial, six open; RL-OFFLINE-001 remains HIGH/OPEN.
+
+Closed-trade recovery now has [numeric/index admission](../formal/research/closed-trade-recovery-contract.md)
+under A-RECOVERY-NUMERIC: seven guard/Integer SMT queries, a 22-state local
+record-eligibility/publication model, 341 bounded histories, 2675 numeric cases
+and 1031 compiled index histories. CE-RECOVERY-001–004 preserve synthetic
+failures; actual Aeson integration is tested separately. No parser/compiler,
+authenticity, freshness, durable crash recovery, resource-bound or ownership
+certificate is inferred. Obligations 6/10/29/37 receive evidence without status
+changes: five scoped closures, 27 partial, six open. RL-OFFLINE-001 remains open.
+
+Inventory readiness now has [strict snapshot admission](../formal/research/inventory-readiness-contract.md)
+under A-INVENTORY-READINESS. CE-READINESS-001–004 retain flat-owner, unsupported
+hedge, wrong-side start-acknowledgment and interrupted-rescan failures. Four SMT
+predicate queries, a 25-state/33-transition two-cycle publication model and 6468
+actual-Haskell predicate cases cover this boundary. Complete/truthful venue data
+and ordinary runtime semantics remain assumptions. Persistent-owner uniqueness,
+concurrent snapshot consistency, continuous freshness and HTTP/drain linearization
+are not proved. Obligation16 advances from open to partial; totals are five scoped
+closures, 28 partial, five open. No closure criterion is weakened; RL-OFFLINE-001
+remains open. This health repair does not modify adoption or production ownership.
+
+Promotion boundary follow-up (2026-10-05): [A-PROMOTION-BOUNDARY](../formal/research/promotion-boundary-contract.md)
+records ordinary runtime/numeric objects, trusted fixed code and primitive effects,
+registered scalar identifiers, fresh exclusive directories and a stable filesystem
+namespace. Source inventory equality is drift detection, not whole-language proof.
+The actual field predicates/native key sets are SMT checked; the finite lifecycle
+and existing build/type/process certificates compose the affected boundary.
+Obligations23/26 now have conditional scoped closure, with their original criteria
+and scope unchanged: **7 scoped closures,26 partial,5 open**. No inherited live
+control-plane, ownership, deployed-image, crash-atomicity, hash-authenticity or OS
+sandbox theorem is claimed. RL-OFFLINE-001 stays open. No financial evidence changes.
+
+Artifact admission follow-up (2026-10-05): [A-ARTIFACT-COMPOSITION](../formal/research/artifact-composition-contract.md)
+records immutable identity/byte semantics and the trusted JSON/hash/array/compiler
+primitives. The old v1 expected-provenance mutation race is reproduced and corrected;
+version/hash predicates and finite concurrent replacement behavior are checked.
+Source correspondence is reviewed and conformance-tested, not a whole-interpreter
+proof. Expected identity authenticity, historical data availability, crash recovery,
+ownership and inherited production correctness remain separate unresolved claims.
+Scoped29/30 close without changing their criteria: **9 scoped closures,24 partial,
+5 open**. RL-OFFLINE-001 remains open; no new economic or production authorization.
+
+Bot worker publication follow-up (2026-10-05):
+[A-BOT-PUBLICATION](../formal/research/bot-worker-publication-contract.md) assumes
+pinned MVar/masking/fork semantics, finite admitted values and total trusted
+publication operations. A private gate now prevents a forked bot from initializing
+before its runtime entry commits. WHNF forcing is not deep evaluation; post-commit
+caller cancellation does not roll back a committed worker. Source-bound nested-map
+and gate SMT,158 model states/308 edges and compiled scheduled regressions cover
+this publication boundary. They do not certify persistent owner uniqueness,
+stop/replacement races, global drain linearization, callback termination or durable
+recovery. SHUTDOWN-DEADLINE-001 stays open. Obligation15 moves open to partial;
+current totals are **9 scoped closures,25 partial,4 open**. No broad closure or
+financial evidence change is claimed.
+
+
+Champion archive follow-up (2026-10-05, RL-OFFLINE-001): research export now uses
+exclusive file creation, rejecting colliding files, symlinks and hardlinks. The
+[contract](../formal/research/champion-archive-contract.md) composes actual writer
+and capability evidence for conditional obligation 28 closure. A-CHAMPION-ARCHIVE
+trusts primitive exclusive-create semantics and stable parent/open-object identity;
+CE-RL-ARCHIVE-COLLISION preserves the legacy truncation witness. Newly created
+partial output is possible after failure: this does not discharge durable recovery
+or archive atomicity. Risk status remains OPEN; no Haskell production behavior,
+live authorization, ownership configuration or limits change. Current counts:
+10 scoped closures / 24 partial / 4 open; no research candidate passed.
+
+Shield-consumer follow-up (2026-10-05, RL-OFFLINE-001): A-SHIELD-COMPOSITION trusts pinned ordinary Python/NumPy control-flow/identity/copy and primitive effects, fixed source/callbacks and the reviewed source-to-model relation. Actual receiver locality is checked; hostile subclasses, reflective mutation, injected callbacks and external private-helper calls are excluded. Scoped obligation12 composes with existing Haskell/type/process boundaries; no Haskell runtime behavior changes. Numeric accounting, complete hard constraints, asynchronous revocation, recovery and inherited production races remain unresolved. Current totals11 scoped /23 partial /4 open; no research adoption.
+
+
+Point-in-time follow-up (2026-10-06, RL-OFFLINE-001): A-PIT-WITNESS assumes truthful synchronized release/first-seen/collection/revision evidence and ordinary pinned Python/NumPy semantics. The new default-disabled research entry rejects unwitnessed or ambiguous records before training and retains immutable decision vintages. No Haskell/live behavior changes. Integer/model/source certificates do not authenticate provider clocks, repair frozen historical availability, prove fill/reward semantics or migrate inherited ingestion. Obligation4 is partial;11 scoped/24 partial/3 open remain. Risk stays OPEN; no adoption.
+
+
+Exact OPE follow-up (2026-10-06, RL-OFFLINE-001): A-OPE-RATIONAL trusts pinned Fraction/integer/base-float conversion and immutable tuple/dataclass semantics, ordinary fixed bindings and truthful complete causal logs. The default-disabled Python diagnostic uses exact ratios through whole estimates with8192-bit bounds; it does not certify behavior propensities, policy-value meaning, state-action support or confidence. Resource bounds apply to arithmetic objects, not wall time/process memory; frozen v1 and other numeric paths remain unresolved. No Haskell runtime or live configuration changes.11 scoped/24 partial/3 open; risk HIGH/OPEN.
+
+
+Report bundle follow-up (2026-10-06, RL-OFFLINE-001): A-BUNDLE-FS assumes local POSIX exclusive open/link, descriptor identity and fsync honored by the filesystem/device, stable caller-selected directories, no hostile namespace mutation, adequate space, finitely many crashes and fair scheduling for recovery. Opt-in report-bundle v2 publishes only complete, non-authorizing reports after original evidence reconciliation; retries compare bytes and preserve the target inode. Orphan staging files may remain; no scavenging or power-failure hardware theorem is claimed. Legacy report export remains compatible. Training archive and bot persistence recovery remain unresolved; obligation 37 becomes partial. Current counts: 11 scoped / 25 partial / 2 open. No Haskell runtime, live-setting, risk-limit, ownership or champion change; risk stays HIGH/OPEN.
+
+
+Stage-preservation follow-up (2026-10-06, RL-OFFLINE-001): A-STAGE-PROJECTION names the reviewed eligibility mapping and existing fixed-runtime/effect/build assumptions. Complete delivered Research-stage preservation closes scoped25 only through freshly composed certificates; the absent future promotion service and its liveness are not certified. All original scope/criteria remain unchanged. Runtime code, flags, ownership and risk settings are unchanged. Current12 scoped/24 partial/2 open; future consumers or eligibility transitions reopen25. Economic and production risks stay HIGH/OPEN.

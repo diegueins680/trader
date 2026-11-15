@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "scope": "Deliberately introduced regression mutants; neither is an existing source defect or a financial experiment.",
+  "entries": [
+    {
+      "id": "CE-RL-005",
+      "requirementId": "F-RL-FIT-PREFIX",
+      "source": "scripts/research/run_sequential_screen.py",
+      "replace": "p[:split[\"trainStop\"]]",
+      "with": "p[:split[\"trainStop\"] + 1]",
+      "replacementCount": 1,
+      "sourceLength": 256,
+      "trainStop": 160,
+      "firstForbiddenIndex": 160,
+      "prefixPrice": 100.0,
+      "changedFuturePrice": 200.0,
+      "violation": "The mutant fits one post-training row. Altering price[160] changes its normalization parameters.",
+      "resolution": "The source-derived upper-bound check rejects this mutant; the unchanged runner retains the exclusive training stop."
+    },
+    {
+      "id": "CE-RL-006",
+      "requirementId": "F-RL-COLLECT-PREFIX",
+      "source": "scripts/research/sequential_env.py",
+      "replace": "start, start + 97, horizon",
+      "with": "start, start + 98, horizon",
+      "replacementCount": 1,
+      "prefixLength": 121,
+      "sampledStart": 24,
+      "mutantStop": 122,
+      "violation": "The mutant requests a stop one beyond its prefix. The actual Replay constructor rejects it.",
+      "resolution": "The source-derived episode containment query rejects the mutant; no invalid episode executes and no implementation source changes."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "synthetic engineering benchmark",
+  "seed": 11,
+  "horizon": 1,
+  "steps": 17,
+  "artifactBytes": 24823,
+  "iterations": 100,
+  "milliseconds": {
+    "encode": {
+      "min": 1.173205,
+      "median": 2.3621055,
+      "max": 4.008073
+    },
+    "decode": {
+      "min": 1.408791,
+      "median": 2.9731925,
+      "max": 6.625458
+    },
+    "request": {
+      "min": 2.403914,
+      "median": 4.0235555,
+      "max": 37.760346
+    }
+  },
+  "scope": "byte codec only; excludes disk/network, Haskell inference, startup and economic evidence; not a deadline guarantee"
+}

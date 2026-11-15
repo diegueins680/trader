@@ -6,7 +6,7 @@ module Trader.Optimizer.Merge (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException)
 import Control.Monad (when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -25,6 +25,7 @@ import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sort, 
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toBoundedInteger, toRealFloat)
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
@@ -43,6 +44,7 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
 import Text.Read (readMaybe)
 
+import Trader.App.AsyncSafe (trySync)
 import Trader.BotStartSemantics (
     adoptionMinTradeCount,
     comboMinEdgeMeetsAdoptionFloor,
@@ -54,6 +56,7 @@ import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.SignalGates (signalEntryOpenThresholdFeasible)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
+import Trader.TopComboRetention (comboUuidText, retainRankedCombos, retainedComboUuidsFromEnv)
 import Trader.TopComboScoring (
     TopComboScoringConfig (..),
     clampLiveAnnualizedReturnWithConfig,
@@ -74,6 +77,7 @@ import Trader.TopComboScoring (
     topComboWalkForwardMultiplier,
     validateTopComboScoringConfig,
  )
+import Trader.TopCombosStore (mergeTopCombosPayloadsWithStatsAndRetention)
 
 data MergeArgs = MergeArgs
     { maTopJson :: !FilePath
@@ -122,17 +126,18 @@ runMerge args = do
             else traverse expandUser (maFromJsonl args)
     otherTopJsonPaths <- traverse expandUser (maFromTopJson args)
     historyDir <- traverse expandUser (maHistoryDir args)
-    sourcesResult <- loadSources topJsonPath otherTopJsonPaths jsonlPaths
+    retained <- retainedComboUuidsFromEnv
+    sourcesResult <- loadSources retained topJsonPath otherTopJsonPaths jsonlPaths
     case sourcesResult of
         Left err -> do
             hPutStrLn stderr err
             pure 1
-        Right sources -> do
+        Right (sources, topPayloads) -> do
             let scoringConfig = maScoringConfig args
                 merged = mergeCombos sources
                 maxItems = max 0 (maMax args)
                 sourceCount = sum (map length sources)
-            writeTopJson scoringConfig outPath merged maxItems
+            writeTopJson scoringConfig retained topPayloads outPath merged maxItems
             archiveTopJson historyDir outPath
             when (maCopyToDist args) (copyToDist outPath)
             putStrLn ("Merged " ++ show sourceCount ++ " candidates into " ++ show (length merged) ++ " unique combos.")
@@ -155,29 +160,30 @@ expandUser path =
         _ -> pure path
 
 loadSources ::
+    Set.Set T.Text ->
     FilePath ->
     [FilePath] ->
     [FilePath] ->
-    IO (Either String [[Value]])
-loadSources topJsonPath otherTopJsonPaths jsonlPaths = do
-    topResult <- loadTopCombos topJsonPath
+    IO (Either String ([[Value]], [Value]))
+loadSources retained topJsonPath otherTopJsonPaths jsonlPaths = do
+    topResult <- loadTopCombos retained topJsonPath
     case topResult of
         Left err -> pure (Left err)
-        Right topCombos -> do
-            otherResults <- traverse loadTopCombos otherTopJsonPaths
+        Right (topPayload, topCombos) -> do
+            otherResults <- traverse (loadTopCombos retained) otherTopJsonPaths
             case sequence otherResults of
                 Left err -> pure (Left err)
                 Right otherCombos -> do
                     jsonlCombos <- traverse loadCombosFromJsonl jsonlPaths
-                    pure (Right (topCombos : otherCombos ++ jsonlCombos))
+                    pure (Right (topCombos : map snd otherCombos ++ jsonlCombos, topPayload : map fst otherCombos))
 
-loadTopCombos :: FilePath -> IO (Either String [Value])
-loadTopCombos path = do
+loadTopCombos :: Set.Set T.Text -> FilePath -> IO (Either String (Value, [Value]))
+loadTopCombos retained path = do
     exists <- doesFileExist path
     if not exists
-        then pure (Right [])
+        then pure (Right (Null, []))
         else do
-            raw <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            raw <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case raw of
                 Left e -> pure (Left ("Failed to read " ++ path ++ ": " ++ show e))
                 Right contents ->
@@ -188,10 +194,15 @@ loadTopCombos path = do
                                 payloadSource = KM.lookup (Key.fromString "source") obj >>= trimmedNonEmptyStringValue
                                 applyMetadata = applyCreatedAtMs generatedAtMs . applySourceValue payloadSource
                              in case KM.lookup (Key.fromString "combos") obj of
-                                    Just (Array combos) ->
-                                        pure (Right ([applyMetadata (Object c) | Object c <- V.toList combos]))
-                                    _ -> pure (Right [])
-                        Right _ -> pure (Right [])
+                                    Just (Array combos) -> do
+                                        -- Keep only pinned raw rows alongside the normalized
+                                        -- candidates, rather than a second full leaderboard.
+                                        let pins = V.filter (maybe False (`Set.member` retained) . comboUuidText) combos
+                                            metadata = KM.filterWithKey (\key _ -> key `elem` ["generatedAtMs", "source", "droppedComboIdentities"]) obj
+                                            pinPayload = Object (KM.insert "combos" (Array pins) metadata)
+                                        V.length pins `seq` pure (Right (pinPayload, [applyMetadata (Object c) | Object c <- V.toList combos]))
+                                    _ -> pure (Right (Null, []))
+                        Right _ -> pure (Right (Null, []))
 
 loadCombosFromJsonl :: FilePath -> IO [Value]
 loadCombosFromJsonl path = do
@@ -199,7 +210,7 @@ loadCombosFromJsonl path = do
     if not exists
         then pure []
         else do
-            raw <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+            raw <- trySync (BL.readFile path) :: IO (Either SomeException BL.ByteString)
             case raw of
                 Left _ -> pure []
                 Right contents ->
@@ -329,20 +340,46 @@ normalizeComboIdentityField key val
             normalized -> normalized
     | otherwise = normalizeComboIdentityValue val
 
-writeTopJson :: TopComboScoringConfig -> FilePath -> [Combo] -> Int -> IO ()
-writeTopJson scoringConfig path combos maxItems = do
+writeTopJson :: TopComboScoringConfig -> Set.Set T.Text -> [Value] -> FilePath -> [Combo] -> Int -> IO ()
+writeTopJson scoringConfig retained topPayloads path combos maxItems = do
     nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
     let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) >= topComboMinimumFinalEquity && comboOpenThresholdDeployable combo) combos
         sortedRaw = sortBy (compareCombos scoringConfig nowMs) eligible
         sorted = selectMapEliteCombos scoringConfig maxItems sortedRaw
-        comboValues = zipWith (comboToValue scoringConfig nowMs) [1 ..] sorted
-        exportVal =
+        generatedValues = zipWith (comboToValue scoringConfig nowMs) [1 ..] sorted
+        -- Keep exact pinned source records, including fresh adverse readings.
+        -- Regeneration drops refresh stamps and must not overwrite this evidence.
+        pinPayload value = case value of
+            Object obj -> case KM.lookup "combos" obj of
+                Just (Array rows) -> Object (KM.insert "combos" (Array (V.filter isRetained rows)) obj)
+                _ -> value
+            _ -> value
+        isRetained value = maybe False (`Set.member` retained) (comboUuidText value)
+        (retainedPayload, _) = mergeTopCombosPayloadsWithStatsAndRetention retained [] (Set.size retained) (fromIntegral nowMs) (map pinPayload topPayloads)
+        pinnedValues = case retainedPayload of
+            Object obj -> case KM.lookup "combos" obj of
+                Just (Array rows) -> V.toList rows
+                _ -> []
+            _ -> []
+        -- A tombstoned pin is never regenerated from an old JSONL record.
+        generatedUnpinned = filter (not . isRetained) generatedValues
+        selected =
+            if Set.null retained
+                then generatedValues
+                else retainRankedCombos comboUuidText retained maxItems (generatedUnpinned ++ pinnedValues)
+        comboValues = zipWith (\rank -> addField "rank" (toJSON (rank :: Int))) [1 ..] selected
+        exportBase =
             object
                 [ "generatedAtMs" .= nowMs
                 , "source" .= ("merge_top_combos.py" :: String)
                 , "mapElites" .= object ["maxPerBucket" .= tcscMapEliteMaxPerBucket scoringConfig]
                 , "combos" .= comboValues
                 ]
+        exportVal = case (exportBase, retainedPayload) of
+            (Object obj, Object pins) -> case KM.lookup "droppedComboIdentities" pins of
+                Just tombstones -> Object (KM.insert "droppedComboIdentities" tombstones obj)
+                _ -> exportBase
+            _ -> exportBase
     let dir = takeDirectory path
     createDirectoryIfMissing True dir
     -- Atomic write: write to temp in same dir then rename.
@@ -802,13 +839,13 @@ archiveTopJson historyDir outPath =
     case historyDir of
         Nothing -> pure ()
         Just dir -> do
-            dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+            dirResult <- trySync (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
             case dirResult of
                 Left _ -> pure ()
                 Right _ -> do
                     nowMs <- fmap (floor . (* 1000)) getPOSIXTime
                     let archivePath = dir </> ("top-combos-" ++ show (nowMs :: Integer) ++ ".json")
-                    _ <- try (copyFile outPath archivePath) :: IO (Either SomeException ())
+                    _ <- trySync (copyFile outPath archivePath) :: IO (Either SomeException ())
                     pure ()
 
 copyToDist :: FilePath -> IO ()
@@ -817,7 +854,7 @@ copyToDist outPath = do
     exists <- doesDirectoryExist distDir
     when exists $ do
         let target = distDir </> "top-combos.json"
-        _ <- try (copyFile outPath target) :: IO (Either SomeException ())
+        _ <- trySync (copyFile outPath target) :: IO (Either SomeException ())
         pure ()
 
 normalizeCombo :: Value -> Maybe Combo

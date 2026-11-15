@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-RL-025",
+  "requirement": "F-RL-OBS-TRAIN-SCALE",
+  "claim": "Every training-time observation in the frozen sequential path is invariant under changes to data first available after the decision.",
+  "status": "refuted",
+  "source": "scripts/research/run_sequential_screen.py:run (Scale.fit on the whole training prefix) with scripts/research/sequential_env.py:collect and Replay.observation",
+  "witness": {
+    "seed": 5,
+    "bars": 300,
+    "decision": 100,
+    "episodeStop": 120,
+    "futureLogSigma": 0.05,
+    "prefixThroughDecisionUnchanged": true,
+    "maxAbsObservationDifference": 1.050554799
+  },
+  "explanation": "The scale (mean/std and support ranges) is fitted on the whole training prefix, so in-prefix training observations and supported() gating depend on later bars. With a fixed scale the Replay observation is invariant (F-RL-OBS-REPLAY-CAUSAL).",
+  "scope": "Training-time observations of the frozen screen only. Evaluation observations use a scale fitted strictly before testStart. No historical prevalence or economic effect is established; frozen code is not edited.",
+  "resolution": "Open. A causal-scale successor (burn-in-only or expanding-window fit) requires a new registration.",
+  "regression": "scripts/formal/observation_causality.py:witness and test_integrity.py:ObservationCausalityTests"
+}

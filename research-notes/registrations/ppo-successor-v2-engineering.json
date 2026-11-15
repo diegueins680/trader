@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-04",
+  "sourceBaseline": "0b919b389f02d6f293ab3837d1620cf67ca0ad06",
+  "purpose": "Compose actual offline PPO collection/training with checked v2 GAE and immutable optimizer publication, preserving frozen v1.",
+  "version": "ppo-successor-v2",
+  "origins": ["https://arxiv.org/abs/1707.06347", "https://arxiv.org/abs/1506.02438"],
+  "financialTrials": 0,
+  "data": "Synthetic positive price prefixes and funding only; no historical datasets, artifacts or holdouts.",
+  "seeds": [11, 23, 47],
+  "trainingSteps": [1, 17, 257],
+  "horizons": [1, 3, 6],
+  "algorithm": "Original small NumPy PPO mechanism prototype with four updates per rollout; not a benchmark replication. v2 rejects numeric failures and uses terminal-safe GAE and immutable optimizer snapshots.",
+  "budget": "Fixed engineering fixtures, mutation/property tests and failure injection. No hyperparameter search or empirical policy selection.",
+  "contract": "formal/research/ppo-successor-v2-contract.md",
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh automation", "bash scripts/verify.sh full"],
+  "acceptance": "No economic eligibility, production integration, holdout access, deployment, or live authority. Broad obligations stay unresolved unless their unchanged full closure criteria are separately met."
+}

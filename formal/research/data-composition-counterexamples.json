@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-DATA-COMPOSITION-001",
+      "kind": "verification_coverage_mutant_not_market_failure",
+      "baselineCommit": "12bec11990e75c7908fb750a252c418481af9ed2",
+      "mutation": {
+        "blocks": {}
+      },
+      "observedBaselineResult": {
+        "status": "exhaustively_checked",
+        "scaleUseSites": 28
+      },
+      "reason": "The checker enumerated only source skeletons present in the registry and did not require the complete reviewed roster. The unchanged canonical registry had all blocks, but removing the roster was not independently rejected.",
+      "correctedBehavior": "Require the complete eleven-block roster, four source hash entries, schema version and explicit shared input contract before verification.",
+      "requirement": "F-RL-DATA-COMPOSITION",
+      "regression": "scripts/formal/test_integrity.py::DataCompositionTests.test_missing_reviewed_coverage_cannot_certify"
+    }
+  ]
+}

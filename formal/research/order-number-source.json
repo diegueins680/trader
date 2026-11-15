@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "coreSha256": "926722f0356dc72b1d88b8debcb137009e74288b2c51538370961933ee7077bb",
+  "adapterSha256": "627dca09a47d79cc9308e0ad8589681801b1cd51d04c211b0fa99f1cf1cda16b",
+  "prefixes": {
+    "placeFuturesPostOnlyLimitOrder": "    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesPostOnlyLimitOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite quantity > 0\" quantity)\n    either (throwIO . userError) pure (validateOrderNumber \"Futures LIMIT orders require finite price > 0\" price)\n",
+    "placeMarketOrder": "    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n    either (throwIO . userError) pure (validateMarketNumbers (beMarket env == MarketFutures) quantity quoteOrderQty)\n",
+    "placeFuturesMarketOrderWithPositionSide": "    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesMarketOrderWithPositionSide requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"Futures MARKET orders require finite quantity > 0\" quantity)\n",
+    "placeFuturesTriggerMarketOrder": "    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesTriggerMarketOrder requires MarketFutures\")\n    either (throwIO . userError) pure (validateOrderNumber \"stopPrice must be finite and > 0\" stopPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n",
+    "placeFuturesAlgoTriggerMarketOrder": "    Control.Monad.when (mode == OrderLive) requireLiveOrderRole\n    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError \"placeFuturesAlgoTriggerMarketOrder requires MarketFutures\")\n    Control.Monad.when (mode == OrderTest) $ throwIO (userError \"Algo orders are not supported in test mode\")\n    either (throwIO . userError) pure (validateOrderNumber \"triggerPrice must be finite and > 0\" triggerPrice)\n    let orderType' = trim orderType\n    Control.Monad.when (null orderType') $ throwIO (userError \"orderType must be non-empty\")\n"
+  }
+}

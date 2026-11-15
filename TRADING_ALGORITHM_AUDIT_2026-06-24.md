@@ -211,3 +211,63 @@ Deliberately NOT changed, with reasons:
 - **§1.1.4 multiple-testing haircut, §1.3 net-of-cost objective, §2.2 indicator
   staleness cap** — each changes scoring or signal semantics and must be
   validated as separate optimizer/signal work before deployment.
+
+## 7. Follow-up status (2026-11-07)
+
+Landed after the original change (#310):
+
+- **#377** — `scripts/verify.sh` pins a UTF-8 locale (the test suite aborted
+  decoding `Main.hs` under a bare locale) and 116 stale `tmp/` fixtures that
+  predate the walk-forward-summary feature are untracked. The "0/500 combos
+  carry a `walkForwardSummary`" figure quoted above came from those stale
+  snapshots, not from a plumbing defect: current runs emit the summary and the
+  adoption gate already rejects candidates without one (`walk-forward-missing`).
+- **#378 — §1.1.4 multiple-testing haircut** (opt-in). `optimize-equity
+  --wf-sharpe-trials-haircut SCALE` / `TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT`
+  deflates each trial's walk-forward Sharpe mean by
+  `SCALE·√(2 ln trials)·sharpeStd/√evaluatedFolds` before the
+  `--min-wf-sharpe-mean` gate. Default `0` leaves production unchanged; `1.0`
+  is the recommended starting point once its effect on the leaderboard has
+  been observed.
+- **#379 — §2.2 indicator staleness cap.** `latestJust`/`laggedJust` reject
+  readings older than `defaultMaxIndicatorStaleBars` (2) and fail closed; the
+  bounded primitives expose the reading's age for telemetry.
+
+Verified against the source and closed without a code change:
+
+- **§1.2 threshold sweep is fold-local.** The CLI tunes on
+  `tunePrices = drop fitSize trainPrices` (the trailing `--tune-ratio` share of
+  `splitTrain`), and the walk-forward report simulates the frozen thresholds
+  over `splitBacktest` fold by fold (`mkFold` in `Main.hs`). The sweep never
+  receives a backtest bar. `testSplitKeepsTuneWindowOutOfBacktest` pins the
+  split contract (ordered partition, tune window ending at `splitTrainEnd`,
+  every tune bar before every backtest bar). The live re-tune path hands the
+  sweep the trailing live window, where the "test fold" is the future.
+- **§1.3 net-of-cost objective.** Fees, slippage, spread and impact are applied
+  inside the simulator, so every tune/backtest metric the sweep ranks on is
+  already net of cost, and `minEdge` is floored at `venueMinEdgeFloor`.
+
+Still open (documentation/calibration, no behavior defect): §2.4 magic numbers
+and §2.5 epsilon consolidation — closed in §8 below.
+
+## 8. Constants review (2026-11-14): §2.4 and §2.5 closed
+
+Re-read against the current source; the picture is better than §2.4/§2.5
+describe.
+
+**§2.4 — the trade-impacting constants are already configurable and swept.**
+
+| Constant (audit wording) | Where it lives now | CLI | Swept by the optimizer |
+| --- | --- | --- | --- |
+| Vol thresholds 0.5 / 1.2, confidence 0.60 / 0.80, size multipliers 0.35–1.00 | `VolConfGateConfig` defaults in `VolConfGate.hs` (presets `vol_conf_v1_*`) | `--vol-conf-*` | yes: `torVolConf*` ranges in `Optimizer/Optimize.hs` (evidence max, both vol thresholds, both confidence thresholds, all five size multipliers) |
+| Entry-edge headroom ×1.5, spike ×1000 / cap 5.0 / 3 consecutive, trend slack, directionality lookback/efficiency/weak-band, predictor tracking floor | `SignalGateConfig` defaults in `SignalGates.hs` | `--signal-*` (wired at `Main.hs` `argSignal*`) | yes: `torSignal*` ranges (headroom, spike multiple, cap and consecutive limit, trend slack multiple and cap, directionality lookback, chop/MR efficiency, weak-band z, tracking floor) |
+| Regime mass tolerance 1e-3, efficiency tolerance 1e-12 | `directionalityRegimeMassTol`, `directionalityEfficiencyTol` in `SignalGates.hs` | fixed | no — numerical tolerances (probability mass must sum to 1 within 1e-3; efficiency comparisons), not trading priors |
+| Divergence 0.02, magnitude floor 1e-12, sign tolerance 1e-9 | `regimeDivergenceThreshold`, `momentumMagnitudeFloor`, `momentumSignTolerance` in `Method.hs`, each named and documented | fixed | no — the only trading prior left fixed is the 2 % "strong divergence" cut used by the divergence-aware methods; the other two are numerical guards |
+
+So the "silent priors" concern reduces to one constant (`regimeDivergenceThreshold`), and the real risk the section pointed at — thresholds that trading depends on but the search cannot touch — does not exist: every gate parameter the optimizer promotes is part of its search space and is persisted with the trial.
+
+**§2.5 — the execution epsilons were consistent; they are now named.**
+
+The audit counted three epsilons. Reading them: `OrderExecution.hs` uses a 1e-9 dust threshold for fills and residual positions plus a 1e-12 *relative* tolerance in the fill-conservation assertion; `Formal/Execution.hs` restates the same 1e-9 in its naive spec (its 1e-12 appears only as a probe quantity in the verification grids); `VolConfGate.hs`'s 1e-12 is a division guard on the volatility evidence maximum, unrelated to dust. There was no disagreement to reconcile. `OrderExecution.hs` now exports `executionDustQuantity` (1e-9) and `executionRelativeTolerance` (1e-12) and uses them in both accounting paths, with haddocks stating their roles; the formal spec keeps its own literal by design (it must stay naive and independent of the implementation), and `verifyFormalExecution` already checks implementation and spec agree on quantities straddling the threshold (0, 1e-12, 1e-9, 1e-6, …).
+
+With this, every item in §1 and §2 is either implemented (#310, #377–#381) or verified against the source and recorded here.

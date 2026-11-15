@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-READY-001",
+  "requirement": "F-READINESS-EPOCH-FLOW",
+  "status": "resolved",
+  "mechanism": "The auto-start loop scanned venue inventory against a runtime snapshot taken before the scan and published a plain boolean. A bot stopped after the snapshot (its position left open) or a manual trade that opened a position left /ready and /health reporting a reconciliation that no longer held until the next scan, which can take minutes during adoption.",
+  "witness": "Model mutant no-epoch-check: scan snapshots bot A with position A, bot A stops, readiness is published from the stale snapshot and read as ready while position A has no live owner.",
+  "resolution": "Readiness is ReadyAt epoch scannedAt from a snapshot read under the runtime lock together with the epoch; every runtime mutation and every possibly-live manual trade completion bumps the epoch under the lock, and readers require the current epoch and a fresh scan."
+}

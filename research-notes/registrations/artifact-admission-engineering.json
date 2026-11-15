@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-05",
+  "baseline": "09d3bdda237ce8a5a2f85fce9d2ce974738bf279",
+  "kind": "engineering_only",
+  "contract": "formal/research/artifact-composition-contract.md",
+  "candidateClosureNumbers": [29, 30],
+  "financialTrials": 0,
+  "holdoutAccess": false,
+  "runtimeScope": "Private immutable expected-provenance snapshot in v1 loader only; no training/inference/format change",
+  "requiredChecks": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"]
+}

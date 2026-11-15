@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "kind": "engineering verification only; no financial trial",
+  "sourceCommit": "65957dffeed7e632259b0e93f59d8e7be649ec95",
+  "registrationCommit": "9615f5b7",
+  "latestMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "closure": {
+    "blockedResearchGates": [
+      "economic_evidence",
+      "reproducible_delivery"
+    ],
+    "closedMissionObligations": 3,
+    "formalObligationsComplete": false,
+    "missionComplete": false,
+    "openMissionObligations": 35
+  },
+  "closedObligations": [
+    11,
+    24,
+    31
+  ],
+  "broadStatuses": {
+    "partially_verified": 26,
+    "open": 9,
+    "exhaustively_checked": 3
+  },
+  "certificateStatuses": {
+    "smt_verified": 42,
+    "model_checked": 8,
+    "property_tested": 3,
+    "open": 1,
+    "refuted": 12,
+    "exhaustively_checked": 4
+  },
+  "sourceLocks": 219,
+  "newEvidence": {
+    "effects": {
+      "functions": {
+        "Network.forward": [
+          "ValueError",
+          "array.all",
+          "np.errstate",
+          "np.isfinite",
+          "np.tanh"
+        ],
+        "_finite_real_vector": [
+          "array.all",
+          "bool",
+          "isinstance",
+          "np.isfinite",
+          "np.ma.isMaskedArray"
+        ],
+        "infer": [
+          "_finite_real_vector",
+          "float",
+          "int",
+          "net.forward",
+          "np.argmax",
+          "time.perf_counter_ns"
+        ]
+      },
+      "orderOperations": 0,
+      "parameterWrites": 0,
+      "requirement": "F-RL-POLICY-EFFECTS",
+      "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
+    },
+    "legacyCompilerProfile": "Dockerfile.optimized names GHC 8.10.4; not certified buildable",
+    "packaging": {
+      "conditions": "trusted installed binaries/PATH, no added code mounts or manual policy conversion; existing helper source unchanged",
+      "externalHelpers": [
+        "trader-hs",
+        "optimize-equity",
+        "merge-top-combos",
+        "cabal list-bin discovery",
+        "git rev-parse HEAD",
+        "cast"
+      ],
+      "kind": "review of exact pinned recipes and existing helpers, not deployed-image verification",
+      "references": [
+        "Dockerfile",
+        "Dockerfile.optimized",
+        "haskell/app/Trader/Optimizer/Optimize.hs",
+        "haskell/app/Trader/Dex.hs",
+        "haskell/app/Trader/App/Env.hs"
+      ],
+      "runtimeResearchCodeCopies": 0
+    },
+    "productionAuthorizationVerified": false,
+    "schema": {
+      "emittedKeys": [
+        "actions",
+        "enabled",
+        "environment",
+        "observation",
+        "parameters",
+        "promotion",
+        "provenance",
+        "schema"
+      ],
+      "membershipBits": 12,
+      "premiseChecks": 1,
+      "requiredNativeKeys": [
+        "hiddenSize",
+        "params",
+        "trainBars",
+        "version"
+      ],
+      "requirement": "F-RL-ARTIFACT-DISJOINT",
+      "result": "unsat",
+      "scope": "emitted offline JSON versus unchanged native LSTM decoder; trusted Aeson semantics",
+      "violationChecks": 1
+    },
+    "smt": {
+      "F-RL-ARTIFACT-DISJOINT": "unsat"
+    },
+    "typeConformance": {
+      "allRejected": true,
+      "negativeCompilationCases": [
+        "coercion",
+        "constructor",
+        "effect"
+      ]
+    }
+  },
+  "dependencyGraph": {
+    "moduleFiles": 116,
+    "localEdges": 286,
+    "roots": {
+      "analyze-close-timing": {
+        "edges": 1,
+        "maxShortestDepth": 1,
+        "states": 2
+      },
+      "lstm-bench": {
+        "edges": 2,
+        "maxShortestDepth": 2,
+        "states": 3
+      },
+      "merge-top-combos": {
+        "edges": 12,
+        "maxShortestDepth": 3,
+        "states": 11
+      },
+      "optimize-equity": {
+        "edges": 43,
+        "maxShortestDepth": 3,
+        "states": 25
+      },
+      "outbox-publisher": {
+        "edges": 0,
+        "maxShortestDepth": 0,
+        "states": 1
+      },
+      "trader-hs": {
+        "edges": 248,
+        "maxShortestDepth": 3,
+        "states": 93
+      }
+    }
+  },
+  "checks": {
+    "formal": {
+      "command": "bash scripts/verify.sh formal",
+      "startCommit": "65957dffeed7e632259b0e93f59d8e7be649ec95",
+      "exitCode": 0,
+      "logSha256": "22381c3cb0181e0cec1570ff419ddad5b822fc25172a803a0d63a21269dee05f",
+      "integrityTests": 139
+    },
+    "full": {
+      "command": "bash scripts/verify.sh full",
+      "startCommit": "65957dffeed7e632259b0e93f59d8e7be649ec95",
+      "exitCode": 0,
+      "logSha256": "7d5ecaa2c0c2f0c6a25a5722e848ba6f1bd463b09d5f565db26043e28276bd95"
+    },
+    "acceptance": {
+      "command": "python scripts/formal/verify.py --require-complete",
+      "startCommit": "65957dffeed7e632259b0e93f59d8e7be649ec95",
+      "exitCode": 1,
+      "logSha256": "ead0f3798e0f6b1f37a88d451a1d050df5c0adc9b629e455c0ddedd1ae63def3"
+    }
+  },
+  "ci": {
+    "runId": 37167076251,
+    "headSha": "65957dffeed7e632259b0e93f59d8e7be649ec95",
+    "conclusion": "success",
+    "url": "https://github.com/diegueins680/trader/actions/runs/37167076251",
+    "jobs": [
+      {
+        "name": "web",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "testCounts": {
+    "formalIntegrity": 139,
+    "web": 241,
+    "automation": 185,
+    "haskell": "trader-tests PASS; formatting, lint, build and smoke passed"
+  },
+  "toolchain": {
+    "GHC": "9.4.8",
+    "CabalExecutable": "3.12.1.0",
+    "CabalParserLibrary": "3.8.1.0",
+    "Python": "3.13.3",
+    "Z3": "4.15.4",
+    "NumPy": "2.3.5",
+    "Node": "20.19.0"
+  },
+  "formalSeconds": 23.899,
+  "performanceScope": "Verification wall time only; no production or new policy-inference benchmark. Existing policy behavior unchanged.",
+  "newProductionCounterexamples": [],
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "liveExploration": false,
+  "candidateAdopted": false,
+  "financialExperimentTrainingSteps": 0,
+  "verificationTraining": "Existing synthetic training/seed fixtures run in full verification; no financial campaign.",
+  "limitations": [
+    "A-CAPABILITY-BUILD compiler, parser, Aeson, runtime/primitive, installed binary/PATH and packaging assumptions.",
+    "No actual deployed-image, OS-sandbox or inherited production-authorization certificate.",
+    "Existing champion learning is outside the new research isolation claim.",
+    "35 broader obligations and both research acceptance gates remain unresolved.",
+    "Legacy GHC 8.10.4 Docker profile remains unmodified and is not certified buildable."
+  ],
+  "recommendation": "No adoption; preserve champion. No readiness claim."
+}

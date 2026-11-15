@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "observation-causality-audit-v1",
+  "date": "2026-10-06",
+  "baseCommit": "b6150079a0a802c32f8c5d2d32edf65e91abb5aa",
+  "kind": "engineering_not_financial_experiment",
+  "contract": "formal/research/observation-causality-contract.md",
+  "requirements": ["F-RL-OBS-TRAIN-SCALE", "F-RL-OBS-REPLAY-CAUSAL"],
+  "obligation": 17,
+  "counterexample": "CE-RL-025",
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "sourceChanges": 0,
+  "witness": {"seed": 5, "bars": 300, "decision": 100, "episodeStop": 120, "futureLogSigma": 0.05},
+  "probeSeed": 20261011,
+  "probeEpisodes": 24,
+  "verification": ["bash scripts/verify.sh formal", "bash scripts/verify.sh full"],
+  "closure": "Obligation 17 stays open: the frozen training path normalizes in-prefix observations with a scale fitted on later in-prefix bars. A causal-scale successor needs a new registration."
+}

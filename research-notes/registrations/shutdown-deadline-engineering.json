@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "shutdown-deadline-engineering-2026-10-04",
+  "sourceCommit": "2ee373709ee52ab4e51f64cd411982e96f082330",
+  "kind": "inherited shutdown correctness repair",
+  "formalContract": "formal/research/shutdown-deadline-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "Monotonic exact-integer deadline arithmetic and aggregate acknowledgements eliminate wall-clock extension, timeout conversion overflow and misleading cleanup completion reports.",
+  "scope": "Six sequential runServeShutdown cleanup stages; no worker-registry, route admission, position ownership or order authority change.",
+  "requirements": ["F-SHUTDOWN-BUDGET", "F-SHUTDOWN-STAGES", "F-SHUTDOWN-CONFORMANCE"],
+  "verification": "Pinned Z3 integer obligations, finite six-stage model, source-bound compiled Haskell differential and failure tests, canonical formal/full CI.",
+  "propertySeed": 20261004,
+  "propertyCases": 256,
+  "modelBounds": {"stages": 6, "timeBuckets": 5},
+  "failureConditions": ["timeout outside Int bounds", "backward clock admitted", "deadline expired but new cleanup dispatched", "failed step reported as all acknowledged", "unknown SMT result", "source drift"],
+  "assumptions": ["GHC Integer and System.Timeout semantics", "terminating monotonic clock and bounded scheduler service", "no monotonic clock wrap during one shutdown", "bounded logging and OS primitives for any wall-time interpretation"],
+  "limitations": "Timeouts bound waiting conditionally, not termination of uninterruptible child actions. No full runtime refinement or global shutdown/drain closure. Existing evidence and v1 policies remain frozen."
+}

@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-03",
+  "scope": "synthetic source-derived reward and wealth accounting; no financial trial",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "3bb08dac9b6faee15bd2211db16bf4eea9520911",
+  "specificationCommit": "8fde9176",
+  "sourceFreeze": "6ab5423dd75ef45ed5ef74aa69f75990607727c4",
+  "registration": "research-notes/registrations/reward-accounting-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "probe-initial",
+      "command": "PYTHONPATH=scripts/formal python: reward_accounting.check_reward_accounting()",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-reward-probe-initial-error-20261003.json",
+      "sha256": "80de8da810a03f3dcc6bbdf7a639568ff8a612ee170e778b2490497998654519",
+      "disposition": "Observed failure recorded from tool output: overly strict parser rejected parenthesized generator before algebra; corrected by structural AST validation."
+    },
+    {
+      "stage": "probe",
+      "command": "PYTHONPATH=scripts/formal python: reward_accounting.check_reward_accounting()",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-probe-20261003.json",
+      "sha256": "c08bf71ac91a19c1d62c7c40f4f1721fdc904ee973afb9585a17d0eb4b30d053",
+      "disposition": "Registered symbolic checks and 1944 synthetic episodes passed."
+    },
+    {
+      "stage": "targeted-first",
+      "command": "PYTHONPATH=scripts/formal python -m unittest test_integrity.RewardAccountingTests -v",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-targeted-first-20261003.log",
+      "sha256": "e09d6b99b78da3e27f97a4540dfa89c28eae37397233952a2bdfa470c15778d5",
+      "disposition": "Seven tests passed; subsequently strengthened source initialization/nonnegative induction checking."
+    },
+    {
+      "stage": "targeted",
+      "command": "PYTHONPATH=scripts/formal python -m unittest test_integrity.RewardAccountingTests -v",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-targeted-20261003.log",
+      "sha256": "59a6291099864927781865b1a88df0820c47ccc3a630b5d19e0801d2ad40cb81",
+      "disposition": "Seven tests passed after strengthening; ten arithmetic mutants included."
+    },
+    {
+      "stage": "record",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-record-20261003.log",
+      "sha256": "b391e01e68f3c6ee601f83c307af3bc7385c326a656c010ae2d0f879a351672d",
+      "disposition": "Final source-bound receipt recorded."
+    },
+    {
+      "stage": "formal",
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-formal-20261003.log",
+      "sha256": "36cd0f0abcf2268dfac8ea5b2e5c9a14c06a793956795592766ff06ea8c374c9",
+      "disposition": "124 integrity tests and 41 scoped SMT requirements passed."
+    },
+    {
+      "stage": "full",
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-reward-full-20261003.log",
+      "sha256": "e9d61a6ae6d07e50cf0bb6617a0f360a07ab83e8366782a9bdc7e1f22501ee67",
+      "disposition": "Formal/Haskell/web/automation passed."
+    },
+    {
+      "stage": "acceptance",
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-reward-acceptance-20261003.log",
+      "sha256": "cca7ce0a5476c2524ace3f3e1b6b8d8c207caacc1baa74458fbe499d214a4fbc",
+      "disposition": "Expected research acceptance refusal; not a passing acceptance gate."
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000,
+    "automationPandas": "2.3.3"
+  },
+  "commandEnvironment": {
+    "cwd": "/Users/diegosaa/GitHub/trader-sequential-research-2026-10-03",
+    "pythonExecutable": "/Users/diegosaa/.cache/trader-proof-20261003/bin/python",
+    "TRADER_FORMAL_PYTHON": "/Users/diegosaa/.cache/trader-proof-20261003/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "threadCapsScope": "record/formal/full/acceptance; initial probe and targeted tests used inherited process environment"
+  },
+  "remoteCI": {
+    "conclusion": "success",
+    "headSha": "6ab5423dd75ef45ed5ef74aa69f75990607727c4",
+    "jobs": [
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/diegueins680/trader/actions/runs/37155025632",
+    "externalReceipt": "/private/tmp/trader-reward-ci-final-20261003.json",
+    "sha256": "31e4661e159c201e29cdd2948b20e8c04b768d3510b0daec900b14b0147881cf"
+  },
+  "conformance": {
+    "integrityTests": 124,
+    "newIntegrityTests": 7,
+    "arithmeticMutations": 10,
+    "sourceMutations": 4,
+    "ledgerTamperCases": 3,
+    "gridEpisodes": 1944,
+    "failureScenarios": 4,
+    "nonadditivityWitnesses": 1,
+    "totalSMTRequirements": 41,
+    "newSMTRequirements": 3,
+    "newSatUnsatPairs": 7,
+    "newRefutedInterpretations": 1,
+    "lockedSources": 86,
+    "newSimulatorDefectClaimed": false,
+    "frozenSimulatorAndReporterUnchanged": true,
+    "priorCertificatesUnchanged": true
+  },
+  "rewardAccounting": {
+    "conformance": {
+      "absoluteTolerance": 1e-11,
+      "cashResidualWithinTolerance": true,
+      "failureScenarios": {
+        "insolvency": {
+          "cashError": 0.0,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "netReturn": -2.0,
+          "positiveWealth": false,
+          "rewardError": 0.0,
+          "rewards": [
+            -200.0
+          ],
+          "rows": 1
+        },
+        "invalid_gate": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "invalid_market": {
+          "cashError": 0.0,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "netReturn": null,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            0.0
+          ],
+          "rows": 0
+        },
+        "solvent_risk": {
+          "cashError": 0.0,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "netReturn": -0.25025,
+          "positiveWealth": true,
+          "rewardError": 0.0,
+          "rewards": [
+            -25.025
+          ],
+          "rows": 1
+        }
+      },
+      "gridEpisodes": 1944,
+      "nonadditiveReplay": {
+        "cashError": 0.0,
+        "equity": 0.9993749999999999,
+        "failure": null,
+        "netReturn": -0.0006250000000000977,
+        "positiveWealth": true,
+        "rewardError": 8.881784197001252e-16,
+        "rewards": [
+          0.0,
+          2.499999999999991,
+          -2.5000000000000013
+        ],
+        "rows": 3
+      },
+      "relativeTolerance": 1e-11,
+      "rewardResidualWithinTolerance": true,
+      "scope": "deterministic synthetic tests; no universal binary64 error bound"
+    },
+    "nonadditivity": {
+      "economicReturn": "-1/1600",
+      "finalEquity": "1599/1600",
+      "requirement": "F-RL-REWARD-ADDITIVE",
+      "scope": "interpretation counterexample; not a defect in current economic reporting",
+      "solverResult": "sat",
+      "status": "refuted",
+      "summedReward": "0"
+    },
+    "satUnsatPairs": 7,
+    "scope": "exact-real source arithmetic and induction obligations; no full runtime refinement",
+    "smt": {
+      "F-RL-REWARD-RECONCILE": "unsat",
+      "F-RL-ROW-RECONCILE": "unsat",
+      "F-RL-WEALTH-FOLD": "unsat"
+    }
+  },
+  "verificationTimings": {
+    "targeted-first": {
+      "integritySeconds": [
+        6.443
+      ],
+      "certificateSeconds": []
+    },
+    "targeted": {
+      "integritySeconds": [
+        8.42
+      ],
+      "certificateSeconds": []
+    },
+    "formal": {
+      "integritySeconds": [
+        46.233
+      ],
+      "certificateSeconds": [
+        18.569
+      ]
+    },
+    "full": {
+      "integritySeconds": [
+        50.592
+      ],
+      "certificateSeconds": [
+        21.974
+      ]
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "environmentRecovery": {
+    "oldWorktree": "/private/tmp/trader-research-2026-09-28",
+    "initialGitError": "fatal: not a git repository (or any of the parent directories): .git",
+    "initialToolError": "ModuleNotFoundError: No module named 'z3'",
+    "action": "Fresh isolated committed checkout; new virtual environment installed from existing hash-pinned requirements. No dirty user checkout files changed.",
+    "newDependencies": false
+  },
+  "limitations": [
+    "Exact-real source arithmetic and base/step obligations, not universal interpreter refinement",
+    "Supplied costs and complete rows assumed; no quantity/fill/impact proof",
+    "Positive wealth required for the compound-return induction",
+    "No universal binary64 error bound or finite-output theorem",
+    "Synthetic tolerance checks and source hashes are not formal implementation proofs",
+    "Nonadditivity refutes an interpretation, not current economic reporting",
+    "No new state-space exploration; existing ordering/lifecycle certificates retain their scoped bounds",
+    "No financial efficacy, OPE reliability, new historical confirmation, production readiness or authorization claim"
+  ]
+}

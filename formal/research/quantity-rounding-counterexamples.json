@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "CE-ROUND-001",
+      "requirement": "F-ROUND-DOWN-FINITE",
+      "inputWord64": 4607182418800017407,
+      "scale": 1,
+      "increment": 1,
+      "oldOutput": 1,
+      "newOutputWord64": 0,
+      "resolution": "Remove epsilon; exact rational grid floor and checked binary64 publication.",
+      "implementation": "haskell/app/Trader/QuantityRounding.hs",
+      "regression": "scripts/formal/quantity_rounding.py",
+      "limitations": "Does not resolve final decimal serialization or minimum-size increases."
+    },
+    {
+      "id": "CE-ROUND-002",
+      "stage": "Intermediate unmerged repair",
+      "requirement": "F-ROUND-DOWN-FINITE",
+      "inputWord64": 9218868437227405312,
+      "trace": [
+        "non-finite input",
+        "new pure helper returns zero",
+        "old caller treats zero as minimum-size retry",
+        "positive minimum quantity"
+      ],
+      "resolution": "Shared finite/grid preflight returns a non-retryable Either error before rounding and the minimum-size branch.",
+      "implementation": "haskell/app/Main.hs",
+      "regression": "haskell/test/Trader/Test/QuantityRounding.hs",
+      "limitations": "No live order occurred; finite minimum-size behavior and wire-cap proof remain separate."
+    }
+  ]
+}

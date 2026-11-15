@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "backtest-gate-engineering-2026-10-04",
+  "sourceCommit": "a9c6b3c0a60bc977df03136801bcde332cddb771",
+  "formalContract": "formal/research/backtest-gate-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "Masked ownership, outer synchronous-only exception handling and saturating integer timeout conversion repair cancellation, timeout classification and slot leaks in the inherited backtest gate.",
+  "requirements": [
+    "F-BACKTEST-GATE-NUMERIC",
+    "F-BACKTEST-GATE-LIFECYCLE",
+    "F-BACKTEST-GATE-CONFORMANCE"
+  ],
+  "modelBounds": {
+    "callers": 2,
+    "capacities": [
+      1,
+      2
+    ],
+    "modes": [
+      "immediate",
+      "waiting"
+    ]
+  },
+  "propertySeed": 20261004,
+  "propertyCases": 32,
+  "limitations": "Execution budget starts after admission; waiting admission retains its existing potentially unbounded wait. Interruptibility and callback cooperation are environmental assumptions. No global drain transaction, durable recovery or full IO refinement."
+}

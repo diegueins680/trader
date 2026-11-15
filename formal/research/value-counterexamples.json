@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "scope": "Current helper input-domain witnesses; no full training reachability or historical prevalence claim",
+  "entries": [
+    {
+      "id": "CE-RL-014",
+      "requirement": "F-RL-Q-FINITE",
+      "qHex": [
+        "0x1.fffffffffffffp+1023",
+        "0x1.fffffffffffffp+1023",
+        "-0x1.fffffffffffffp+1023"
+      ],
+      "action": 2,
+      "selectedQHex": "-0x1.fffffffffffffp+1023",
+      "targetHex": "-0x1.fffffffffffffp+1023",
+      "maximumHex": "0x1.fffffffffffffp+1023",
+      "alphaHex": "0x0.0p+0",
+      "logIntermediateHex": "0x1.62e42fefa39efp-1",
+      "loss": "NaN",
+      "gradient": "all zero",
+      "assumption": "Pinned NumPy log(2) intermediate; separate RNE arithmetic",
+      "disposition": "Unresolved helper loss finiteness; zero gradient is admissible to optimizer, which has no loss argument"
+    },
+    {
+      "id": "CE-RL-015",
+      "requirement": "F-RL-CQL-SHIFT",
+      "qHex": [
+        "0x1.0000000000000p+54",
+        "0x1.0000000000000p+54",
+        "0x1.0000000000000p+54"
+      ],
+      "action": 0,
+      "selectedQHex": "0x1.0000000000000p+54",
+      "targetHex": "0x1.0000000000000p+54",
+      "maximumHex": "0x1.0000000000000p+54",
+      "alphaHex": "0x1.999999999999ap-4",
+      "logIntermediateHex": "0x1.193ea7aad030bp+0",
+      "originalLossHex": "0x1.c1fdd9114d1acp-4",
+      "shiftedLossHex": "0x0.0p+0",
+      "assumption": "Pinned NumPy log(3) intermediate in (1,2); analytic translation identity not machine-proved",
+      "disposition": "Unresolved binary64 objective translation discrepancy; equal finite gradients do not repair logged loss"
+    }
+  ]
+}

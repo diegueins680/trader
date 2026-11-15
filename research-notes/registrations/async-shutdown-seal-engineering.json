@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "async-shutdown-seal-engineering-2026-10-04",
+  "sourceCommit": "d56b4d83f963121cc26eac5dfa47bc17379aa1a0",
+  "formalContract": "formal/research/async-shutdown-seal-contract.md",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "A permanent atomic admission seal plus reservation-finalization barrier prevents snapshot-only false shutdown acknowledgement.",
+  "requirements": [
+    "F-ASYNC-SEAL-INVARIANTS",
+    "F-ASYNC-SEAL-LIFECYCLE",
+    "F-ASYNC-SEAL-CONFORMANCE"
+  ],
+  "modelBounds": {
+    "callers": 2,
+    "capacities": [
+      1,
+      2
+    ],
+    "closers": 2
+  },
+  "propertySeed": 20261004,
+  "propertyCases": 32,
+  "limitations": "Local reservation completion only. Existing admissions may finish after sealing; no whole-server drain atomicity, forced termination, durable recovery, or full IO refinement."
+}

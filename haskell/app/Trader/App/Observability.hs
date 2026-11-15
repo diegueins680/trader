@@ -34,7 +34,7 @@ module Trader.App.Observability (
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (SomeException, bracket, catch, try)
+import Control.Exception (SomeException, bracket)
 import Control.Monad (when)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.Aeson as Aeson
@@ -72,6 +72,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
+import Trader.App.AsyncSafe (catchSync, trySync)
 import Trader.App.Runtime (splitEnvList)
 import Trader.Binance (getTimestampMs)
 import Trader.Text (trim)
@@ -100,7 +101,7 @@ getLocalIpAddress = do
                                 d = fromIntegral (w .&. 0xFF) :: Word8
                             pure (intercalate "." (map show [a, b, c, d]))
                         )
-             in attempt `catch` \(_ :: SomeException) -> pure "127.0.0.1"
+             in attempt `catchSync` \(_ :: SomeException) -> pure "127.0.0.1"
 
 data Metrics = Metrics
     { mtRequestsTotal :: !(IORef Int64)
@@ -390,5 +391,5 @@ webhookSend wh ev = do
                 , "ip" .= localIp
                 ]
         req = (whRequest wh){requestBody = RequestBodyLBS (encode payload)}
-    _ <- try (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
+    _ <- trySync (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
     pure ()

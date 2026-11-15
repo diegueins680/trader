@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "worker-registry-engineering-2026-10-04",
+  "sourceCommit": "e39fbfa8346a32361a81226e4f6d20822c3f49df",
+  "formalContract": "formal/research/worker-registry-contract.md",
+  "kind": "inherited supervised worker lifecycle repair",
+  "financialTrialBudget": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "deployment": false,
+  "hypothesis": "Retained completion acknowledgements, monotonic closure and masked registration remove false stop success, post-close admission and duplicate retry cancellation.",
+  "requirements": ["F-WORKER-REGISTRY-LIFECYCLE", "F-WORKER-REGISTRY-INVARIANTS", "F-WORKER-REGISTRY-CONFORMANCE"],
+  "modelBounds": {"workers": 2, "stopCallers": 2, "timeoutTicks": 2},
+  "propertySeed": 20261004,
+  "propertyCases": 32,
+  "verification": "Pinned Z3, finite model, compiled actual Haskell module, deterministic barrier fixtures, canonical formal and full CI.",
+  "failureConditions": ["unfinished worker forgotten", "delivery reported as completion", "post-close registration accepted", "duplicate registry cancellation helper", "deadlock without bounded failure", "unknown SMT result", "source drift"],
+  "limitations": "No whole-server lifecycle or full runtime refinement; tracked callback completion differs from descendant/resource quiescence. Keep existing financial evidence frozen."
+}

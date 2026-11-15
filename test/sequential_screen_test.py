@@ -1373,6 +1373,53 @@ class SequentialContracts(unittest.TestCase):
             p.write_bytes(b" " * 65537)
             with self.assertRaises(ValueError): load_policy(p, hashlib.sha256(p.read_bytes()).hexdigest(), meta)
 
+    def funding_loader_fixture(self, folder, events, count=3):
+        panel, settlements = Path(folder)/'panel.csv', Path(folder)/'settlements.csv'
+        panel.write_text('symbol,openTime,closeTime,close\n'+''.join(
+            f'BTCUSDT,{i*1000},{i*1000+999},{100+i*.01}\n' for i in range(count)))
+        settlements.write_text('symbol,fundingTime,fundingRate,resolvedMarkPrice\n'+''.join(
+            f'BTCUSDT,{t},{rate},{mark}\n' for t,rate,mark in events))
+        spec = {'data': {'panelSha256':runner.digest(panel),'settlementsSha256':runner.digest(settlements),
+                        'symbols':['BTCUSDT'],'startOpenTime':0,'endOpenTime':(count-1)*1000,
+                        'intervalMilliseconds':1000,'rowsPerSymbol':count}}
+        return panel,settlements,spec
+
+    def test_full_loader_funding_endpoint_contract(self):
+        for t,index in [(-1,0),(999,0),(1000,1),(1999,1),(2000,2),(2999,2),(3000,None)]:
+            with self.subTest(timestamp=t), tempfile.TemporaryDirectory() as folder:
+                args = self.funding_loader_fixture(folder,[(t,.25,4.)])
+                if index is None:
+                    with self.assertRaisesRegex(ValueError,'funding beyond development'): load_development(*args)
+                else:
+                    _,funding,_ = load_development(*args)
+                    expected = np.zeros(3);expected[index]=1.
+                    np.testing.assert_array_equal(funding['BTCUSDT'],expected)
+                    self.assertFalse(funding['BTCUSDT'].flags.writeable)
+
+    def test_preserved_funding_overflow_full_loader_and_replay_refusal(self):
+        reg = json.loads((REGISTRATION.parent/'funding-boundary-audit-engineering.json').read_text())
+        old_policy = np.geterr().copy()
+        for name,case in reg['overflowWitnesses'].items():
+            events = [(25000+i,r,float.fromhex(m)) for i,(r,m) in enumerate(zip(case['rates'],case['marks']))]
+            for policy in reg['numpyErrorPolicies']:
+                with self.subTest(witness=name,policy=policy), tempfile.TemporaryDirectory() as folder:
+                    args = self.funding_loader_fixture(folder,events,count=30)
+                    with np.errstate(over=policy,invalid=policy):
+                        if name == 'sum' and policy == 'raise':
+                            with self.assertRaises(FloatingPointError): load_development(*args)
+                        else:
+                            prices,funding,_ = load_development(*args)
+                            self.assertTrue(np.isposinf(funding['BTCUSDT'][25]))
+                            self.assertFalse(funding['BTCUSDT'].flags.writeable)
+                            scale = Scale.fit([prices['BTCUSDT']])
+                            replay = Replay(prices['BTCUSDT'],funding['BTCUSDT'],24,30,1,scale,enabled=True)
+                            replay.step(0.)
+                            self.assertEqual(replay.failure,'invalid_market_transition')
+                            self.assertTrue(replay.done)
+                            self.assertEqual(replay.equity,1.)
+                            self.assertEqual(replay.rows,[])
+        self.assertEqual(np.geterr(),old_policy)
+
     def test_data_admission_rejects_unregistered_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)/"x.csv"; p.write_text("not registered data")
@@ -1835,6 +1882,37 @@ class SequentialContracts(unittest.TestCase):
             self.assertTrue(all(value == outputs[0] for value in outputs))
             self.assertEqual({str(p.relative_to(source)):p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
 
+    def test_export_refuses_leaf_collisions_after_directory_creation(self):
+        for kind in ('file', 'symlink', 'hardlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                root = Path(td).resolve(); source = root/"archive"; output = root/"review"
+                sha, _ = self.export_fixture(source)
+                champion = root/"champion.json"; sentinel = b"existing champion bytes"; champion.write_bytes(sentinel)
+                original_open = Path.open; injected = []
+                def collide(path, mode='r', *args, **kwargs):
+                    if path.parent == output and mode in ('xb', 'wb') and not injected:
+                        injected.append(path)
+                        if kind == 'symlink': path.symlink_to(champion)
+                        elif kind == 'hardlink': path.hardlink_to(champion)
+                        else:
+                            with original_open(path, 'xb') as stream: stream.write(sentinel)
+                    return original_open(path, mode, *args, **kwargs)
+                with patch.object(Path, 'open', collide), self.assertRaises(FileExistsError):
+                    export(source, output, rss_unit="bytes", platform_label="fixture", expected_index_sha256=sha)
+                self.assertEqual(len(injected), 1)
+                self.assertEqual(injected[0].read_bytes(), sentinel)
+                self.assertEqual(champion.read_bytes(), sentinel)
+
+    def test_export_fixture_bytes_remain_compatible(self):
+        fixture = json.loads((Path(__file__).resolve().parents[1]/"formal/research/fixtures/champion-archive.json").read_text())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); source = root/"archive"; source.mkdir()
+            for name, raw in fixture['archive'].items(): (source/name).write_bytes(raw.encode())
+            output = root/"review"
+            export(source, output, rss_unit='bytes', platform_label='synthetic-champion-fixture', expected_index_sha256=fixture['indexSha256'])
+            self.assertEqual({p.name:p.read_bytes() for p in output.iterdir()},
+                             {name:raw.encode() for name,raw in fixture['reports'].items()})
+
     def test_export_parses_verified_snapshots_after_archive_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2017,6 +2095,32 @@ class SequentialContracts(unittest.TestCase):
              patch.object(runner, "short_ope", return_value={"status":"invalid", "failedEpisodes":1, "reason":"fixture"}):
             controls.names = ()
             yield
+
+    def test_runner_passes_only_training_prefixes_to_fit_and_optimizer(self):
+        # Conditional on admitted arrays: the real loader also validates the
+        # whole fixed historical panel, so this is not online admission evidence.
+        expected = Scale.fit([self.p[:160]])
+        for future in (np.nan, np.inf, -1., 1e200):
+            changed = self.p.copy(); changed[160:] = future
+            funds = self.f.copy(); funds[160:] = future
+            seen = []
+            def train(prices, funding, scale, horizon, seed):
+                np.testing.assert_array_equal(prices['x'], self.p[:160])
+                np.testing.assert_array_equal(funding['x'], self.f[:160])
+                for field in ('mean', 'std', 'low', 'high'):
+                    np.testing.assert_array_equal(getattr(scale, field), getattr(expected, field))
+                seen.append((horizon, seed))
+                return Network(11), {}
+            with self.subTest(future=future), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with self.publication_fixture(root), \
+                     patch.object(runner, 'load_development', return_value=({'x':changed}, {'x':funds}, np.arange(256)*1000)), \
+                     patch.object(runner, 'train_ppo', side_effect=train), \
+                     patch.object(runner, 'replay_policy', side_effect=ValueError('fixture stops before evaluation')):
+                    runner.run(root/'unused-panel', root/'unused-funding', root/'run')
+                self.assertEqual(seen, [(1, 11)])
+                artifact = json.loads((root/'run/policies/ppo_h1_f0_s11.json').read_text())
+                self.assertEqual(artifact['provenance']['scale']['mean'], expected.mean.tolist())
 
     def test_runner_pins_registration_and_sources_across_replacement(self):
         source_check = runner.source_commit
@@ -2240,6 +2344,85 @@ class SequentialContracts(unittest.TestCase):
             if p.name != "PolicyProposalV1.hs":
                 self.assertNotIn("import Trader.Research.PolicyProposalV1",p.read_text(),str(p))
 
+
+class DataCompositionConformance(unittest.TestCase):
+    def test_loader_fit_replay_symbol_conformance(self):
+        import sys
+        import ast
+        ROOT = Path(__file__).resolve().parents[1]
+        import pandas as pd
+        sys.path.insert(0, str(ROOT / 'scripts/research'))
+        import run_sequential_screen as runner
+        import sequential_env as env
+        import sequential_evaluation as evaluation
+        n, stop = 280, 160
+        names = ['ALPHA', 'BETA']
+        rows, events = [], []
+        for index, name in enumerate(names):
+            for i in range(n):
+                rows.append([name, i * 100, i * 100 + 99, (index + 1) * 100 + i / 100])
+            events.append([name, 199, 0.0001 * (index + 1), 100.0 * (index + 1)])
+        panel = pd.DataFrame(rows, columns=['symbol', 'openTime', 'closeTime', 'close']).to_csv(index=False).encode()
+        settlements = pd.DataFrame(events, columns=['symbol', 'fundingTime', 'fundingRate', 'resolvedMarkPrice']).to_csv(index=False).encode()
+        spec = {'data': {'panelSha256': hashlib.sha256(panel).hexdigest(),
+            'settlementsSha256': hashlib.sha256(settlements).hexdigest(), 'symbols': names,
+            'startOpenTime': 0, 'endOpenTime': (n-1)*100, 'intervalMilliseconds': 100, 'rowsPerSymbol': n}}
+        tree = ast.parse((ROOT / 'scripts/research/run_sequential_screen.py').read_text())
+        fold = next(n for n in ast.walk(tree) if isinstance(n,ast.For) and ast.unparse(n.target) == '(fi, split)')
+        statements = fold.body[:3]
+        with tempfile.TemporaryDirectory() as directory:
+            price_path, fund_path = Path(directory)/'panel.csv', Path(directory)/'funding.csv'
+            price_path.write_bytes(panel); fund_path.write_bytes(settlements)
+            prices, funding, _ = runner.load_development(price_path, fund_path, spec)
+            for index, name in enumerate(names):
+                self.assertEqual(prices[name][0], (index+1)*100)
+                self.assertAlmostEqual(funding[name][1], 0.01 * (index+1)**2)
+            space = {'prices': prices, 'funding': funding, 'split': {'trainStop': stop}, 'Scale': env.Scale}
+            exec(compile(ast.Module(body=statements, type_ignores=[]), '<actual-fold-setup>', 'exec'), space)
+            scale = space['scale']
+            before = {field: getattr(scale, field).tobytes() for field in ('mean','std','low','high')}
+            altered = {name: p.copy() for name,p in prices.items()}
+            for p in altered.values(): p[stop:] = np.nan
+            changed = dict(space, prices=altered)
+            exec(compile(ast.Module(body=statements, type_ignores=[]), '<actual-fold-setup>', 'exec'), changed)
+            self.assertEqual(before, {field: getattr(changed['scale'],field).tobytes() for field in before})
+            for field in before:
+                with self.assertRaises(ValueError): getattr(scale,field).setflags(write=True)
+                with self.assertRaises(ValueError): getattr(scale,field)[0] = 99
+            # Foreign-symbol market changes do not alter a local observation
+            # with the explicitly shared training transform held fixed.
+            local = env.Replay(prices['ALPHA'],funding['ALPHA'],190,197,1,scale,enabled=True)
+            local_before = local.observation().copy()
+            foreign = prices['BETA'].copy()
+            foreign[:] = np.nan
+            altered_panel = dict(prices, BETA=foreign)
+            other = env.Replay(altered_panel['ALPHA'],funding['ALPHA'],190,197,1,scale,enabled=True)
+            np.testing.assert_array_equal(local_before,other.observation())
+            pairs = []
+            original = env.Replay
+            def observed(p, f, *args, **kwargs):
+                matches = [name for name in names if np.array_equal(p,prices[name][:len(p)])]
+                self.assertEqual(len(matches),1)
+                self.assertTrue(np.array_equal(f, funding[matches[0]][:len(f)]))
+                pairs.append(matches[0])
+                return original(p,f,*args,**kwargs)
+            with patch.object(env, 'Replay', observed):
+                for seed in (11,23,47):
+                    env.collect(space['train'],space['funds'],scale,1,seed,4)
+            with patch.object(evaluation, 'Replay', observed):
+                for name in names:
+                    evaluation.replay_policy(prices[name],funding[name],190,197,1,scale,lambda obs:(0.0,0.0))
+                class ConstantPolicy:
+                    def forward(self, observation): return np.array([0.0,1.0,0.0])
+                evaluation.short_ope(prices,funding,scale,1,190,230,ConstantPolicy(),11,episodes=3)
+            self.assertGreaterEqual(len(pairs), 11)
+            self.assertEqual(set(pairs),set(names))
+            self.assertEqual(before,{field:getattr(scale,field).tobytes() for field in before})
+            # A changed pathname cannot replace the bytes already bound to the arrays.
+            price_path.write_bytes(b'corrupt')
+            self.assertEqual(prices['ALPHA'][0],100.0)
+            with self.assertRaisesRegex(ValueError,'registered development bytes'):
+                runner.load_development(price_path,fund_path,spec)
 
 if __name__ == "__main__":
     unittest.main()

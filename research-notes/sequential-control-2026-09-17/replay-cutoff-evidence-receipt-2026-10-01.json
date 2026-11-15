@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-01",
+  "scope": "synthetic replay ordering cutoff engineering; no financial trial",
+  "baseMain": "dbd45e2691cb37f1421a23306c43b676fa82e6fc",
+  "priorHead": "1ded9950d4633008b0b97e301752086145a3e086",
+  "specificationCommit": "ea52ed52",
+  "sourceFreeze": "05d0444e1069c9e3ee88df924fafaedef13b12f2",
+  "registration": "research-notes/registrations/replay-cutoff-audit-engineering.json",
+  "checks": [
+    {
+      "stage": "probe",
+      "command": "PYTHONPATH=scripts/formal python: replay_cutoff.check_replay_cutoff()",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-cutoff-probe-20261001.json",
+      "sha256": "6756c457025afdabd8020ba1597030f9ad211fd89ad221288a3e19a8b34c4ee8",
+      "disposition": "Initial model/SMT/lift/trace probe passed; matcher subsequently strengthened"
+    },
+    {
+      "stage": "targeted-initial",
+      "command": "PYTHONPATH=scripts/formal python -m unittest test_integrity.ReplayCutoffTests -v",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-cutoff-targeted-initial-failure-20261001.log",
+      "sha256": "f7a5ad711b9debf1ba4c99830591c69aebac67f51d7a6bdf493af61f4d0ca9a3",
+      "disposition": "Six tests, one failure: inconsistent terminal mutation accepted via abstract insolvency; preserved as CUT-MATCH-001"
+    },
+    {
+      "stage": "targeted",
+      "command": "PYTHONPATH=scripts/formal python -m unittest test_integrity.ReplayCutoffTests -v",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-cutoff-targeted-20261001.log",
+      "sha256": "e44b31991e02b643066062a41ddf96d53f867c24dce8b47c2f9bbc4a5799a4aa",
+      "disposition": "Six tests passed after strengthening no-failure conformance"
+    },
+    {
+      "stage": "record",
+      "command": "python scripts/formal/verify.py --record",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-cutoff-record-20261001.log",
+      "sha256": "db8142f6d70bb52304f2f487c4b7fb620df03ac043a51704432da210099382ac",
+      "disposition": "Final source-bound receipt recorded"
+    },
+    {
+      "stage": "formal",
+      "command": "bash scripts/verify.sh formal",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-cutoff-formal-20261001.log",
+      "sha256": "c73f960b8a931d29b97d4906a6b5a231914ddbc7e0b75cf78af2c6bacd8a0ead",
+      "disposition": "117 integrity tests and 38 scoped SMT requirements passed"
+    },
+    {
+      "stage": "full",
+      "command": "bash scripts/verify.sh full",
+      "exitCode": 0,
+      "externalLog": "/private/tmp/trader-cutoff-full-20261001.log",
+      "sha256": "5d287ab0d8681657b0928da66f9e9f18ef091c7e3f3f11fd2ba96d299f32e076",
+      "disposition": "Formal/Haskell/web/automation passed"
+    },
+    {
+      "stage": "acceptance",
+      "command": "python scripts/formal/verify.py --require-complete",
+      "exitCode": 1,
+      "externalLog": "/private/tmp/trader-cutoff-acceptance-20261001.log",
+      "sha256": "179ea60f9a5708a64a46be5d9c3f2d48336943a7df3771622b8b316395c53bcc",
+      "disposition": "Expected acceptance refusal; not a passing acceptance gate"
+    }
+  ],
+  "environment": {
+    "python": "3.13.3",
+    "numpy": "2.3.5",
+    "z3": "4.15.4",
+    "ghc": "9.4.8",
+    "cabal": "3.12.1.0",
+    "node": "20.19.0",
+    "fourmolu": "0.15.0.0",
+    "hlint": "3.8",
+    "processLocalThreadCaps": {
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    },
+    "solverTimeoutMilliseconds": 10000,
+    "automationPandas": "2.3.3"
+  },
+  "commandEnvironment": {
+    "cwd": "/private/tmp/trader-research-2026-09-28",
+    "pythonExecutable": "/private/tmp/trader-proof-20260928/bin/python",
+    "TRADER_FORMAL_PYTHON": "/private/tmp/trader-proof-20260928/bin/python",
+    "pathPrepend": "/private/tmp/node-v20.19.0-darwin-x64/bin",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "threadCapsScope": "record/formal/full/acceptance; initial probe and targeted tests used inherited process environment"
+  },
+  "remoteCI": {
+    "conclusion": "success",
+    "headSha": "05d0444e1069c9e3ee88df924fafaedef13b12f2",
+    "jobs": [
+      {
+        "name": "haskell",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "formal",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "automation",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "web",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Build Docker image",
+        "status": "completed",
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Deploy (Fly.io)",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/diegueins680/trader/actions/runs/36806418749",
+    "externalReceipt": "/private/tmp/trader-cutoff-ci-final-20261001.json",
+    "sha256": "e88570f78c7e63c861dbd7013780d239a8831c7b711a79b50c33b206a5931b17"
+  },
+  "conformance": {
+    "integrityTests": 117,
+    "newIntegrityTests": 6,
+    "gridTraces": 486,
+    "namedScenarios": 8,
+    "liftComparisons": 3600,
+    "totalSMTRequirements": 38,
+    "newSMTRequirements": 1,
+    "lockedSources": 82,
+    "newSimulatorCounterexample": false,
+    "resolvedDevelopmentCheckerCounterexample": "CUT-MATCH-001",
+    "prescribedBadAbstraction": "cutoff six conflates call end with episode end",
+    "frozenSimulatorUnchanged": true,
+    "priorCertificatesUnchanged": true
+  },
+  "replayCutoff": {
+    "badAbstraction": {
+      "cutoff": 6,
+      "elapsed": 6,
+      "failed": false,
+      "horizon": 6,
+      "kind": "prescribed abstraction mutant, not a current simulator defect",
+      "originalEvents": [
+        "continue"
+      ],
+      "remaining": 7,
+      "sixCapEvents": [
+        "terminal"
+      ]
+    },
+    "conformance": {
+      "gridTraces": 486,
+      "scenarios": {
+        "inherited_pending": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.99995,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": -0.0025
+        },
+        "insolvency": {
+          "costs": 0.0,
+          "done": true,
+          "equity": -1.0,
+          "failure": "equity_exhausted",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "invalid_gate": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_observation_or_position",
+          "pending": -1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "invalid_market": {
+          "costs": 0,
+          "done": true,
+          "equity": 1.0,
+          "failure": "invalid_market_transition",
+          "pending": 1,
+          "rows": 0,
+          "t": 0,
+          "trace": [],
+          "units": 0.0
+        },
+        "missed_fill": {
+          "costs": 0.0,
+          "done": false,
+          "equity": 1.0,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0
+        },
+        "ordinary": {
+          "costs": 0.00025,
+          "done": false,
+          "equity": 0.9995,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.0025
+        },
+        "partial_fill": {
+          "costs": 0.000125,
+          "done": false,
+          "equity": 0.9997499999999997,
+          "failure": null,
+          "pending": -1,
+          "rows": 6,
+          "t": 6,
+          "trace": [
+            "mark_old_and_advance",
+            "target_fill",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row",
+            "mark_old_and_advance",
+            "append_row"
+          ],
+          "units": 0.00125
+        },
+        "solvent_risk": {
+          "costs": 0.00025,
+          "done": true,
+          "equity": 0.74975,
+          "failure": "capital_floor",
+          "pending": -1,
+          "rows": 1,
+          "t": 1,
+          "trace": [
+            "mark_old_and_advance",
+            "liquidate",
+            "append_row"
+          ],
+          "units": 0.0
+        }
+      },
+      "scope": "synthetic actual-helper projected traces; observations/rewards are not quotiented"
+    },
+    "lifts": {
+      "reachableClassSevenStates": 720,
+      "remainingSamples": [
+        7,
+        8,
+        12,
+        97,
+        9223372036854775808
+      ],
+      "scope": "exhaustive reachable class-seven states at five registered lifts; not universal runtime refinement",
+      "successorComparisons": 3600
+    },
+    "model": {
+      "distinctInitialStates": 102,
+      "maxShortestDepth": 48,
+      "productionLifecycleProof": false,
+      "progressBound": 48,
+      "runtimeRefinement": false,
+      "scope": "one abstract replay call; final reward check or explicit early return",
+      "search": "complete reachable fixed point",
+      "states": 3596,
+      "terminalStuttering": true,
+      "transitions": 4340
+    },
+    "scope": "ordering quotient only; integer cutoff lemma unbounded in R; finite graph and sampled runtime traces",
+    "smt": {
+      "F-RL-REPLAY-CUTOFF": "unsat"
+    }
+  },
+  "verificationTimings": {
+    "targeted-initial": {
+      "integritySeconds": [
+        9.144
+      ],
+      "certificateSeconds": []
+    },
+    "targeted": {
+      "integritySeconds": [
+        12.768
+      ],
+      "certificateSeconds": []
+    },
+    "formal": {
+      "integritySeconds": [
+        65.709
+      ],
+      "certificateSeconds": [
+        21.402
+      ]
+    },
+    "full": {
+      "integritySeconds": [
+        50.433
+      ],
+      "certificateSeconds": [
+        14.65
+      ]
+    }
+  },
+  "financialTrials": 0,
+  "financialTrainingSteps": 0,
+  "marketDataAccess": false,
+  "holdoutAccess": false,
+  "originalOpeReruns": 0,
+  "productionChanges": false,
+  "candidateAdopted": false,
+  "openOrPartialMissionObligations": 38,
+  "missionComplete": false,
+  "limitations": [
+    "Integer cutoff lemma is unbounded in R; graph is a finite ordering abstraction only",
+    "Actual time-to-end observations, rewards, risk outcomes and policy actions are not equivalent under projection",
+    "Five finite lift samples supplement the integer lemma, not universal runtime refinement",
+    "Risk/validity abstractions and Python/dataclass/AST semantics remain trusted assumptions",
+    "Helper termination, no hidden effects and stable ordinary state assumed",
+    "Failure trace risk labels remain nondeterministic; end node can reach a failing reward check",
+    "No multi-call, concurrency, physical deadline, numeric-accounting or production lifecycle proof",
+    "No financial efficacy, OPE reliability, historical confirmation, production readiness or authorization claim"
+  ]
+}

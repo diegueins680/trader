@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "scope": "Deliberately introduced leakage mutant; not a defect in the admitted implementation or a financial experiment.",
+  "entries": [
+    {
+      "id": "CE-RL-004",
+      "requirementId": "F-RL-FEATURE-FOOTPRINT",
+      "source": "scripts/research/sequential_env.py",
+      "function": "market_features",
+      "replace": "prices[t - 24:t + 1]",
+      "with": "prices[t - 24:t + 2]",
+      "decisionIndex": 24,
+      "length": 26,
+      "firstForbiddenIndex": 25,
+      "prefixPrice": 100.0,
+      "originalFuturePrice": 100.0,
+      "changedFuturePrice": 200.0,
+      "expectedViolation": "The future price at index 25 enters the mutant's slice; changing it alters features at decision index 24.",
+      "resolution": "The original source is causal within the checked domain. The static/SMT gate rejects the mutant, and the deterministic fixture demonstrates its lookahead. No production or frozen research source change."
+    }
+  ]
+}

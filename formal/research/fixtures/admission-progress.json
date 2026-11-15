@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "CE-BACKTEST-STARVATION",
+  "legacy": {
+    "prefix": [
+      "register:0",
+      "register:1",
+      "attempt:1",
+      "enter:1"
+    ],
+    "cycle": [
+      "attempt:0",
+      "try:2",
+      "recycle:2",
+      "release:1",
+      "recycle:1",
+      "register:1",
+      "attempt:1",
+      "enter:1"
+    ],
+    "fair": true,
+    "scope": "feasible infinite abstract schedule; finite compiled reproduction is not infinite runtime observation"
+  },
+  "oldSourceSha256": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
+  "before": "barged=True",
+  "after": "barged=False",
+  "scope": "feasible abstract fair lasso plus finite compiled schedule; no infinite runtime observation"
+}

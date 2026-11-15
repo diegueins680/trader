@@ -244,6 +244,16 @@ def validate_provenance(provenance: dict) -> None:
         raise ValueError("invalid provenance JSON") from exc
 
 
+def _provenance_identity(provenance: dict) -> str:
+    """Capture caller-owned data before I/O; validate only the private snapshot."""
+    try:
+        identity = json.dumps(provenance, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid provenance JSON") from exc
+    validate_provenance(json.loads(identity))
+    return identity
+
+
 def _parameter_snapshots(parameters: dict) -> dict:
     """One v1 parameter contract for policy writers and readers; critics are distinct."""
     shapes = {"w1": (FEATURE_COUNT, 16), "b1": (16,), "w2": (16, 3), "b2": (3,)}
@@ -281,7 +291,7 @@ def save_policy(path: Path, net: Network, provenance: dict) -> str:
 
 
 def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> Network:
-    validate_provenance(expected_provenance)
+    expected_identity = _provenance_identity(expected_provenance)
     with path.open("rb") as stream:
         raw = stream.read(65537)
     if len(raw) > 65536:
@@ -306,7 +316,7 @@ def load_policy(path: Path, expected_sha256: str, expected_provenance: dict) -> 
     if (a["schema"] != "offline_policy_v1" or a["environment"] != ENVIRONMENT or
         a["observation"] != OBSERVATION or a["actions"] != ACTIONS.tolist() or
         a["promotion"] != "rejected_research_only" or a["enabled"] is not False or
-        json.dumps(a["provenance"], sort_keys=True) != json.dumps(expected_provenance, sort_keys=True)):
+        json.dumps(a["provenance"], sort_keys=True) != expected_identity):
         raise ValueError("incompatible artifact")
     def numeric(value):
         return all(numeric(v) for v in value) if isinstance(value, list) else type(value) in (int, float)

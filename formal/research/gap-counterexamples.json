@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "claim": "F-RL-UNCONDITIONAL-FLOOR",
+  "status": "refuted",
+  "entries": [
+    {
+      "id": "CE-RL-002",
+      "target": "1/4",
+      "priceRatio": "1/8",
+      "endingEquity": "24991/32000",
+      "expectedFailure": "capital_floor",
+      "trace": ["cash: equity 1, price 100, decision index 30", "shield admits long target 1/4", "index 31: fill at 100; debit 10bp turnover cost", "propose exit target 0", "index 32: price 12.5; old units lose before exit", "capital-floor monitor stops; liquidate; retain failed path"],
+      "resolution": "Preserve the loss and restrict guarantees to explicit environmental assumptions; no cap or policy change.",
+      "implementation": "scripts/research/sequential_env.py",
+      "regression": "scripts/formal/gap_conformance.py"
+    },
+    {
+      "id": "CE-RL-003",
+      "target": "-1/4",
+      "priceRatio": "4",
+      "endingEquity": "199/800",
+      "expectedFailure": "capital_floor",
+      "trace": ["cash: equity 1, price 100, decision index 30", "shield admits short target -1/4", "index 31: fill at 100; debit 10bp turnover cost", "propose exit target 0", "index 32: price 400; old units lose before exit", "capital-floor monitor stops; liquidate; retain failed path"],
+      "resolution": "An accepted short cannot ensure a capital floor for arbitrary positive next prices. No live safety claim.",
+      "implementation": "scripts/research/sequential_env.py",
+      "regression": "scripts/formal/gap_conformance.py"
+    }
+  ]
+}

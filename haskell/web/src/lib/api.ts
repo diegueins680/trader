@@ -86,7 +86,14 @@ type FetchJsonOptions = {
   headers?: Record<string, string>;
   allowFallback?: boolean;
   onTransientRetry?: (info: TransientRetryInfo) => void;
+  /** Resolve with NOT_MODIFIED instead of throwing when the server answers 304. */
+  acceptNotModified?: boolean;
+  /** Observe response headers (for example ETag) before the body is read. */
+  onResponseHeaders?: (headers: Headers) => void;
 };
+
+/** Returned by fetchJson when `acceptNotModified` is set and the server answered 304. */
+export const NOT_MODIFIED: unique symbol = Symbol("not-modified");
 
 type TransientRetryInfo = {
   attempt: number;
@@ -879,6 +886,10 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
       headers,
       signal,
     });
+    opts?.onResponseHeaders?.(res.headers);
+    if (res.status === 304 && opts?.acceptNotModified) {
+      return NOT_MODIFIED as unknown as T;
+    }
     const contentType = res.headers.get("content-type") || "";
     const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
     const payload = await readJsonOrText(res, contentType);

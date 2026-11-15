@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "a772ca0ffcde120134bda927e38387258bd94435",
+  "version": "order-number-v1",
+  "hypothesis": "A source-bound numeric gate rejects non-finite selected quantities/prices before credential access in all five Binance order constructors.",
+  "financialTrials": 0,
+  "data": "Synthetic binary64 and inert compiled prefixes only; no endpoint or holdout access.",
+  "budget": "13 boundary plus 4096 generated words; both optional-value flags, all three markets, both modes and constructor restrictions; no training.",
+  "seed": 20261005,
+  "contract": "formal/research/order-number-contract.md",
+  "acceptance": "SMT, finite model, compiled actual-prefix and pure-oracle conformance, Haskell properties, formal/full wrappers, final CI.",
+  "limitations": "No whole-IO refinement, final decimal wire/grid/cap theorem, reconciliation or economic evidence."
+}

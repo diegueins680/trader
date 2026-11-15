@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-05",
+  "sourceBaseline": "a3cfc824af48ab5799b728538ffcfe3df2c37e06",
+  "version": "sizing-input-v1",
+  "hypothesis": "Invalid sizing metadata or price cannot bypass notional checks or enter minimum-size retry, and probe sizing cannot publish non-finite quantities.",
+  "financialTrials": 0,
+  "data": "Synthetic binary64 cases and actual pure Main fragments only; no endpoint, credentials, historical data or holdout access.",
+  "budget": "4160 boundary rows plus 2048 generated rows, seed 20261005; explicit counterexamples and source mutations; no training.",
+  "seed": 20261005,
+  "contract": "formal/research/sizing-input-contract.md",
+  "acceptance": "Conditional SMT, finite retry model, compiled actual-function conformance and compatibility, Haskell properties, canonical formal/full wrappers and final CI.",
+  "limitations": "Pinned runtime and source mapping assumptions; no full IO, metadata parser/freshness, exact notional accounting, wire-cap/grid, complete caller or economic proof. No broad closure.",
+  "amendments": [
+    {
+      "registeredOn": "2026-10-05",
+      "sourceBaseline": "1c4a5ba3fa7388aea0cde7b9899eb3c8fcb9efaf",
+      "reason": "Finite negative raw quantities are clamped to zero and can enter minimum-size expansion. Reject before clamping with existing non-retryable Invalid quantity input. Preserve zero and negative-zero semantics.",
+      "verification": "Preserve historical validator source for legacy conformance; add CE-SIZING-006; extend binary64 preflight SMT/property obligations to nonnegative inputs; 6208 existing rows plus six witnesses. No financial trials."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "scope": "Current unchanged advantages source, synthetic untrained critic; not a mutation or financial result.",
+  "entries": [
+    {
+      "id": "CE-RL-010",
+      "requirement": "F-RL-TERMINAL-EXACT",
+      "gammaHex": "0x1.fae147ae147aep-1",
+      "criticHex": "0x1.1c37937e08000p+53",
+      "rewardHex": [
+        "0x1.0000000000000p+0"
+      ],
+      "expectedTargets": [
+        "0x0.0p+0"
+      ],
+      "observed": "Finite subtraction/addition cancels terminal reward 1 to target 0."
+    },
+    {
+      "id": "CE-RL-011",
+      "requirement": "F-RL-TERMINAL-FINITE",
+      "gammaHex": "0x1.fae147ae147aep-1",
+      "criticHex": "-0x1.0000000000000p+1023",
+      "rewardHex": [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1023"
+      ],
+      "expectedTargets": [
+        "nan",
+        "inf"
+      ],
+      "observed": "Finite residual inputs overflow at the later terminal; zero times infinite carry contaminates the earlier terminal."
+    }
+  ]
+}
