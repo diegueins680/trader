@@ -11,10 +11,10 @@ import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueueIO, readTBQueue, writeTBQueue)
-import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, finally, fromException, throwIO, uninterruptibleMask_)
+import Control.Exception (AsyncException, IOException, SomeException, bracket, bracket_, displayException, evaluate, finally, fromException, throwIO, uninterruptibleMask_)
 import Control.Monad (forM, forM_, forever, unless, void, when)
 import Crypto.Hash (Digest, hash)
-import Crypto.Hash.Algorithms (SHA256)
+import Crypto.Hash.Algorithms (MD5, SHA256)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Encoding (pair, pairs)
@@ -62,7 +62,7 @@ import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status304, status400, status401, status403, status404, status405, status409, status410, status413, status429, status500, status502, status503, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hContentType, hPragma)
 import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
@@ -76,6 +76,7 @@ import System.Exit (ExitCode (..), die, exitFailure)
 import System.FilePath (isAbsolute, takeDirectory, takeFileName, (</>))
 import System.IO (Handle, IOMode (ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Posix.Files (deviceID, fileID, fileSize, getFileStatus, modificationTimeHiRes)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 import System.Process (CreateProcess (..), StdStream (CreatePipe), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
@@ -227,6 +228,8 @@ import Trader.Binance (
     fetchSymbolFilters,
     fetchTicker24hPrice,
     fetchTickerPrice,
+    futuresAccountTradeMaxWindows,
+    futuresAccountTradeTimeWindows,
     getBinanceTimestampMs,
     getTimestampMs,
     keepAliveListenKey,
@@ -436,7 +439,9 @@ import Trader.NeuralGovernor (
     parseNeuralGovernorRolloutMode,
  )
 import Trader.Normalization (NormState, NormType (..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
-import Trader.Ops.Migrations (ensureOpsDbSchema)
+import Trader.Ops.ComboParameters (persistComboReplicas)
+import Trader.Ops.GraduationTrace (GraduationPhase (..), withLoggedGraduationConnection, withLoggedGraduationPhase)
+import Trader.Ops.Migrations (ensureOpsDbSchema, topCombosDbFingerprintQuery)
 import Trader.Optimization (TuneConfig (..), TuneObjective (..), TuneStats (..), defaultMaxThresholdCandidates, optimizeOperationsWithHLWith, parseTuneObjective, sweepThresholdWithHLWith, tuneObjectiveCode)
 import Trader.Optimizer.Common (
     OptimizerAdmissionStats (..),
@@ -494,12 +499,13 @@ import Trader.PortfolioSelection (
     defaultPortfolioSelectorConfig,
     parsePortfolioRolloutMode,
     portfolioFailureCacheLookup,
+    portfolioGraduationCollectedEvidence,
     portfolioGraduationConfigVersion,
     portfolioGraduationFleetEquities,
     portfolioGraduationLatestStatusesHealthy,
-    portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationReviewWithEvidenceError,
     portfolioGraduationStatusCoverage,
     portfolioRolloutModeCode,
     portfolioSelectionShouldRotate,
@@ -550,6 +556,8 @@ import Trader.S3 (
     S3State (..),
     resolveS3State,
     s3GetObject,
+    s3HeadObjectETag,
+    s3HeadObjectETagBounded,
     s3KeyFor,
     s3PutObject,
  )
@@ -583,16 +591,20 @@ import Trader.Split (Split (..), splitTrainBacktest)
 import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import qualified Trader.TechnicalAnalysis.Strategies as TA
 import Trader.Text (dedupeStable, normalizeKey, trim)
+import Trader.TopComboRetention (comboUuidText, retainedComboUuidsFromEnv)
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    TopCombosDbReadEvent,
     TopCombosMergeStats (..),
+    TopCombosPayloadComparison,
     TopCombosStore (..),
+    TopCombosSyncFingerprint (..),
+    TopCombosSyncPhase (..),
     applyComboUpdatesKeepAllWithStats,
-    applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
     batchCombosForBacktestRefresh,
     blendedAnnualizedReturn,
@@ -606,25 +618,35 @@ import Trader.TopCombosStore (
     comboPerformanceKey,
     compactTopCombosPayloadForSync,
     defaultComboBacktestRefreshPolicy,
+    etagMatches,
     isTopCombosPayload,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
-    mergeTopCombosPayloads,
-    mergeTopCombosPayloadsWithStats,
-    mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
     newTopCombosStore,
-    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
+    prepareTopCombosPayloadComparison,
     readTopCombosValueLocal,
     recalculateComboPerformanceFromOperation,
     resolveComboSymbol,
     sanitizeComboSymbolForPlatform,
-    sanitizeTopCombosValue,
+    sanitizeTopCombosValueWithRetention,
     selectCombosForBacktestRefreshWithPolicy,
     setComboLiveStats,
     topCombosGeneratedAtMs,
-    topCombosPayloadEquivalent,
+    topCombosHaveAtLeastWithRetention,
+    topCombosPayloadMatches,
+    topCombosSyncCanSettle,
+    topCombosSyncCanSkip,
     validateComboBacktestRefreshPolicy,
+    validateTopCombosReplicaPayload,
+    withTopCombosBuildGateObserved,
+    withTopCombosDbReadObserved,
     withTopCombosLock,
+    withTopCombosSyncPhaseObserved,
+    writeTopCombosBuildGateEvent,
+    writeTopCombosDbReadEvent,
+    writeTopCombosSyncPhaseEvent,
     writeTopCombosValue,
  )
 import Trader.TradeLogRiskState (
@@ -2345,11 +2367,11 @@ topCombosReplicaFailure name msg =
 topCombosReplicaRepairable :: TopCombosReplicaFetch -> Bool
 topCombosReplicaRepairable fetch = isNothing (tcrfError fetch)
 
-topCombosReplicaNeedsRepair :: Aeson.Value -> TopCombosReplicaFetch -> Bool
-topCombosReplicaNeedsRepair merged fetch =
+topCombosReplicaNeedsRepair :: TopCombosPayloadComparison -> TopCombosReplicaFetch -> Bool
+topCombosReplicaNeedsRepair comparison fetch =
     topCombosReplicaRepairable fetch
         && case tcrfPayload fetch of
-            Just val -> not (topCombosPayloadEquivalent merged val)
+            Just val -> not (topCombosPayloadMatches comparison val)
             Nothing -> True
 
 topCombosSyncErrorIsMissing :: String -> String -> Bool
@@ -2359,12 +2381,93 @@ topCombosSyncErrorIsMissing name msg =
         "db" -> msg == "No persisted combos found in the database."
         _ -> False
 
-validateTopCombosReplicaPayload :: String -> Aeson.Value -> Either String Aeson.Value
-validateTopCombosReplicaPayload name val =
-    let normalized = normalizeTopCombosPayload val
-     in if isTopCombosPayload normalized
-            then Right normalized
-            else Left (name ++ " payload missing combos array.")
+{- | File identity (device and inode), size and the full-resolution modification time.
+The store writes the leaderboard through a temp file and rename, so every write lands
+on a new inode even when size and timestamp coincide.
+-}
+topCombosLocalFingerprint :: FilePath -> IO (Maybe String)
+topCombosLocalFingerprint path = do
+    exists <- doesFileExist path
+    if not exists
+        then pure (Just "missing")
+        else do
+            statOrErr <-
+                ( trySync $ do
+                    st <- getFileStatus path
+                    pure
+                        ( show (deviceID st)
+                            ++ ":"
+                            ++ show (fileID st)
+                            ++ ":"
+                            ++ show (fileSize st)
+                            ++ ":"
+                            ++ show (modificationTimeHiRes st)
+                        )
+                ) ::
+                    IO (Either SomeException String)
+            pure (either (const Nothing) Just statOrErr)
+
+{- | Content digest over the columns the leaderboard payload is built from: an md5 over
+every row's identity, headline metrics, thresholds, objective, source, creation stamp
+and the stored, generated md5 of each JSON column's text. Volatile bookkeeping that the payload never
+exposes (@operation_count@, @updated_at_ms@, the tuple version) is deliberately left
+out, otherwise the per-minute bot operation counters would invalidate every ETag and
+keep the sync from ever settling.
+-}
+topCombosDbFingerprint :: OpsStore -> IO (Maybe String)
+topCombosDbFingerprint store = do
+    rowsOrErr <-
+        ( trySync $
+            withTopCombosFingerprintConnection store $ \conn ->
+                query_
+                    conn
+                    topCombosDbFingerprintQuery
+        ) ::
+            IO (Either SomeException [(Int64, String)])
+    pure $
+        case rowsOrErr of
+            Right [(n, digest)] -> Just (show n ++ ":" ++ digest)
+            _ -> Nothing
+
+topCombosS3Fingerprint :: IO (Maybe String)
+topCombosS3Fingerprint = topCombosS3FingerprintWith s3HeadObjectETag
+
+-- | Request-path variant: one attempt with a short timeout, so an S3 outage cannot stall a read.
+topCombosS3FingerprintBounded :: IO (Maybe String)
+topCombosS3FingerprintBounded = topCombosS3FingerprintWith s3HeadObjectETagBounded
+
+topCombosS3FingerprintWith :: (S3State -> String -> IO (Either String (Maybe String))) -> IO (Maybe String)
+topCombosS3FingerprintWith headObject = do
+    mS3 <- resolveS3State
+    case mS3 of
+        Nothing -> do
+            -- A configured bucket whose credentials could not be resolved right now is
+            -- "cannot fingerprint", not "unconfigured": a later read may still serve S3.
+            bucketConfigured <- maybe False (not . null . trim) <$> lookupEnv "TRADER_STATE_S3_BUCKET"
+            pure (if bucketConfigured then Nothing else Just "unconfigured")
+        Just st -> do
+            result <- headObject st (s3TopCombosKey st)
+            pure $
+                case result of
+                    Right (Just etag) -> Just etag
+                    Right Nothing -> Just "missing"
+                    Left _ -> Nothing
+
+{- | Fingerprint every replica without decoding any payload. Taken before a sync pass so
+an unchanged set of replicas can skip the multi-hundred-megabyte decode and merge.
+-}
+topCombosSyncFingerprint :: Maybe OpsStore -> Maybe StateSyncTarget -> FilePath -> IO TopCombosSyncFingerprint
+topCombosSyncFingerprint mOps mStateSyncTarget path = do
+    localFp <- topCombosLocalFingerprint path
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    s3Fp <- topCombosS3Fingerprint
+    pure
+        TopCombosSyncFingerprint
+            { tcsfLocal = localFp
+            , tcsfDb = dbFp
+            , tcsfS3 = s3Fp
+            , tcsfStateSyncConfigured = isJust mStateSyncTarget
+            }
 
 fetchTopCombosReplicaLocal :: FilePath -> IO TopCombosReplicaFetch
 fetchTopCombosReplicaLocal path = do
@@ -2379,9 +2482,9 @@ fetchTopCombosReplicaLocal path = do
                     Left err -> topCombosReplicaFailure "local" err
                     Right normalized -> topCombosReplicaPayload "local" normalized
 
-fetchTopCombosReplicaDb :: OpsStore -> IO TopCombosReplicaFetch
-fetchTopCombosReplicaDb store = do
-    result <- readTopCombosValueFromDbRaw store
+fetchTopCombosReplicaDb :: (TopCombosDbReadEvent -> IO ()) -> OpsStore -> IO TopCombosReplicaFetch
+fetchTopCombosReplicaDb observe store = do
+    result <- readTopCombosValueFromDbRawObserved (Just observe) store
     pure $
         case result of
             Left err
@@ -2450,17 +2553,27 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
             everySec <- topCombosSyncEverySecFromEnv
             initialDelaySec <- topCombosSyncInitialDelaySecFromEnv
             syncMaxCombos <- topCombosSyncMaxCombosFromEnv
+            retainedUuids <- retainedComboUuidsFromEnv
             let topJsonPath = tcsPath topCombosStore
             errRef <- newIORef HM.empty
             putStrLn (printf "Top combos sync enabled: everySec=%d initialDelaySec=%d maxCombos=%d path=%s" everySec initialDelaySec syncMaxCombos topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
             when (initialDelaySec > 0) (sleepSec initialDelaySec)
-            let loop = do
-                    dbFetch <- traverse fetchTopCombosReplicaDb mOps
-                    s3Fetch <- fetchTopCombosReplicaS3
-                    stateSyncFetch <- fetchTopCombosReplicaStateSync mStateSyncTarget
+            settledRef <- newIORef Nothing
+            skipLoggedRef <- newIORef False
+            let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore $ \attemptId -> do
+                    let observe event = do
+                            atMs <- getTimestampMs
+                            writeTopCombosSyncPhaseEvent stderr attemptId atMs event
+                        runPhase phase = withTopCombosSyncPhaseObserved phase observe
+                        observeDb event = do
+                            atMs <- getTimestampMs
+                            writeTopCombosDbReadEvent stderr attemptId atMs event
+                    dbFetch <- runPhase SyncReadDb (traverse (fetchTopCombosReplicaDb observeDb) mOps)
+                    s3Fetch <- runPhase SyncReadS3 fetchTopCombosReplicaS3
+                    stateSyncFetch <- runPhase SyncReadState (fetchTopCombosReplicaStateSync mStateSyncTarget)
                     forM_ (catMaybes [dbFetch, s3Fetch, stateSyncFetch]) (updateTopCombosSyncError errRef)
-                    plan <-
+                    plan <- runPhase SyncPlan $
                         withTopCombosLock topCombosStore $ do
                             localFetch <- fetchTopCombosReplicaLocal topJsonPath
                             updateTopCombosSyncError errRef localFetch
@@ -2471,13 +2584,14 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                 then pure Nothing
                                 else do
                                     now <- getTimestampMs
-                                    let merged = mergeTopCombosPayloads syncMaxCombos now candidates
+                                    let merged = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] syncMaxCombos now candidates)
+                                        comparison = prepareTopCombosPayloadComparison retainedUuids merged
                                         localNeedsWrite =
                                             case tcrfPayload localFetch of
-                                                Just val -> not (topCombosPayloadEquivalent merged val)
+                                                Just val -> not (topCombosPayloadMatches comparison val)
                                                 Nothing -> True
                                         dbNeedsWrite =
-                                            maybe False (topCombosReplicaNeedsRepair merged) dbFetch
+                                            maybe False (topCombosReplicaNeedsRepair comparison) dbFetch
                                         remoteFetches = catMaybes [s3Fetch, stateSyncFetch]
                                         remoteTargets =
                                             if localNeedsWrite
@@ -2485,10 +2599,20 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                                 else
                                                     [ tcrfName fetch
                                                     | fetch <- remoteFetches
-                                                    , topCombosReplicaNeedsRepair merged fetch
+                                                    , topCombosReplicaNeedsRepair comparison fetch
                                                     ]
                                         localReadyBeforeWrite =
                                             topCombosReplicaRepairable localFetch && isJust (tcrfPayload localFetch)
+                                    let presentUuids = case merged of
+                                            Aeson.Object obj -> case KM.lookup "combos" obj of
+                                                Just (Aeson.Array rows) -> Set.fromList (mapMaybe comboUuidText (V.toList rows))
+                                                _ -> Set.empty
+                                            _ -> Set.empty
+                                        missingUuids = Set.toAscList (retainedUuids `Set.difference` presentUuids)
+                                    updateTopCombosSyncError errRef $
+                                        if null missingUuids
+                                            then topCombosReplicaMissing "retention"
+                                            else topCombosReplicaFailure "retention" ("Retained live combo records unavailable: " ++ intercalate ", " (map T.unpack missingUuids))
                                     localReady <-
                                         if localNeedsWrite
                                             then do
@@ -2524,8 +2648,8 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                     case plan of
                         Nothing -> pure ()
                         Just TopCombosSyncPlan{tcspRepairLocal = repairLocal, tcspRepairDb = repairDb, tcspRemoteTargets = remoteTargets, tcspComboCount = comboCount} -> do
-                            when repairDb (persistTopCombosDbMaybe mOps topCombosStore)
-                            remotePersisted <- persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath
+                            when repairDb (runPhase SyncWriteDb (persistTopCombosDbMaybe mOps topCombosStore))
+                            remotePersisted <- runPhase SyncWriteRemote (persistTopCombosTargets remoteTargets mStateSyncTarget topJsonPath)
                             let repairedTargets =
                                     concat
                                         [ ["local" | repairLocal]
@@ -2541,6 +2665,23 @@ topCombosSyncLoop mOps mStateSyncTarget topCombosStore = do
                                         comboCount
                                     )
                                 )
+                    errs <- readIORef errRef
+                    pure (topCombosSyncCanSettle (isJust plan) (HM.keys errs))
+                loop = do
+                    fingerprint <- topCombosSyncFingerprint mOps mStateSyncTarget topJsonPath
+                    settled <- readIORef settledRef
+                    if topCombosSyncCanSkip settled fingerprint
+                        then do
+                            alreadyLogged <- readIORef skipLoggedRef
+                            unless alreadyLogged $ do
+                                writeIORef skipLoggedRef True
+                                putStrLn "Top combos sync: replicas unchanged since the last reconciled pass; skipping decode until a replica changes."
+                        else do
+                            writeIORef skipLoggedRef False
+                            -- Settle on the fingerprint taken before the pass: if a replica changed
+                            -- during the pass, the next fingerprint differs and the pass reruns.
+                            settledNow <- runPass
+                            writeIORef settledRef (if settledNow then Just fingerprint else Nothing)
                     sleepSec everySec
                     loop
             loop
@@ -2766,6 +2907,7 @@ instance ToJSON OpsPerformanceResponse where
 
 data OpsStore = OpsStore
     { osLock :: !(MVar ())
+    , osFingerprintLock :: !(MVar ())
     , osDbUrl :: !BS.ByteString
     , osConn :: !(IORef Connection)
     , osLatestId :: !(IORef Int64)
@@ -2812,6 +2954,14 @@ withOpsConnection store action =
 withIndependentOpsConnection :: OpsStore -> (Connection -> IO a) -> IO a
 withIndependentOpsConnection store =
     bracket (connectPostgreSQL (osDbUrl store)) close
+
+-- Keep cheap fingerprints independent of full replica reads and writes, while
+-- bounding their extra connections to one per store. Each read uses a fresh,
+-- bracketed connection; a failed or cancelled query cannot poison the next one.
+withTopCombosFingerprintConnection :: OpsStore -> (Connection -> IO a) -> IO a
+withTopCombosFingerprintConnection store action =
+    withMVar (osFingerprintLock store) $ \_ ->
+        withIndependentOpsConnection store action
 
 newtype OpsPersistenceConfig = OpsPersistenceConfig
     { opcDisabledKinds :: Set.Set Text
@@ -3545,8 +3695,8 @@ persistedComboLegacyIdentityKey row = do
                     , "objective" .= pcrObjective row
                     ]
 
-filterPersistedComboRows :: [PersistedComboRow] -> [PersistedComboRow]
-filterPersistedComboRows rows =
+filterPersistedComboRows :: Set.Set T.Text -> [PersistedComboRow] -> [PersistedComboRow]
+filterPersistedComboRows retained rows =
     let sourceAwareKeys =
             [ key
             | row <- rows
@@ -3555,7 +3705,8 @@ filterPersistedComboRows rows =
             ]
      in [ row
         | row <- rows
-        , isJust (persistedComboSource row)
+        , Set.member (uuidToText (pcrUuid row)) retained
+            || isJust (persistedComboSource row)
             || maybe True (`notElem` sourceAwareKeys) (persistedComboLegacyIdentityKey row)
         ]
 
@@ -4097,6 +4248,7 @@ newOpsStoreFromEnv = do
                                         (Only v : _) -> v
                                         _ -> 0
                             lock <- newMVar ()
+                            fingerprintLock <- newMVar ()
                             connRef <- newIORef conn
                             latestRef <- newIORef maxId
                             platformCache <- newIORef HM.empty
@@ -4107,6 +4259,7 @@ newOpsStoreFromEnv = do
                                 ( Just
                                     OpsStore
                                         { osLock = lock
+                                        , osFingerprintLock = fingerprintLock
                                         , osDbUrl = url
                                         , osConn = connRef
                                         , osLatestId = latestRef
@@ -4299,6 +4452,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
         Aeson.Object obj ->
             case KM.lookup (AK.fromString "combos") obj of
                 Just (Aeson.Array combos) -> do
+                    retainedUuids <- retainedComboUuidsFromEnv
                     results <- forM (V.toList combos) (backfillTopComboCloseTiming mOps baseArgs)
                     let failures = mapMaybe tccrFailure results
                         stats =
@@ -4309,7 +4463,7 @@ backfillTopCombosCloseTimingValue mOps baseArgs val =
                                 , tccbFailedCombos = length failures
                                 }
                         combos' = Aeson.Array (V.fromList (map tccrValue results))
-                        updatedVal = normalizeTopCombosPayload (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
+                        updatedVal = normalizeTopCombosPayloadWithRetention retainedUuids (Aeson.Object (KM.insert (AK.fromString "combos") combos' obj))
                     pure (Right (updatedVal, stats, failures))
                 _ -> pure (Left "Top combos JSON missing combos array.")
         _ -> pure (Left "Top combos JSON root must be an object.")
@@ -6309,9 +6463,9 @@ data BotController = BotController
     , bcManualInFlight :: IORef Int
     , bcDrain :: DrainController
     -- ^ Shutdown latch: once draining, no bot is published and no bot order decision is made.
-    -- ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
-    -- ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
-    -- ^ Binance account UID per credential pair, resolved once for live ownership identity.
+    --     ^ Possibly-live manual trades between admission and completion; changed only under the 'bcRuntime' lock.
+    --     ^ Bumped under the 'bcRuntime' lock by every runtime mutation; readiness is only valid at the epoch it was scanned at.
+    --     ^ Binance account UID per credential pair, resolved once for live ownership identity.
     }
 
 data BotStartRuntime = BotStartRuntime
@@ -9055,6 +9209,26 @@ topComboDeployableOverrideUuidsFromEnv = do
                 )
         Right canonical -> pure canonical
 
+topComboRetentionStatus :: Set.Set Text -> Aeson.Value -> Aeson.Value
+topComboRetentionStatus retained payload =
+    let combos = case payload of
+            Aeson.Object obj -> case KM.lookup "combos" obj of
+                Just (Aeson.Array rows) -> V.toList rows
+                _ -> []
+            _ -> []
+        present = Set.fromList (mapMaybe comboUuidText combos)
+        deployable combo = case combo of
+            Aeson.Object obj -> case KM.lookup "processing" obj of
+                Just (Aeson.Object processing) -> KM.lookup "tier" processing == Just (Aeson.String "deployable")
+                _ -> False
+            _ -> False
+        ineligible = Set.fromList (mapMaybe comboUuidText (filter (not . deployable) combos))
+     in object
+            [ "configuredUuids" .= Set.toAscList retained
+            , "missingUuids" .= Set.toAscList (retained `Set.difference` present)
+            , "ineligibleUuids" .= Set.toAscList (retained `Set.intersection` ineligible)
+            ]
+
 comboPollSecondsFromEnv :: IO Int
 comboPollSecondsFromEnv = do
     pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
@@ -9627,7 +9801,7 @@ applyStartupComboBacktestUpdate ::
     BS.ByteString ->
     ComboBacktestUpdate ->
     IO (Either String ComboBacktestApplyStats)
-applyStartupComboBacktestUpdate = applyStartupComboBacktestUpdateImpl applyComboUpdatesWithStats
+applyStartupComboBacktestUpdate ctx = applyStartupComboBacktestUpdateImpl (applyComboUpdatesWithStatsWithPolicy (tcbcRefreshPolicy ctx)) ctx
 
 {- | Like 'applyStartupComboBacktestUpdate' but uses the keep-all variant of
 'applyComboUpdatesWithStats': an unprofitable refresh keeps the combo with
@@ -10537,7 +10711,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                             argsFinal
                             settings
                             nowStart
-                    initBotState (bcDrain ctrl) mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) sym
+                    initBotState (bcDrain ctrl) mBotStateDir mOps tenantKey argsFinal settings comboUuidFinal originIp (Just portfolioCapitalPreservation) (recordBotStartupOrders mOps metrics mJournal mWebhook) sym
     r <- trySync (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -10962,12 +11136,23 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                     }
                                             else argsSym0
                                     adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                                    -- Pinned fleets fail closed: a flat symbol whose pinned combo is missing must not
+                                    -- start from the latest-compatible or environment-default fallback.
+                                    pinnedTargetMissing =
+                                        bsTradeEnabled settings
+                                            && topComboAdoptionEnabled
+                                            && argAdoptionRelaxGates argsBase
+                                            && not (null deployableOverrideUuids)
+                                            && isNothing mCombo
                                 adoptReqOrErr <-
                                     if adoptable
                                         then resolveAdoptionRequirement mOps argsSym sym
                                         else pure (Right (AdoptRequirement False False))
                                 case adoptReqOrErr of
                                     Left err -> recordError sym err
+                                    Right adoptReq
+                                        | pinnedTargetMissing && not (arActive adoptReq) ->
+                                            recordError sym "Pinned top combo unavailable; refusing an unpinned live start."
                                     Right adoptReq -> do
                                         (argsCombo, mComboUuid) <-
                                             if not topComboAdoptionEnabled
@@ -11352,8 +11537,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: DrainController -> Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> String -> IO BotState
-initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation sym = do
+initBotState :: DrainController -> Maybe FilePath -> Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> Maybe PortfolioCapitalPreservationReport -> (BotState -> IO ()) -> String -> IO BotState
+initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp mStartupPortfolioCapitalPreservation recordStartupOrders sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -12048,9 +12233,75 @@ initBotState drain mBotStateDir mOps tenantKey args settings mComboUuid originIp
                 , botBuildCommit = Nothing
                 }
 
+    -- Record before any post-operation optimization replaces the arguments and
+    -- signal that actually placed the startup order.
+    recordStartupOrders st0
     if wantSwitch && appliedSwitch && desiredPos /= 0
         then botOptimizeAfterOperation st0
         else pure st0
+
+{- | A startup switch order is placed inside 'initBotState', outside the candle
+loop that records ordinary orders. Record it the same way, so the journal,
+operation history, order metrics, webhook and position origin cover every
+order a live worker sends. The state from 'initBotState' holds only the
+startup order event, if any. A recording failure is logged and must not stop
+a worker that may already hold a live position from entering its loop.
+-}
+recordBotStartupOrders :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> IO ()
+recordBotStartupOrders mOps metrics mJournal mWebhook st =
+    forM_ (botOrders st) $ \orderEv -> do
+        let args = botArgs st
+            order = boeOrder orderEv
+            sym = botSymbol st
+            market = marketCode (argBinanceMarket args)
+            position = vectorLastOr 0 (botPositions st)
+            switchApplied = not (null (botOps st))
+            orderId = orderIdFromOrderResult order
+        recorded <-
+            trySync $ do
+                metricsRecordOrder metrics order
+                journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("bot.order" :: String)
+                        , "atMs" .= boeAtMs orderEv
+                        , "symbol" .= sym
+                        , "market" .= market
+                        , "event" .= orderEv
+                        , "startup" .= True
+                        ]
+                    )
+                opsAppendMaybe
+                    mOps
+                    (Just (botTenantKey st))
+                    "bot.order"
+                    Nothing
+                    (Just (argsPublicJson args))
+                    ( Just
+                        ( object
+                            [ "symbol" .= sym
+                            , "market" .= market
+                            , "interval" .= argInterval args
+                            , "event" .= orderEv
+                            , "signal" .= botLatestSignal st
+                            , "position" .= position
+                            , "originIp" .= botTradeOriginIp st
+                            , "resultingOpenTrade" .= fmap botOpenTradeJson (botOpenTrade st)
+                            , "sessionStartedAtMs" .= botStartedAtMs st
+                            , "startup" .= True
+                            ]
+                        )
+                    )
+                    (Just (vectorLastOr 1.0 (botEquityCurve st)))
+                    (activeBotComboUuid st)
+                    (Just (T.pack sym))
+                    orderId
+                when (shouldPersistPositionOriginOnSwitch (bsTradeEnabled (botSettings st)) (argBinanceLive args) switchApplied (aorSent order)) $
+                    persistPositionOriginMaybe mOps (botTenantKey st) args sym position (botComboUuid st) orderId (boeAtMs orderEv)
+                webhookNotifyMaybe mWebhook (webhookEventBotOrder args sym (boeOpSide orderEv) (boePrice orderEv) order)
+        case recorded of
+            Right () -> pure ()
+            Left ex -> hPutStrLn stderr ("WARN: bot/" ++ sym ++ " startup order recording failed: " ++ show (ex :: SomeException))
 
 botOptimizeAfterOperation :: BotState -> IO BotState
 botOptimizeAfterOperation st = do
@@ -13459,6 +13710,7 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                     maxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_WF_SHARPE_STD"
                                     searchMaxWfSharpeStdEnv <- lookupEnv "TRADER_OPTIMIZER_SEARCH_MAX_WF_SHARPE_STD"
                                     wfSharpeStdScorePenaltyEnv <- lookupEnv "TRADER_OPTIMIZER_WF_SHARPE_STD_SCORE_PENALTY"
+                                    wfSharpeTrialsHaircutEnv <- lookupEnv "TRADER_OPTIMIZER_WF_SHARPE_TRIALS_HAIRCUT"
                                     discoveryRecoveryEnabledEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_ENABLED"
                                     discoveryRecoveryTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TRIALS"
                                     discoveryRecoveryTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_DISCOVERY_RECOVERY_TIMEOUT_SEC"
@@ -13613,6 +13865,8 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                              in if raw <= 0 then maxWfSharpeStd else max maxWfSharpeStd raw
                                         wfSharpeStdScorePenalty :: Double
                                         wfSharpeStdScorePenalty = readNonNegativeDouble wfSharpeStdScorePenaltyEnv 0.05
+                                        wfSharpeTrialsHaircut :: Double
+                                        wfSharpeTrialsHaircut = readNonNegativeDouble wfSharpeTrialsHaircutEnv 0
                                         epochsMax :: Int
                                         epochsMax = max 1 (readNonNegativeInt epochsMaxEnv 2)
                                         hiddenSizeMax :: Int
@@ -13919,6 +14173,8 @@ autoOptimizerLoop drain baseArgs mStateSyncTarget mOps mJournal optimizerTmp top
                                                                                                , show searchMaxWfSharpeStd
                                                                                                , "--wf-sharpe-std-score-penalty"
                                                                                                , show wfSharpeStdScorePenalty
+                                                                                               , "--wf-sharpe-trials-haircut"
+                                                                                               , show wfSharpeTrialsHaircut
                                                                                                , "--binary"
                                                                                                , exePath
                                                                                                , "--disable-lstm-persistence"
@@ -14382,9 +14638,9 @@ backtestTopCombosOnce topNRaw ctx = do
                                                     now <- getTimestampMs
                                                     let updateMap = HM.fromList updates
                                                     -- Periodic refreshes are authoritative for stale combos:
-                                                    -- prune refreshed performance below the configured floor and
-                                                    -- carry a tombstone in the payload so stale replicas cannot
-                                                    -- resurrect it.
+                                                    -- retain pinned evidence, prune other refreshed performance
+                                                    -- below the floor, and tombstone those removals so stale
+                                                    -- replicas cannot resurrect them.
                                                     case applyComboUpdatesWithStatsWithPolicy (tcbcRefreshPolicy ctx) now updateMap latestVal of
                                                         Left err -> do
                                                             recordError "optimizer.combos.backtest_failed" err Nothing Nothing
@@ -16892,6 +17148,7 @@ runRestApi cliArgs mWebhook = do
                 _ -> defaultBotStartupBacktestMinTrades
     topCombosStaleDaysEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_STALE_DAYS"
     topCombosPruneFloorEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_PRUNE_FINAL_EQUITY_FLOOR"
+    retainedUuids <- retainedComboUuidsFromEnv
     let defaultRefreshPolicy = defaultComboBacktestRefreshPolicy
         defaultStaleDays = fromIntegral (cbrpStaleAfterMs defaultRefreshPolicy) / 86400000
         topCombosStaleDays = readNonNegativeDoubleMaybe topCombosStaleDaysEnv defaultStaleDays
@@ -16899,6 +17156,7 @@ runRestApi cliArgs mWebhook = do
         topCombosRefreshPolicyRaw =
             defaultRefreshPolicy
                 { cbrpStaleAfterMs = floor (topCombosStaleDays * 86400000)
+                , cbrpRetainedUuids = retainedUuids
                 , cbrpPruneFinalEquityFloor = topCombosPruneFloor
                 }
     topCombosRefreshPolicy <-
@@ -18308,10 +18566,12 @@ validateApiComputeLimits limits args =
                         (_, Just _) -> resolveBarsForCsv args
                         _ -> fromMaybe 0 (argBars args)
                 barsLabel = "bars too high"
+                -- Technical-analysis methods train no LSTM, so the LSTM bars cap does not apply to them.
+                barsCapApplies = not (methodIsTechnicalAnalysis (runtimeMethod (argMethod args)))
 
             case argBinanceSymbol args of
                 Just _ ->
-                    if bars > maxBars
+                    if barsCapApplies && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
@@ -18322,7 +18582,7 @@ validateApiComputeLimits limits args =
                                 )
                         else Right ()
                 Nothing ->
-                    if bars > 0 && bars > maxBars
+                    if barsCapApplies && bars > 0 && bars > maxBars
                         then
                             Left
                                 ( "Request too expensive for this API instance: "
@@ -18347,6 +18607,8 @@ validateApiComputeLimitsAfterLoad :: ApiComputeLimits -> Args -> PriceSeries -> 
 validateApiComputeLimitsAfterLoad limits args series =
     case runtimeMethod (argMethod args) of
         MethodKalmanOnly -> Right ()
+        -- Technical-analysis methods train no LSTM, matching the pre-load exemption.
+        m | methodIsTechnicalAnalysis m -> Right ()
         _ ->
             let maxBars = aclMaxBarsLstm limits
                 bars = length (psClose series)
@@ -18760,7 +19022,7 @@ apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl botRecove
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["optimizer", "combos"] ->
                                         case Wai.requestMethod req of
-                                            "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
+                                            "GET" -> handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                             _ -> respondCors (jsonError status405 "Method not allowed")
                                     ["state", "sync"] ->
                                         case Wai.requestMethod req of
@@ -18822,6 +19084,20 @@ apiErrorFromMsg msg =
                 then Just "Set market=futures or switch positioning to long-flat for spot/margin."
                 else Nothing
      in ApiError msg hint
+
+jsonValueWithHeaders :: (ToJSON a) => Status -> ResponseHeaders -> a -> Wai.Response
+jsonValueWithHeaders st extra v =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (encode v)
+
+jsonBytesWithHeaders :: Status -> ResponseHeaders -> BS.ByteString -> Wai.Response
+jsonBytesWithHeaders st extra body =
+    Wai.responseLBS
+        st
+        (("Content-Type", "application/json") : extra ++ noCacheHeaders)
+        (BL.fromStrict body)
 
 jsonError :: Status -> String -> Wai.Response
 jsonError st msg = jsonValue st (apiErrorFromMsg msg)
@@ -20458,10 +20734,25 @@ persistTopCombosMaybe mSync path = do
                     case mS3 of
                         Nothing -> pure ()
                         Just st -> do
-                            _ <- s3PutObject st (s3TopCombosKey st) contents
+                            unchanged <- s3TopCombosObjectUnchanged st contents
+                            _ <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                             persistTopCombosHistoryMaybe path st contents
                             pure ()
                     syncTopCombosMaybe mSync contents
+
+{- | True when the S3 object already holds exactly these bytes (a single-part upload's
+ETag is the body md5), so an identical leaderboard is not re-uploaded and its ETag,
+which every fingerprint includes, stays put. Any doubt means upload.
+-}
+s3TopCombosObjectUnchanged :: S3State -> BL.ByteString -> IO Bool
+s3TopCombosObjectUnchanged st contents = do
+    r <- s3HeadObjectETagBounded st (s3TopCombosKey st)
+    pure $
+        case r of
+            Right (Just etag) -> filter (/= '"') (stripWeak etag) == show (hash (BL.toStrict contents) :: Digest MD5)
+            _ -> False
+  where
+    stripWeak t = if "W/" `isPrefixOf` t then drop 2 t else t
 
 persistTopCombosTargets :: [String] -> Maybe StateSyncTarget -> FilePath -> IO [String]
 persistTopCombosTargets targets mSync path =
@@ -20479,7 +20770,8 @@ persistTopCombosTargets targets mSync path =
                                 case mS3 of
                                     Nothing -> pure []
                                     Just st -> do
-                                        result <- s3PutObject st (s3TopCombosKey st) contents
+                                        unchanged <- s3TopCombosObjectUnchanged st contents
+                                        result <- if unchanged then pure (Right ()) else s3PutObject st (s3TopCombosKey st) contents
                                         case result of
                                             Left _ -> pure []
                                             Right _ -> do
@@ -20723,101 +21015,94 @@ persistTopCombosToDbBulk conn export =
         let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]
         opCountMap <- fetchTopComboOperationCounts conn (tceCombos export)
         now <- getTimestampMs
-        forM_ (tceCombos export) $ \combo -> do
-            case uuidFromText (topComboUuid combo) of
-                Nothing -> pure ()
-                Just comboUuid -> do
-                    let mStrategyId = HM.lookup (strategyCodeFromMethod (topComboParamString "method" combo)) strategyMap
-                        mSymbol = T.pack <$> topComboSymbol combo
-                        mInterval = T.pack <$> topComboParamString "interval" combo
-                        mObjective = T.pack <$> tcObjectiveLabel combo
-                        mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
-                        mAnnualized = topComboMetricDouble "annualizedReturn" combo
-                        paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
-                        metricsWithFreshness =
-                            maybe
-                                id
-                                (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
-                                (tcBacktestRefreshedAtMs combo)
-                                (fromMaybe KM.empty (tcMetrics combo))
-                        -- PostgreSQL is a full top-combo replica, not merely a
-                        -- ranking cache. Keep the top-level portfolio evidence
-                        -- in metrics_json so a DB fallback/replica union cannot
-                        -- silently discard the OOS return series required by
-                        -- canary portfolio selection.
-                        metricsObj =
-                            maybe
-                                metricsWithFreshness
-                                (\evidence -> KM.insert (AK.fromString "portfolioEvidence") (toJSON evidence) metricsWithFreshness)
-                                (tcPortfolioEvidence combo)
-                        metricsJson =
-                            if KM.null metricsObj
-                                then Nothing
-                                else encodeJsonTextMaybe (Just (Aeson.Object metricsObj))
-                        opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
-                        createdAtMs = tcCreatedAtMs combo
-                    void $
-                        execute
-                            conn
-                            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
-                                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
-                                <> "ON CONFLICT (combo_uuid) DO UPDATE "
-                                <> "SET strategy_id = EXCLUDED.strategy_id, "
-                                <> "symbol = EXCLUDED.symbol, "
-                                <> "interval = EXCLUDED.interval, "
-                                <> "objective = EXCLUDED.objective, "
-                                <> "source = EXCLUDED.source, "
-                                <> "final_equity = EXCLUDED.final_equity, "
-                                <> "annualized_return = EXCLUDED.annualized_return, "
-                                <> "score = EXCLUDED.score, "
-                                <> "open_threshold = EXCLUDED.open_threshold, "
-                                <> "close_threshold = EXCLUDED.close_threshold, "
-                                <> "params_json = EXCLUDED.params_json, "
-                                -- A payload combo must not erase or downgrade the live record
-                                -- accumulated in this DB from completed orders: a payload
-                                -- without live stats keeps the DB record, and a stale payload
-                                -- with fewer live operations loses to the richer DB record
-                                -- (same comparison as the in-memory annotation path).
-                                <> "metrics_json = CASE "
-                                <> "WHEN combos.metrics_json IS NOT NULL "
-                                <> "AND jsonb_exists(combos.metrics_json, 'live') "
-                                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live') "
-                                <> "OR COALESCE((EXCLUDED.metrics_json->'live'->>'operationCount')::numeric, 0) "
-                                <> "< COALESCE((combos.metrics_json->'live'->>'operationCount')::numeric, 0)) "
-                                <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
-                                <> "ELSE EXCLUDED.metrics_json END, "
-                                <> "operation_count = EXCLUDED.operation_count, "
-                                <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
-                                <> "updated_at_ms = EXCLUDED.updated_at_ms"
-                            )
-                            ( comboUuid
-                            , mStrategyId
-                            , mSymbol
-                            , mInterval
-                            , mObjective
-                            , mSource
-                            , tcFinalEquity combo
-                            , mAnnualized
-                            , tcScore combo
-                            , tcOpenThreshold combo
-                            , tcCloseThreshold combo
-                            , paramsJson
-                            , metricsJson
-                            , opCount
-                            , createdAtMs
-                            , now
-                            )
-                    persistComboParameters conn comboUuid mStrategyId (tcParams combo)
-
-persistComboParameters :: Connection -> UUID.UUID -> Maybe Int -> Aeson.Object -> IO ()
-persistComboParameters conn comboUuid mStrategyId params = do
-    void $ execute conn "DELETE FROM combo_parameters WHERE combo_uuid = ?" (Only comboUuid)
-    forM_ (KM.toList params) $ \(k, v) ->
-        void $
-            execute
-                conn
-                "INSERT INTO combo_parameters (combo_uuid, name, value_json, strategy_id) VALUES (?, ?, ?::jsonb, ?)"
-                (comboUuid, AK.toText k, encodeJsonTextMaybe (Just v), mStrategyId)
+        let replica combo = do
+                comboUuid <- uuidFromText (topComboUuid combo)
+                let mStrategyId = HM.lookup (strategyCodeFromMethod (topComboParamString "method" combo)) strategyMap
+                    mSymbol = T.pack <$> topComboSymbol combo
+                    mInterval = T.pack <$> topComboParamString "interval" combo
+                    mObjective = T.pack <$> tcObjectiveLabel combo
+                    mSource = T.pack <$> normalizedTopComboSource (tcSource combo)
+                    mAnnualized = topComboMetricDouble "annualizedReturn" combo
+                    paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
+                    metricsWithFreshness =
+                        maybe
+                            id
+                            (KM.insert (AK.fromString "backtestRefreshedAtMs") . toJSON)
+                            (tcBacktestRefreshedAtMs combo)
+                            (fromMaybe KM.empty (tcMetrics combo))
+                    -- PostgreSQL is a full top-combo replica, not merely a
+                    -- ranking cache. Keep the top-level portfolio evidence
+                    -- in metrics_json so a DB fallback/replica union cannot
+                    -- silently discard the OOS return series required by
+                    -- canary portfolio selection.
+                    metricsObj =
+                        maybe
+                            metricsWithFreshness
+                            (\evidence -> KM.insert (AK.fromString "portfolioEvidence") (toJSON evidence) metricsWithFreshness)
+                            (tcPortfolioEvidence combo)
+                    metricsJson =
+                        if KM.null metricsObj
+                            then Nothing
+                            else encodeJsonTextMaybe (Just (Aeson.Object metricsObj))
+                    opCount = fromMaybe 0 (M.lookup comboUuid opCountMap)
+                    createdAtMs = tcCreatedAtMs combo
+                pure
+                    ( comboUuid
+                    ,
+                        ( comboUuid
+                        , mStrategyId
+                        , mSymbol
+                        , mInterval
+                        , mObjective
+                        , mSource
+                        , tcFinalEquity combo
+                        , mAnnualized
+                        , tcScore combo
+                        , tcOpenThreshold combo
+                        , tcCloseThreshold combo
+                        , paramsJson
+                        , metricsJson
+                        , opCount
+                        , createdAtMs
+                        , now
+                        )
+                    , mStrategyId
+                    , tcParams combo
+                    )
+        persistComboReplicas
+            conn
+            ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, source, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
+                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                <> "ON CONFLICT (combo_uuid) DO UPDATE "
+                <> "SET strategy_id = EXCLUDED.strategy_id, "
+                <> "symbol = EXCLUDED.symbol, "
+                <> "interval = EXCLUDED.interval, "
+                <> "objective = EXCLUDED.objective, "
+                <> "source = EXCLUDED.source, "
+                <> "final_equity = EXCLUDED.final_equity, "
+                <> "annualized_return = EXCLUDED.annualized_return, "
+                <> "score = EXCLUDED.score, "
+                <> "open_threshold = EXCLUDED.open_threshold, "
+                <> "close_threshold = EXCLUDED.close_threshold, "
+                <> "params_json = EXCLUDED.params_json, "
+                -- A payload combo must not erase or downgrade the live record
+                -- accumulated in this DB from completed orders: a payload
+                -- without live stats keeps the DB record, and a stale payload
+                -- with fewer live operations loses to the richer DB record
+                -- (same comparison as the in-memory annotation path).
+                <> "metrics_json = CASE "
+                <> "WHEN combos.metrics_json IS NOT NULL "
+                <> "AND jsonb_exists(combos.metrics_json, 'live') "
+                <> "AND (EXCLUDED.metrics_json IS NULL OR NOT jsonb_exists(EXCLUDED.metrics_json, 'live') "
+                <> "OR COALESCE((EXCLUDED.metrics_json->'live'->>'operationCount')::numeric, 0) "
+                <> "< COALESCE((combos.metrics_json->'live'->>'operationCount')::numeric, 0)) "
+                <> "THEN COALESCE(EXCLUDED.metrics_json, '{}'::jsonb) || jsonb_build_object('live', combos.metrics_json->'live') "
+                <> "ELSE EXCLUDED.metrics_json END, "
+                <> "operation_count = EXCLUDED.operation_count, "
+                <> "created_at_ms = COALESCE(combos.created_at_ms, EXCLUDED.created_at_ms), "
+                <> "updated_at_ms = EXCLUDED.updated_at_ms"
+            )
+            (mapMaybe replica (tceCombos export))
 
 persistTopCombosHistoryMaybe :: FilePath -> S3State -> BL.ByteString -> IO ()
 persistTopCombosHistoryMaybe topJsonPath st contents = do
@@ -20831,7 +21116,10 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
             pure ()
 
 readTopCombosValueFromDbRaw :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDbRaw store = do
+readTopCombosValueFromDbRaw = readTopCombosValueFromDbRawObserved Nothing
+
+readTopCombosValueFromDbRawObserved :: Maybe (TopCombosDbReadEvent -> IO ()) -> OpsStore -> IO (Either String Aeson.Value)
+readTopCombosValueFromDbRawObserved mObserve store = do
     result <- trySync readDb :: IO (Either SomeException (Either String Aeson.Value))
     case result of
         Left e -> pure (Left ("Failed to read top combos from the database: " ++ show e))
@@ -20839,20 +21127,28 @@ readTopCombosValueFromDbRaw store = do
   where
     readDb = do
         maxCombos <- optimizerMaxCombosFromEnv
+        retainedUuids <- retainedComboUuidsFromEnv
         let limitSafe = max 1 maxCombos
+            withReadConnection = case mObserve of
+                Nothing -> withOpsConnection store
+                Just observe -> withTopCombosDbReadObserved observe (withOpsConnection store)
+        -- Tie-break on combo_uuid, not updated_at_ms: the ranking and the LIMIT cut must be a
+        -- function of payload-visible columns so the content fingerprint can stand in for it.
         rows <-
-            withOpsConnection store $ \conn ->
+            withReadConnection $ \conn ->
                 query
                     conn
                     ( "SELECT combo_uuid, final_equity, annualized_return, objective, source, score, open_threshold, close_threshold, "
                         <> "params_json::text, metrics_json::text, created_at_ms "
                         <> "FROM combos "
-                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, updated_at_ms DESC NULLS LAST "
-                        <> "LIMIT ?"
+                        <> "WHERE combo_uuid = ANY(?::uuid[]) OR combo_uuid IN ("
+                        <> "SELECT combo_uuid FROM combos "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC LIMIT ?) "
+                        <> "ORDER BY annualized_return DESC NULLS LAST, score DESC NULLS LAST, final_equity DESC NULLS LAST, combo_uuid ASC "
                     )
-                    (Only limitSafe) ::
+                    (PGArray (Set.toAscList retainedUuids), limitSafe) ::
                     IO [PersistedComboRow]
-        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows rows)
+        let combos = mapMaybe persistedComboToValue (filterPersistedComboRows retainedUuids rows)
         if null combos
             then pure (Left "No persisted combos found in the database.")
             else do
@@ -20873,8 +21169,9 @@ readTopCombosValueFromDbRaw store = do
             other -> other
 
 readTopCombosValueFromDb :: OpsStore -> IO (Either String Aeson.Value)
-readTopCombosValueFromDb store =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueFromDbRaw store
+readTopCombosValueFromDb store = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueFromDbRaw store
 
 readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
 readTopCombosValueWithDbFallback =
@@ -20935,8 +21232,9 @@ readTopCombosValueRaw path = do
                                 Right val -> pure (Right val)
 
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
-readTopCombosValue path =
-    fmap normalizeTopCombosPayload <$> readTopCombosValueRaw path
+readTopCombosValue path = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    fmap (normalizeTopCombosPayloadWithRetention retainedUuids) <$> readTopCombosValueRaw path
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -21257,98 +21555,101 @@ emptyPortfolioGraduationEvidence =
         , pgeLatestStatusesHealthy = False
         }
 
-fetchPortfolioGraduationEvidence :: OpsStore -> TenantKey -> PortfolioGraduationConfig -> [Text] -> Int64 -> IO (Either String PortfolioGraduationEvidence)
+fetchPortfolioGraduationEvidence :: OpsStore -> TenantKey -> PortfolioGraduationConfig -> [Text] -> Int64 -> IO (Either String (PortfolioGraduationEvidence, Maybe Text))
 fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
     case traverse uuidFromText reviewedUuids of
         Nothing -> pure (Left "automatic portfolio graduation requires valid reviewed UUIDs")
         Just reviewedUuidValues
             | null reviewedUuidValues -> pure (Left "automatic portfolio graduation requires at least one reviewed UUID")
-            | reviewEndMs <= firstFullDayMs -> pure (Right emptyPortfolioGraduationEvidence)
+            | reviewEndMs <= firstFullDayMs -> pure (Right (emptyPortfolioGraduationEvidence, Nothing))
             | otherwise ->
-                withOpsConnection store $ \conn -> do
-                    baselineRows <-
-                        query
-                            conn
-                            ( "SELECT combo_uuid, at_ms, equity FROM ("
-                                <> "SELECT combo_uuid, at_ms, equity, "
-                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? AND equity IS NOT NULL "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
-                                <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, baselineCutoffMs, firstFullDayMs) ::
-                            IO [(UUID.UUID, Int64, Double)]
-                    dailyRows <-
-                        query
-                            conn
-                            ( "WITH ranked AS ("
-                                <> "SELECT combo_uuid, (at_ms / 86400000) * 86400000 AS day_ms, equity, "
-                                <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid, (at_ms / 86400000) ORDER BY at_ms DESC, id DESC) AS rn "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
-                                <> "AND COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
-                                <> ") SELECT day_ms, combo_uuid, equity FROM ranked WHERE rn = 1 "
-                                <> "ORDER BY day_ms, combo_uuid"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, UUID.UUID, Double)]
-                    orderRows <-
-                        query
-                            conn
-                            ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE result_json #>> '{event,order,sent}' = 'true') "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.order' AND at_ms >= ? AND at_ms < ?"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, Int64)]
-                    statusRows <-
-                        query
-                            conn
-                            ( "WITH bucketed_rows AS ("
-                                <> "SELECT combo_uuid, ((at_ms - ?) / ?) AS bucket_index, result_json "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ?"
-                                <> "), bucketed AS ("
-                                <> "SELECT combo_uuid, bucket_index, BOOL_AND("
-                                <> "COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
-                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
-                                <> "AND result_json->>'error' IS NULL) AS healthy "
-                                <> "FROM bucketed_rows GROUP BY combo_uuid, bucket_index"
-                                <> ") SELECT COUNT(*), COUNT(*) FILTER (WHERE healthy) FROM bucketed"
-                            )
-                            (firstFullDayMs, pgcStatusIntervalMs config, tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
-                            IO [(Int64, Int64)]
-                    latestRows <-
-                        query
-                            conn
-                            ( "SELECT combo_uuid, at_ms, "
-                                <> "COALESCE((result_json->>'live')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
-                                <> "AND COALESCE((result_json->>'running')::boolean, false) "
-                                <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
-                                <> "AND result_json->>'error' IS NULL AS healthy "
-                                <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
-                                <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
-                                <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
-                                <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
-                            )
-                            (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
-                            IO [(UUID.UUID, Int64, Bool)]
-                    pure $ do
-                        fleetEquities <-
-                            portfolioGraduationFleetEquities
-                                firstFullDayMs
-                                (pgcMaximumBaselineAgeMs config)
-                                reviewedUuids
-                                [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
-                                [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
-                        (dailyObservationCount, netReturn, maxDrawdown) <- portfolioGraduationPerformance fleetEquities
-                        let (executionAttempts, executionSuccesses) = intPair orderRows
+                withOpsConnection store $ \conn ->
+                    withLoggedGraduationConnection stderr $ \attemptId -> do
+                        baselineRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationBaseline $
+                                query
+                                    conn
+                                    ( "SELECT combo_uuid, at_ms, equity FROM ("
+                                        <> "SELECT combo_uuid, at_ms, equity, "
+                                        <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid ORDER BY at_ms DESC, id DESC) AS rn "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? AND equity IS NOT NULL "
+                                        <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                        <> ") baseline WHERE rn = 1 ORDER BY combo_uuid"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, baselineCutoffMs, firstFullDayMs) ::
+                                IO [(UUID.UUID, Int64, Double)]
+                        dailyRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationDaily $
+                                query
+                                    conn
+                                    ( "WITH ranked AS ("
+                                        <> "SELECT combo_uuid, (at_ms / 86400000) * 86400000 AS day_ms, equity, "
+                                        <> "ROW_NUMBER() OVER (PARTITION BY combo_uuid, (at_ms / 86400000) ORDER BY at_ms DESC, id DESC) AS rn "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ? AND equity IS NOT NULL "
+                                        <> "AND COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false)"
+                                        <> ") SELECT day_ms, combo_uuid, equity FROM ranked WHERE rn = 1 "
+                                        <> "ORDER BY day_ms, combo_uuid"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, UUID.UUID, Double)]
+                        orderRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationOrders $
+                                query
+                                    conn
+                                    ( "SELECT COUNT(*), COUNT(*) FILTER (WHERE result_json #>> '{event,order,sent}' = 'true') "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.order' AND at_ms >= ? AND at_ms < ?"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, Int64)]
+                        statusRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationStatus $
+                                query
+                                    conn
+                                    ( "WITH bucketed_rows AS ("
+                                        <> "SELECT combo_uuid, ((at_ms - ?) / ?) AS bucket_index, result_json "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms < ?"
+                                        <> "), bucketed AS ("
+                                        <> "SELECT combo_uuid, bucket_index, BOOL_AND("
+                                        <> "COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'running')::boolean, false) "
+                                        <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                        <> "AND result_json->>'error' IS NULL) AS healthy "
+                                        <> "FROM bucketed_rows GROUP BY combo_uuid, bucket_index"
+                                        <> ") SELECT COUNT(*), COUNT(*) FILTER (WHERE healthy) FROM bucketed"
+                                    )
+                                    (firstFullDayMs, pgcStatusIntervalMs config, tenantKey, PGArray reviewedUuidValues, firstFullDayMs, reviewEndMs) ::
+                                IO [(Int64, Int64)]
+                        latestRows <-
+                            withLoggedGraduationPhase stderr attemptId GraduationLatest $
+                                query
+                                    conn
+                                    ( "SELECT combo_uuid, at_ms, "
+                                        <> "COALESCE((result_json->>'live')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'tradeEnabled')::boolean, false) "
+                                        <> "AND COALESCE((result_json->>'running')::boolean, false) "
+                                        <> "AND NOT COALESCE((result_json->>'halted')::boolean, false) "
+                                        <> "AND result_json->>'error' IS NULL AS healthy "
+                                        <> "FROM (SELECT DISTINCT ON (combo_uuid) combo_uuid, at_ms, result_json "
+                                        <> "FROM ops WHERE tenant_key = ? AND combo_uuid = ANY(?::uuid[]) "
+                                        <> "AND kind = 'bot.status' AND at_ms >= ? AND at_ms <= ? "
+                                        <> "ORDER BY combo_uuid, at_ms DESC, id DESC) latest"
+                                    )
+                                    (tenantKey, PGArray reviewedUuidValues, latestStatusCutoffMs, now) ::
+                                IO [(UUID.UUID, Int64, Bool)]
+                        let fleetEquities =
+                                portfolioGraduationFleetEquities
+                                    firstFullDayMs
+                                    (pgcMaximumBaselineAgeMs config)
+                                    reviewedUuids
+                                    [(UUID.toText uuid, atMs, equity) | (uuid, atMs, equity) <- baselineRows]
+                                    [(dayMs, UUID.toText uuid, equity) | (dayMs, uuid, equity) <- dailyRows]
                             statusCoverage =
                                 portfolioGraduationStatusCoverage
                                     firstFullDayMs
@@ -21356,24 +21657,13 @@ fetchPortfolioGraduationEvidence store tenantKey config reviewedUuidsRaw now =
                                     (pgcStatusIntervalMs config)
                                     (length reviewedUuids)
                                     (intPair statusRows)
-                            (statusSamples, healthyStatusSamples) = statusCoverage
                             latestStatusesHealthy =
                                 portfolioGraduationLatestStatusesHealthy
                                     now
                                     (pgcMaximumLatestStatusAgeMs config)
                                     reviewedUuids
                                     [(UUID.toText uuid, atMs, healthy) | (uuid, atMs, healthy) <- latestRows]
-                        Right
-                            PortfolioGraduationEvidence
-                                { pgeDailyObservationCount = dailyObservationCount
-                                , pgeNetReturn = netReturn
-                                , pgeMaxDrawdown = maxDrawdown
-                                , pgeExecutionAttempts = executionAttempts
-                                , pgeExecutionSuccesses = executionSuccesses
-                                , pgeStatusSamples = statusSamples
-                                , pgeHealthyStatusSamples = healthyStatusSamples
-                                , pgeLatestStatusesHealthy = latestStatusesHealthy
-                                }
+                        pure (Right (portfolioGraduationCollectedEvidence fleetEquities (intPair orderRows) statusCoverage latestStatusesHealthy))
   where
     dayMs = 86400000
     reviewedUuids = dedupeStable (map (T.toLower . T.strip) reviewedUuidsRaw)
@@ -21412,14 +21702,19 @@ resolvePortfolioGraduationMode mOps store now tenantKey graduationConfig reviewe
                     case mOps of
                         Nothing -> pure (Left "operations database unavailable")
                         Just opsStore -> do
-                            result <- trySync (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String PortfolioGraduationEvidence))
+                            result <- trySync (fetchPortfolioGraduationEvidence opsStore tenantKey graduationConfig reviewedUuids now) :: IO (Either SomeException (Either String (PortfolioGraduationEvidence, Maybe Text)))
                             pure $
                                 case result of
                                     Left ex -> Left (displayException ex)
                                     Right value -> value
                 case evidenceResult of
                     Left err -> persistPending emptyPortfolioGraduationEvidence "graduation-evidence-unavailable" (Just err)
-                    Right evidence -> do
+                    Right (evidence, Just evidenceError) ->
+                        persistReview
+                            PortfolioShadow
+                            (portfolioGraduationReviewWithEvidenceError graduationConfig now reviewedUuids evidence (Just evidenceError))
+                            (Just (T.unpack evidenceError))
+                    Right (evidence, Nothing) -> do
                         let liveReview = portfolioGraduationReview graduationConfig now reviewedUuids evidence
                         case pgrDecision liveReview of
                             PortfolioGraduationPending -> persistReview PortfolioShadow liveReview Nothing
@@ -21898,24 +22193,138 @@ handleOptimizerRun drain requestProgressStore reqLimits mOps mStateSyncTarget pr
                                     completeRequestProgressMaybe mTracker (Just "response ready")
                                     respond (jsonValue status200 resp')
 
+-- Fixed caller labels and numeric timings only: never log request credentials,
+-- tenant identifiers, replica locations, payloads or exception text here.
+withLoggedTopCombosBuildGate :: String -> TopCombosStore -> (String -> IO a) -> IO a
+withLoggedTopCombosBuildGate origin store action = do
+    startedAt <- getMonotonicTimeNSec
+    thread <- myThreadId
+    let attemptId = show thread ++ ":" ++ show startedAt
+        observe event = do
+            atMs <- getTimestampMs
+            writeTopCombosBuildGateEvent stderr origin attemptId atMs event
+    withTopCombosBuildGateObserved store observe (action attemptId)
+
 handleOptimizerCombos ::
+    BuildInfo ->
     Maybe OpsStore ->
     Maybe StateSyncTarget ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
+    Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respond = do
+handleOptimizerCombos buildInfo mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-    topVal0 <- readTopCombosValueWithDbFallback mOps topCombosStore
+    -- The response is a pure function of the replica files, the database aggregate and
+    -- static configuration, so a matching If-None-Match answers 304 before any of the
+    -- multi-hundred-megabyte decode and merge below runs.
+    mEtag <- optimizerCombosEtag buildInfo mOps topCombosStore [topJsonPath, tmpPath, fallbackPath]
+    let ifNoneMatch = BS.unpack <$> lookupHeaderNormalized "If-None-Match" (Wai.requestHeaders req)
+        etagHeaders = maybe [] (\tag -> [("ETag", BS.pack tag)]) mEtag
+    let serveCached body = respond (jsonBytesWithHeaders status200 etagHeaders body)
+        cachedFor tag = do
+            cached <- readIORef (tcsResponseCache topCombosStore)
+            pure $ case cached of
+                Just (cachedTag, body) | cachedTag == tag -> Just body
+                _ -> Nothing
+    case (mEtag, ifNoneMatch) of
+        (Just tag, Just given) | etagMatches given tag -> respond (Wai.responseLBS status304 (etagHeaders ++ noCacheHeaders) BL.empty)
+        _ -> do
+            -- The last built body is reused while its fingerprint still matches, and at most
+            -- one build runs at a time; a waiter re-checks the cache once it holds the gate.
+            hit <- maybe (pure Nothing) cachedFor mEtag
+            case hit of
+                Just body -> serveCached body
+                Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore $ \_ -> do
+                    hit' <- maybe (pure Nothing) cachedFor mEtag
+                    case hit' of
+                        Just body -> serveCached body
+                        Nothing -> do
+                            built <- buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath
+                            case built of
+                                Left errResponse -> respond errResponse
+                                Right body -> do
+                                    forM_ mEtag $ \tag -> writeIORef (tcsResponseCache topCombosStore) (Just (tag, body))
+                                    serveCached body
+
+{- | Fingerprint of everything the combos response depends on. 'Nothing' when any
+input (a file, the database, the S3 replica) could not be fingerprinted or the build
+carries no commit identity, so a stale 304 is never served.
+-}
+optimizerCombosEtag :: BuildInfo -> Maybe OpsStore -> TopCombosStore -> [FilePath] -> IO (Maybe String)
+optimizerCombosEtag buildInfo mOps topCombosStore paths = do
+    fileMetas <- mapM topCombosLocalFingerprint paths
+    dbFp <- maybe (pure (Just "unconfigured")) topCombosDbFingerprint mOps
+    -- The raw reader falls back to the S3 object on any local read failure, so the S3
+    -- ETag is always part of the response identity; the lookup is a single attempt with
+    -- a short timeout, and its failure withholds the ETag rather than delaying the read.
+    s3Fp <- topCombosS3FingerprintBounded
+    graduationMeta <- topCombosLocalFingerprint (portfolioGraduationPath topCombosStore)
+    overrides <- topComboDeployableOverrideUuidsFromEnv
+    retainedUuids <- retainedComboUuidsFromEnv
+    configuredMode <- portfolioSelectorRolloutModeFromEnv
+    -- The effective rollout mode evaluates the whole graduation config against the review
+    -- file, so a redeploy that changes any TRADER_PORTFOLIO_AUTO_GRADUATE_* value must
+    -- also change the tag.
+    graduationConfig <- portfolioGraduationConfigFromEnv
+    minPersist <- topCombosMinPersistFromEnv
+    maxCombos <- optimizerMaxCombosFromEnv
+    pure $
+        case (sequence fileMetas, dbFp, s3Fp, graduationMeta, biCommit buildInfo) of
+            (Just fileTags, Just dbTag, Just s3Tag, Just graduationTag, Just commit) ->
+                let payload =
+                        encode
+                            ( object
+                                [ -- The merge, sanitization and annotation logic lives in the
+                                  -- executable, so a new build must never answer 304 to a tag
+                                  -- minted by an old one.
+                                  "build" .= [biVersion buildInfo, commit]
+                                , "files" .= fileTags
+                                , "db" .= dbTag
+                                , "s3" .= s3Tag
+                                , "graduation" .= graduationTag
+                                , "retainedUuids" .= Set.toAscList retainedUuids
+                                , "overrides" .= overrides
+                                , "mode" .= portfolioRolloutModeCode configuredMode
+                                , "graduationConfig" .= show graduationConfig
+                                , "minPersist" .= minPersist
+                                , "maxCombos" .= maxCombos
+                                ]
+                            )
+                 in -- Weak: the body also carries a fresh generatedAtMs, so representations
+                    -- sharing a tag are semantically equivalent rather than byte-identical.
+                    Just ("W/\"" ++ hashBytesHex payload ++ "\"")
+            _ -> Nothing
+
+{- | Decode the replicas, merge and encode the leaderboard body. The result is a fully
+evaluated strict ByteString so the cache never retains the decoded JSON behind a thunk.
+-}
+buildOptimizerCombosBody ::
+    Maybe OpsStore ->
+    Maybe StateSyncTarget ->
+    TopCombosStore ->
+    FilePath ->
+    FilePath ->
+    FilePath ->
+    IO (Either Wai.Response BS.ByteString)
+buildOptimizerCombosBody mOps mStateSyncTarget topCombosStore topJsonPath tmpPath fallbackPath = do
+    retainedUuids <- retainedComboUuidsFromEnv
+    -- Decode each replica file once: the leaderboard is hundreds of megabytes of JSON and
+    -- a second decode doubles the transient heap of every request.
+    topRaw0 <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
+    rewrittenRef <- newIORef False
+    let topVal0 = fmap (normalizeTopCombosPayloadWithRetention retainedUuids) topRaw0
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
             Left err -> do
                 recovered <- withTopCombosLock topCombosStore (recoverTopCombosFromHistory topJsonPath)
+                -- Recovery rewrites the local file, so the response must re-read it.
+                when (isJust recovered) (writeIORef rewrittenRef True)
                 pure $
                     case recovered of
                         Just val -> Right val
@@ -21939,16 +22348,20 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
     _ <-
         case (mOps, topValBackfilled) of
             (Just opsStore, Right val) -> do
-                let currentCount = topCombosComboCount val
-                if currentCount >= minPersist
+                let enoughCombos =
+                        case topRaw0 of
+                            Right raw -> topCombosHaveAtLeastWithRetention retainedUuids minPersist raw
+                            Left _ -> topCombosComboCount val >= minPersist
+                if enoughCombos
                     then pure (Right val)
                     else do
+                        let currentCount = topCombosComboCount val
                         dbVal <- readTopCombosValueFromDb opsStore
                         case dbVal of
                             Left _ -> pure (Right val)
                             Right dbVal' -> do
                                 now <- getTimestampMs
-                                let mergedVal = mergeTopCombosPayloads (max minPersist maxCombos) now [val, dbVal']
+                                let mergedVal = fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] (max minPersist maxCombos) now [val, dbVal'])
                                     mergedCount = topCombosComboCount mergedVal
                                 if mergedCount <= currentCount
                                     then pure (Right val)
@@ -21956,29 +22369,12 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                                         dbPersistNeeded <- withTopCombosLock topCombosStore $ do
                                             _ <- writeTopCombosValue topJsonPath mergedVal
                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                            writeIORef rewrittenRef True
                                             pure True
                                         when dbPersistNeeded (persistTopCombosDbMaybe mOps topCombosStore)
                                         pure (Right mergedVal)
             _ -> pure topValBackfilled
-    let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
-    tmpVal <-
-        if tmpPath /= topJsonPath
-            then sanitizeVal <$> readTopCombosValueLocal tmpPath
-            else pure (Left "missing")
-    fallbackVal <-
-        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-            then sanitizeVal <$> readTopCombosValueLocal fallbackPath
-            else pure (Left "missing")
-    let seedVal = listToMaybe (rights [tmpVal, fallbackVal])
-    case (topValBackfilled, seedVal) of
-        (Left _, Just seed) ->
-            withTopCombosLock topCombosStore $ do
-                existsNow <- doesFileExist topJsonPath
-                unless existsNow $ do
-                    _ <- writeTopCombosValue topJsonPath seed
-                    persistTopCombosMaybe mStateSyncTarget topJsonPath
-        _ -> pure ()
-    topResponseVal <- readTopCombosValueWithDbFallbackRaw mOps topCombosStore
+    let sanitizeVal = fmap (fst . sanitizeTopCombosValueWithRetention retainedUuids)
     tmpResponseVal <-
         if tmpPath /= topJsonPath
             then readTopCombosValueLocal tmpPath
@@ -21987,16 +22383,31 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
         if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
             then readTopCombosValueLocal fallbackPath
             else pure (Left "missing")
+    let tmpVal = sanitizeVal tmpResponseVal
+        fallbackVal = sanitizeVal fallbackResponseVal
+        seedVal = listToMaybe (rights [tmpVal, fallbackVal])
+    case (topValBackfilled, seedVal) of
+        (Left _, Just seed) ->
+            withTopCombosLock topCombosStore $ do
+                existsNow <- doesFileExist topJsonPath
+                unless existsNow $ do
+                    _ <- writeTopCombosValue topJsonPath seed
+                    persistTopCombosMaybe mStateSyncTarget topJsonPath
+                    writeIORef rewrittenRef True
+        _ -> pure ()
+    rewritten <- readIORef rewrittenRef
+    -- Only a write above changes the leaderboard between the first read and the response.
+    topResponseVal <- if rewritten then readTopCombosValueWithDbFallbackRaw mOps topCombosStore else pure topRaw0
     let responseVals = rights [topResponseVal, tmpResponseVal, fallbackResponseVal]
     now <- getTimestampMs
     let maxResponseCombos = max minPersist maxCombos
         (mergedVal, TopCombosMergeStats{tcmsRawCount = rawCount, tcmsDroppedCount = droppedCount, tcmsDedupedCount = dedupedCount}) =
-            mergeTopCombosPayloadsWithStatsAndDeployableOverrides deployableOverrides maxResponseCombos now responseVals
+            mergeTopCombosPayloadsWithStatsAndRetention retainedUuids deployableOverrides maxResponseCombos now responseVals
         combos = extractCombos mergedVal
         payloadSources =
             concatMap
                 ( \val ->
-                    let sanitized = fst (sanitizeTopCombosValue val)
+                    let sanitized = fst (sanitizeTopCombosValueWithRetention retainedUuids val)
                      in if null (extractCombos sanitized)
                             then []
                             else maybeToList (extractPayloadSource sanitized)
@@ -22004,7 +22415,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                 responseVals
         payloadSource = listToMaybe payloadSources
     if null combos
-        then respond (jsonError status404 "Optimizer combos not available yet.")
+        then pure (Left (jsonError status404 "Optimizer combos not available yet."))
         else do
             let out =
                     object
@@ -22015,9 +22426,10 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                         , "rawCount" .= rawCount
                         , "droppedCount" .= droppedCount
                         , "dedupedCount" .= dedupedCount
+                        , "retention" .= topComboRetentionStatus retainedUuids mergedVal
                         , "combos" .= combos
                         ]
-            respond (jsonValue status200 out)
+            Right <$> evaluate (BL.toStrict (encode out))
   where
     extractCombos :: Aeson.Value -> [Aeson.Value]
     extractCombos val =
@@ -22161,13 +22573,14 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                     else withTopCombosLock topCombosStore $ do
                                         localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
                                         minPersist <- topCombosMinPersistFromEnv
+                                        retainedUuids <- retainedComboUuidsFromEnv
                                         let localTopVal =
                                                 case localTopValResult of
                                                     Right val -> Just val
                                                     Left _ -> Nothing
                                             localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
                                             localCount = maybe 0 topCombosComboCount localTopVal
-                                            (incomingSanitized, _) = sanitizeTopCombosValue raw
+                                            (incomingSanitized, _) = sanitizeTopCombosValueWithRetention retainedUuids raw
                                             incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
                                             incomingCount = topCombosComboCount incomingSanitized
                                             needsBackfill = localCount < minPersist && incomingCount > localCount
@@ -22183,8 +22596,8 @@ handleStateSyncImport reqLimits mOps _mStateSyncTarget mBotStateDir topCombosSto
                                                 maxCombos <- topCombosSyncMaxCombosFromEnv
                                                 let mergedVal =
                                                         case localTopVal of
-                                                            Just localVal -> mergeTopCombosPayloads maxCombos now [localVal, incomingSanitized]
-                                                            Nothing -> mergeTopCombosPayloads maxCombos now [incomingSanitized]
+                                                            Just localVal -> fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] maxCombos now [localVal, incomingSanitized])
+                                                            Nothing -> fst (mergeTopCombosPayloadsWithStatsAndRetention retainedUuids [] maxCombos now [incomingSanitized])
                                                     action =
                                                         case localTopVal of
                                                             Just _ -> "merged"
@@ -24092,11 +24505,20 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                 else do
                                                     let tradesTimeoutSec = arlBinanceTradesTimeoutSec reqLimits
                                                         fetchSymbolTrades sym = fetchAccountTrades env (Just sym) limit startTime endTime fromId
+                                                        -- Bound the signed weight-5 requests one query may issue across
+                                                        -- all symbols, so it cannot exhaust the trading IP's rate limit.
+                                                        maxTradeRequests = 160 :: Int
+                                                        windowsPerSymbol
+                                                            | market == MarketFutures = length (take (futuresAccountTradeMaxWindows + 1) (futuresAccountTradeTimeWindows startTime endTime))
+                                                            | otherwise = 1
+                                                        tradeRequestCount = max 1 (length symbols) * windowsPerSymbol
                                                     result <-
                                                         trySync
                                                             ( timeout
                                                                 (tradesTimeoutSec * 1000000)
                                                                 ( do
+                                                                    when (tradeRequestCount > maxTradeRequests) $
+                                                                        throwIO (userError ("futures account-trade history needs " ++ show tradeRequestCount ++ " Binance requests; at most " ++ show maxTradeRequests ++ " are allowed per query. Use fewer symbols or a shorter range."))
                                                                     trades <-
                                                                         if allSymbols
                                                                             then fetchAccountTrades env Nothing limit startTime endTime fromId
@@ -24870,16 +25292,21 @@ portfolioSelectorStatusJson _mOps args topCombosStore = do
     graduationReview <- readPortfolioGraduationReviewMaybe (portfolioGraduationPath topCombosStore)
     disabledSymbols <- botDisabledSymbolsFromEnv
     selection <- readPortfolioSelectionMaybe (portfolioSelectionPath topCombosStore)
-    -- Bot status is a latency-sensitive runtime endpoint. The selector summary is
-    -- supplemental, so read its local snapshot instead of queueing behind the
-    -- shared ops connection (which also handles bot event persistence).
-    exportOrErr <- readTopCombosExport topCombosStore
-    now <- getTimestampMs
+    selectionCheckAtMs <- getTimestampMs
     let mode =
             if maybe False (portfolioGraduationReviewApplies graduationConfig reviewedUuids) graduationReview
                 then PortfolioEnforce
                 else configuredMode
-        firstFullDayMs = ((pgcStartedAtMs graduationConfig + 86400000 - 1) `div` 86400000) * 86400000
+    -- An absent, expired or differently-modeled selection cannot be valid, so
+    -- avoid decoding the potentially large leaderboard on every status poll.
+    -- Current selections still use the local snapshot without queueing behind
+    -- the shared ops connection. Recheck expiry after that read below.
+    exportOrErr <-
+        if maybe False (\selected -> selectionCheckAtMs <= psValidUntilMs selected && psMode selected == mode) selection
+            then readTopCombosExport topCombosStore
+            else pure (Left "No current portfolio selection.")
+    now <- getTimestampMs
+    let firstFullDayMs = ((pgcStartedAtMs graduationConfig + 86400000 - 1) `div` 86400000) * 86400000
         earliestReviewAtMs = firstFullDayMs + fromIntegral (pgcMinimumDailyObservations graduationConfig) * 86400000
         selectionValid =
             case (selection, exportOrErr) of
@@ -26072,23 +26499,16 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                         case argOrderQuote args of
                                             Just q | q > 0 -> Just q
                                             _ -> Nothing
-                                qq <-
+                                (qq, sizingErr) <-
                                     case (qty, qqArg, argOrderQuoteFraction args) of
                                         (Nothing, Nothing, Just f) | f > 0 -> do
                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                             quoteBal <- fetchFreeBalance env quoteAsset
-                                            let q0 = quoteBal * f
-                                                q0Scaled = q0
-                                                q1 =
-                                                    let mCap =
-                                                            case argMaxOrderQuote args of
-                                                                Just q | q > 0 -> Just q
-                                                                _ -> Nothing
-                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                        _ -> pure qqArg
+                                            pure (probeQuoteFromFraction quoteAsset quoteBal f (argMaxOrderQuote args))
+                                        (Nothing, Nothing, Just f) -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                        _ -> pure (qqArg, Nothing)
                                 if isNothing qty && isNothing qq
-                                    then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                                    then pure (Just (mkSkippedProbe "order/test" (fromMaybe missingSizingMsg sizingErr)))
                                     else do
                                         (mFilters, mFiltersErr) <- fetchFilters env sym''
                                         case mFilters of
@@ -26183,26 +26603,19 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                                                                     (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args)))
                                                                 )
                                     Nothing -> do
-                                        qq <-
+                                        (qq, sizingErr) <-
                                             case argOrderQuote args of
-                                                Just qq | qq > 0 -> pure (Just qq)
+                                                Just qq | qq > 0 -> pure (Just qq, Nothing)
                                                 _ ->
                                                     case argOrderQuoteFraction args of
                                                         Just f | f > 0 -> do
                                                             let (_baseAsset, quoteAsset) = splitSymbol sym''
                                                             bal <- fetchFuturesAvailableBalance env quoteAsset
-                                                            let q0 = bal * f
-                                                                q0Scaled = q0
-                                                                q1 =
-                                                                    let mCap =
-                                                                            case argMaxOrderQuote args of
-                                                                                Just q | q > 0 -> Just q
-                                                                                _ -> Nothing
-                                                                     in maybe q0Scaled (`min` q0Scaled) mCap
-                                                            pure (if q1 > 0 then Just q1 else Nothing)
-                                                        _ -> pure Nothing
+                                                            pure (probeQuoteFromFraction quoteAsset bal f (argMaxOrderQuote args))
+                                                        Just f -> pure (Nothing, Just (fractionNotPositiveMsg f))
+                                                        Nothing -> pure (Nothing, Nothing)
                                         case qq of
-                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
+                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" (fromMaybe missingSizingMsg sizingErr)))
                                             Just qq0 -> do
                                                 (mFilters, mFiltersErr) <- fetchFilters env sym''
                                                 case mFilters of
@@ -26248,10 +26661,51 @@ computeBinanceKeysStatusFromArgs mOps mTracker args = do
                     | otherwise = p
             pure baseStatus{abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe}
   where
-    missingSizingMsg =
-        if isJust (argOrderQuoteFraction args)
-            then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
-            else "Provide orderQuantity or orderQuote."
+    missingSizingMsg = "Provide orderQuantity or orderQuote, or set orderQuoteFraction."
+
+    -- Size the test order from the available quote balance, and say exactly why that
+    -- fails instead of a generic "sufficient quote balance" hint.
+    probeQuoteFromFraction :: String -> Double -> Double -> Maybe Double -> (Maybe Double, Maybe String)
+    probeQuoteFromFraction quoteAsset bal f mCapRaw =
+        let q0 = bal * f
+            mCap =
+                case mCapRaw of
+                    Just c | c > 0 -> Just c
+                    _ -> Nothing
+            q1 = maybe q0 (`min` q0) mCap
+         in if bal <= 0
+                then
+                    ( Nothing
+                    , Just
+                        ( "available "
+                            ++ quoteAsset
+                            ++ " balance is "
+                            ++ fmtProbeDouble bal
+                            ++ " for these keys; fund the wallet or provide orderQuantity/orderQuote."
+                        )
+                    )
+                else
+                    if q1 <= 0
+                        then
+                            ( Nothing
+                            , Just
+                                ( "orderQuoteFraction "
+                                    ++ fmtProbeDouble f
+                                    ++ " of available "
+                                    ++ quoteAsset
+                                    ++ " "
+                                    ++ fmtProbeDouble bal
+                                    ++ maybe "" (\c -> " (maxOrderQuote " ++ fmtProbeDouble c ++ ")") mCap
+                                    ++ " sizes the test order at "
+                                    ++ fmtProbeDouble q1
+                                    ++ "; raise it or provide orderQuantity/orderQuote."
+                                )
+                            )
+                        else (Just q1, Nothing)
+
+    fractionNotPositiveMsg :: Double -> String
+    fractionNotPositiveMsg f =
+        "orderQuoteFraction must be greater than 0 (got " ++ fmtProbeDouble f ++ "); provide orderQuantity/orderQuote or a positive fraction."
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
     missingFiltersMsg = "Exchange info unavailable (cannot validate precision)."
     missingFiltersMsgWith mDetail =

@@ -327,7 +327,10 @@
         "scripts/research/sequential_evaluation.py",
         "scripts/research/run_sequential_screen.py",
         "scripts/research/ppo_successor_v2.py",
-        "scripts/research/ope_rational_v2.py"
+        "scripts/research/ope_rational_v2.py",
+        "scripts/research/causal_value_v6.py",
+        "scripts/research/causal_ppo_v7.py",
+        "scripts/research/causal_ope_v8.py"
       ],
       "closureClass": null
     },

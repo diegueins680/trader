@@ -69,6 +69,8 @@
     "haskell/app/Trader/NeuralGovernor.hs",
     "haskell/app/Trader/Normalization.hs",
     "haskell/app/Trader/OnlineStats.hs",
+    "haskell/app/Trader/Ops/ComboParameters.hs",
+    "haskell/app/Trader/Ops/GraduationTrace.hs",
     "haskell/app/Trader/Ops/Migrations.hs",
     "haskell/app/Trader/Optimization.hs",
     "haskell/app/Trader/Optimizer/Common.hs",
@@ -124,6 +126,7 @@
     "haskell/app/Trader/TechnicalAnalysis/Strategies.hs",
     "haskell/app/Trader/Text.hs",
     "haskell/app/Trader/ThresholdCalibration.hs",
+    "haskell/app/Trader/TopComboRetention.hs",
     "haskell/app/Trader/TopComboScoring.hs",
     "haskell/app/Trader/TopCombosStore.hs",
     "haskell/app/Trader/TradeLogRiskState.hs",
@@ -167,11 +170,11 @@
     "7079a6d92cb960aea3de75b969559d20f5a472e3f6e6e62681ea92bd2c112c94"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "2b96862e23bf431094dedc271bbd0707182b4cba7049fff21d46ba5f999b78af",
+    "haskell/trader.cabal": "6549d2da5f464e77d597b2dddcf883a943d3d8b545db6dfc8b32527e64c8edfe",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
-    "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
-    "haskell/app/Trader/Optimizer/Optimize.hs": "69f4bb68c98fb03335d272282577715de2c995304c9246de46bffae90cdba94e",
+    "haskell/app/Main.hs": "6c2b902a10374d977f1345b5119deb3c5b692025a5db82943af59be4e12bbf2c",
+    "haskell/app/Trader/Optimizer/Optimize.hs": "1419bfb0bff23881c77e72c69a36a6f3e533e0029d1f86ae840e152039078ae5",
     "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
@@ -190,7 +193,7 @@
       "git rev-parse HEAD",
       "cast"
     ],
-    "conditions": "trusted installed binaries/PATH, no added code mounts or manual policy conversion; existing helper source unchanged",
+    "conditions": "trusted installed binaries/PATH, no added research-code mounts or manual policy conversion; retention-only helper changes reviewed with the same external command targets and artifact admission",
     "references": [
       "Dockerfile",
       "Dockerfile.optimized",

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "registeredOn": "2026-10-21",
+  "kind": "engineering_not_financial_experiment",
+  "registrationStatus": "Working-tree audit scope recorded before consumer-audit implementation; not a committed financial preregistration.",
+  "sourceBaseline": "0b76f2b879f75f5c669fe944a14ea6700d446240",
+  "purpose": "Register the three immutable causal engineering consumers at their exact helper-import and default-guard boundary, preserving rejection of unknown consumers and the existing mutable Replay proof domain.",
+  "modules": ["causal_transition_v4", "causal_optimizer_v5", "causal_ppo_v5"],
+  "contract": "formal/research/replay-shield-contract.md",
+  "sourceRegistry": "formal/research/causal-ppo-v5-consumer-source.json",
+  "financialTrials": 0,
+  "historicalDataReads": 0,
+  "holdoutOpened": false,
+  "budget": "Exact source/import/call inventories, strict default guards, capability rejection and synthetic mutation fixtures only.",
+  "acceptance": "This boundary audit does not certify learner arithmetic, availability, training flow, profitability or policy admission. It does not add the new modules to the frozen twenty-module mutable-Replay proof domain, change original38 statuses or grant production authority."
+}

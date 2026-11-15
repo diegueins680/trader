@@ -10,10 +10,14 @@ module Trader.TechnicalAnalysis.Indicators (
     atrSeries,
     bollingerBandsSeries,
     cmfSeries,
+    defaultMaxIndicatorStaleBars,
     donchianChannelsSeries,
     emaSeries,
     keltnerChannelsSeries,
+    laggedJustAgeWithin,
+    laggedJustWithin,
     latestJust,
+    latestJustWithin,
     macdSeries,
     mfiSeries,
     obvSeries,
@@ -66,16 +70,45 @@ data DonchianChannel = DonchianChannel
     }
     deriving (Eq, Show)
 
+{- | How many bars back a "latest" indicator lookup may reach past missing
+readings before the reading is treated as stale (0 = only the newest bar).
+Indicators return 'Nothing' for degenerate windows (zero range, zero volume,
+zero prior price); an unbounded backward scan would feed a signal a reading
+from an arbitrarily old bar during flat or illiquid stretches, with no sign
+of its age. Two bars tolerates a transient degenerate bar while rejecting
+multi-bar staleness, and brings the streaming lookups closer to the
+precomputed per-bar paths, which never fall back at all.
+-}
+defaultMaxIndicatorStaleBars :: Int
+defaultMaxIndicatorStaleBars = 2
+
+{- | The newest present value at or before the bar @offset@ bars from the end,
+paired with its age in bars relative to that bar, scanning back at most
+@maxStale@ bars. Negative arguments are treated as 0; an empty series or an
+offset past the start yields 'Nothing'.
+-}
+laggedJustAgeWithin :: Int -> Int -> V.Vector (Maybe a) -> Maybe (Int, a)
+laggedJustAgeWithin maxStale offset values =
+    let limit = max 0 maxStale
+        go age idx
+            | idx < 0 || age > limit = Nothing
+            | otherwise =
+                case values V.! idx of
+                    Just value -> Just (age, value)
+                    Nothing -> go (age + 1) (idx - 1)
+     in go 0 (V.length values - 1 - max 0 offset)
+
+-- | 'laggedJustAgeWithin' without the age.
+laggedJustWithin :: Int -> Int -> V.Vector (Maybe a) -> Maybe a
+laggedJustWithin maxStale offset values = snd <$> laggedJustAgeWithin maxStale offset values
+
+-- | The newest present value no older than @maxStale@ bars.
+latestJustWithin :: Int -> V.Vector (Maybe a) -> Maybe a
+latestJustWithin maxStale = laggedJustWithin maxStale 0
+
+-- | The newest present value within 'defaultMaxIndicatorStaleBars'.
 latestJust :: V.Vector (Maybe a) -> Maybe a
-latestJust values =
-    go (V.length values - 1)
-  where
-    go idx
-        | idx < 0 = Nothing
-        | otherwise =
-            case values V.! idx of
-                Just value -> Just value
-                Nothing -> go (idx - 1)
+latestJust = latestJustWithin defaultMaxIndicatorStaleBars
 
 smaSeries :: Int -> V.Vector Double -> V.Vector (Maybe Double)
 smaSeries period values

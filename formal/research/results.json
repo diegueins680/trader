@@ -385,11 +385,11 @@
     "helperSha256": "1ae24956613e289ac1436d7f489bded541d72f6bd56b44681dafab84d85bddbb",
     "source": {
       "forwardingSites": 5,
-      "modules": 125,
+      "modules": 128,
       "scope": "every Haskell module under haskell/app: no exception-capturing combinator is imported outside Trader.App.AsyncSafe and the async-filtering BacktestGate; the compiler rejects any other capture",
       "sites": {
         "catchSync": 4,
-        "trySync": 197
+        "trySync": 204
       },
       "status": "exhaustively_checked"
     }
@@ -679,8 +679,8 @@
       "scope": "ordinary admitted Network/base arrays; trusted primitive effects; no OS sandbox"
     },
     "graph": {
-      "localEdges": 322,
-      "moduleFiles": 125,
+      "localEdges": 329,
+      "moduleFiles": 128,
       "requirement": "F-RL-COMPONENT-ISOLATION",
       "roots": {
         "analyze-close-timing": {
@@ -703,7 +703,7 @@
           "states": 3
         },
         "merge-top-combos": {
-          "edges": 13,
+          "edges": 25,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/MergeTopCombosMain.hs",
@@ -711,15 +711,18 @@
             "haskell/app/Trader/BotStartSemantics.hs",
             "haskell/app/Trader/CostCalibration.hs",
             "haskell/app/Trader/Duration.hs",
+            "haskell/app/Trader/Formal/CloseTiming.hs",
             "haskell/app/Trader/Optimizer/Json.hs",
             "haskell/app/Trader/Optimizer/Merge.hs",
             "haskell/app/Trader/Predictors/Types.hs",
             "haskell/app/Trader/SignalGates.hs",
             "haskell/app/Trader/Symbol.hs",
             "haskell/app/Trader/Text.hs",
-            "haskell/app/Trader/TopComboScoring.hs"
+            "haskell/app/Trader/TopComboRetention.hs",
+            "haskell/app/Trader/TopComboScoring.hs",
+            "haskell/app/Trader/TopCombosStore.hs"
           ],
-          "states": 12
+          "states": 15
         },
         "optimize-equity": {
           "edges": 44,
@@ -764,7 +767,7 @@
           "states": 2
         },
         "trader-hs": {
-          "edges": 282,
+          "edges": 287,
           "maxShortestDepth": 3,
           "reachableFiles": [
             "haskell/app/Main.hs",
@@ -821,6 +824,8 @@
             "haskell/app/Trader/NeuralGovernor.hs",
             "haskell/app/Trader/Normalization.hs",
             "haskell/app/Trader/OnlineStats.hs",
+            "haskell/app/Trader/Ops/ComboParameters.hs",
+            "haskell/app/Trader/Ops/GraduationTrace.hs",
             "haskell/app/Trader/Ops/Migrations.hs",
             "haskell/app/Trader/Optimization.hs",
             "haskell/app/Trader/Optimizer/Common.hs",
@@ -863,6 +868,7 @@
             "haskell/app/Trader/TechnicalAnalysis/Indicators.hs",
             "haskell/app/Trader/TechnicalAnalysis/Strategies.hs",
             "haskell/app/Trader/Text.hs",
+            "haskell/app/Trader/TopComboRetention.hs",
             "haskell/app/Trader/TopComboScoring.hs",
             "haskell/app/Trader/TopCombosStore.hs",
             "haskell/app/Trader/TradeLogRiskState.hs",
@@ -870,14 +876,14 @@
             "haskell/app/Trader/Trading.hs",
             "haskell/app/Trader/VolConfGate.hs"
           ],
-          "states": 102
+          "states": 105
         }
       },
       "search": "reachable_fixed_point"
     },
     "legacyCompilerProfile": "Dockerfile.optimized names GHC 8.10.4; not certified buildable",
     "packaging": {
-      "conditions": "trusted installed binaries/PATH, no added code mounts or manual policy conversion; existing helper source unchanged",
+      "conditions": "trusted installed binaries/PATH, no added research-code mounts or manual policy conversion; retention-only helper changes reviewed with the same external command targets and artifact admission",
       "externalHelpers": [
         "trader-hs",
         "optimize-equity",
@@ -927,9 +933,9 @@
     "sourceHashes": {
       "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
       "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-      "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
+      "haskell/app/Main.hs": "58f1607895e42c0221f7fc4d78bee54d3b30a3b4bb9d6f551946bf5374b72fed",
       "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
-      "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
+      "haskell/app/OptimizeEquityMain.hs": "70781fee9b7adbb8c5c292246087433562a60856396a073c2813145a326dd1fe",
       "haskell/app/OutboxPublisherMain.hs": "3d99e4fb0e4c6d80ea957e0cceeb006c4f172f28a3fe9a062f4f2ad391a432aa",
       "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
       "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
@@ -947,17 +953,17 @@
       "haskell/app/Trader/App/Readiness.hs": "1271565c741a2e653a97879300199b103da4b9c68f3dc51885ff0e90142782f6",
       "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
       "haskell/app/Trader/App/WorkerPublication.hs": "bd7c41c91fc7ab3cbf8acca4105ee17a6ad1de5a8594d11a29d4e8e2dfcf485b",
-      "haskell/app/Trader/Binance.hs": "686856f7ecae82f085685b2aef23ff943f70274463ba2efb9907f23584cba278",
+      "haskell/app/Trader/Binance.hs": "627dca09a47d79cc9308e0ad8589681801b1cd51d04c211b0fa99f1cf1cda16b",
       "haskell/app/Trader/BinanceIntervals.hs": "82c7b0e8b1023a2655b3d40f9f43d0f6880c8b4251f989bd30c69a605b88fee8",
       "haskell/app/Trader/BinanceTradeAnalysis.hs": "90407ed30ed5729f3b93054096801cfc13188dd6a8a562f6c05d13288e3063a6",
       "haskell/app/Trader/BotSnapshotRecovery.hs": "5fdd9df515bf43aebc19de567a25728da591de6c000bde984b058259fffd12e4",
-      "haskell/app/Trader/BotStartSemantics.hs": "7590acf266e0bdfa03f3dacb769f429b04b35878cc0ebde0a0a462f0d20e1e64",
+      "haskell/app/Trader/BotStartSemantics.hs": "e53aec116ca8d187cf3783dd3309ab6ed079acb0f632c92166fbe735fc44bf20",
       "haskell/app/Trader/Cache.hs": "e0131bd88e33bd7c2eeaf94ff53c7a2749a9c84c1fb95cc5d339118144c15d41",
       "haskell/app/Trader/CapitalPreservation.hs": "dbdd61095b3a298f7b7713a3d1f0a255e21bbebb066c83d303862044a274aa54",
       "haskell/app/Trader/Coinbase.hs": "ea4e3f5f47e0e14b3ac44e6bda0b928a59d3576a1892c435673cdd701f2b97d6",
       "haskell/app/Trader/ComboTracking.hs": "57444fefecfefeea781a8332f36b7f6cec258d52a792d4c25ed57c503ceafb6e",
       "haskell/app/Trader/Config.hs": "3eb9fd8310ad5ae64216fd7d5640d5cdb70bd4ba86e12a3be419e3cce173613f",
-      "haskell/app/Trader/Cors.hs": "ee7c86f4620636265409444a39fdd11a006e96fc395ad99a329c67b1cbf6c67a",
+      "haskell/app/Trader/Cors.hs": "0e9ac758ed759c099c223713911c10f03f5cfdc72db3b67b7f7086e5c67e4015",
       "haskell/app/Trader/CostCalibration.hs": "52c087c4d447ef1d516f2c57d678f47aee9f6377f135b405453db376a0fdf5c1",
       "haskell/app/Trader/CrossSectionalMomentum.hs": "6321d93b886227af6cbde5def7511b6bcc8fedd4f2ed049b592e169ca1413abf",
       "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
@@ -988,21 +994,23 @@
       "haskell/app/Trader/NeuralGovernor.hs": "5ace954cdd3e3ebec07633ac985610392e08061681fb843306b020a3b55dde1a",
       "haskell/app/Trader/Normalization.hs": "aeb9ca46c07ba57192fe5b5f7eb09ea0df9efbe5fb3d7be2119c64be0d51b9b1",
       "haskell/app/Trader/OnlineStats.hs": "3a449c61fdcbb7d5022a79a04aedcc5fe81315b8d82c099a755752902a94b76b",
-      "haskell/app/Trader/Ops/Migrations.hs": "ee4da48090953d21bb866c8d634887d05b98faac57c9bf4e9aab6327c9fd9e17",
+      "haskell/app/Trader/Ops/ComboParameters.hs": "6f83ba36a7fba5bd9da4f2193ffc2223f5de8e2ecc0216a79ff2bb5961aa54ef",
+      "haskell/app/Trader/Ops/GraduationTrace.hs": "58641427d0697afbab73e8f797d5ee4478c55c79eeeb5013093d6772f6320c85",
+      "haskell/app/Trader/Ops/Migrations.hs": "01dc5c5173443017e47ba6a02e129a7ad0f50a6bb4a949d8ef6946e7cc2dd324",
       "haskell/app/Trader/Optimization.hs": "63c7a9bee9a9964dce845384ed61e4bcb3d64bf4d0bb8865c71b85aa472cd643",
       "haskell/app/Trader/Optimizer/Common.hs": "4de82093001a695e9ad930fb575efd970baeac052b4b79e8fd4d3dd4810ab018",
       "haskell/app/Trader/Optimizer/Json.hs": "89dc758d65df8828857f57335f3ac4de61657f185ff7a3d734497ca9956b276f",
-      "haskell/app/Trader/Optimizer/Merge.hs": "62d207698bcff6cf99b0d2a4b6f3043502ff10e17480e2f577555de29da6cbd0",
-      "haskell/app/Trader/Optimizer/Optimize.hs": "69f4bb68c98fb03335d272282577715de2c995304c9246de46bffae90cdba94e",
+      "haskell/app/Trader/Optimizer/Merge.hs": "15aa8cb6995b7cde9d8525f19770d0ebca785d50cfe889b17a04b2ea1ca1d69d",
+      "haskell/app/Trader/Optimizer/Optimize.hs": "1419bfb0bff23881c77e72c69a36a6f3e533e0029d1f86ae840e152039078ae5",
       "haskell/app/Trader/Optimizer/OverfitAudit.hs": "ae9c828b83db28497de265a36e49aacff25606d702317f2e356fc15a3da75f8b",
       "haskell/app/Trader/Optimizer/Random.hs": "36d9186efc777687fbaed5004f6c96656547fe4a8a05567d13740e87501f9c6f",
-      "haskell/app/Trader/OrderExecution.hs": "82650db3b52d85a46227363ab3ed7a14b4e0458b3189aeab0515564d0dd86dc0",
+      "haskell/app/Trader/OrderExecution.hs": "913e1d1301bd3f9b3a21094cd95c02d15d69c714a4160c2b932f2645596541b2",
       "haskell/app/Trader/OrderNumeric.hs": "926722f0356dc72b1d88b8debcb137009e74288b2c51538370961933ee7077bb",
       "haskell/app/Trader/Platform.hs": "42a7d8dc5df322578bd128c10cfc3669d2c1b790fb0fec7d457e95ba8328ca5a",
       "haskell/app/Trader/PointInTimeUniverse.hs": "77f2c9ac3c4eb67b8b0fa0c8d16852bc9a322fd6f9e6a31aad360a6e768dc71e",
       "haskell/app/Trader/PointInTimeUniverseV2.hs": "d4eb76f2fd964192920185757a067153e118fe8f28ac1f0f3c4003b2fd13f35b",
       "haskell/app/Trader/Poloniex.hs": "502fa8950b667be4acae8826bd77527880068168166947b35173f30d474b5fd8",
-      "haskell/app/Trader/PortfolioSelection.hs": "afa267fde3f35d852abaa6141b2d53cce9ffc503435a6d6e06e56a58684c9d76",
+      "haskell/app/Trader/PortfolioSelection.hs": "1bd9eb92295d6f982c5b9a7854dbc012810a9089acf0e7e0184958b7d76a2a6d",
       "haskell/app/Trader/PredictionMarkets.hs": "cbca06be04514adad2bdf6074f499b9f6b50a09b5c442a1ea6257865eebe8253",
       "haskell/app/Trader/Predictors.hs": "16fe6c580e3da263c2af9c5ed2f0b36e64d02f599a163261d04374204d05c510",
       "haskell/app/Trader/Predictors/Conformal.hs": "4178b94587c321985d5560521d38f8358e8f3ae4e61008d86c0a705e917f1393",
@@ -1033,18 +1041,19 @@
       "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
       "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
       "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
-      "haskell/app/Trader/S3.hs": "5e541b7cc2d3b20c4c039c5ebdbfdbf4d03de586177f31556325364d33056ef5",
+      "haskell/app/Trader/S3.hs": "f8b7457165c49c6d5fcc0fd998fad75525f80a69dd237bfaaaf06d8b5a1d5bf8",
       "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
       "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
       "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
       "haskell/app/Trader/Split.hs": "c816d6020fd3b52e9c1c1f9c340c9218cae5f2c001bf6342784d111cdedf8398",
       "haskell/app/Trader/Symbol.hs": "ed853c32ef1c8e34b911203ce66e4b7e8771ed337de6a6d18ed73fac252c7d05",
-      "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "b0c1e7d00103f919b413236d86b671789c721ee5250853e2b5e090d2f51d39cc",
-      "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "63070d18f18688073a38ecb839f4fc56c1e4cd5bfacef74e7f5b0097ce3474a2",
+      "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "cc864d89e3f537480042140ce310e67f6212a3d28bc4ee89faa26f237db91721",
+      "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "03bb23b7702624e6f044fda01234c5886a0ab6b4be8bf23db62bd925f284472f",
       "haskell/app/Trader/Text.hs": "2358b8c83b04534cf98cdd5b55af6c44922ab4e642689d25149923b58b527287",
       "haskell/app/Trader/ThresholdCalibration.hs": "4c5c968e25c0f51b8162b7807ea09102a4577cf7063b2b4c60619cdfc362e93e",
+      "haskell/app/Trader/TopComboRetention.hs": "8e1343fbc1cf4c1a73f583e9fef7df775fd7970a654cbf98ca3e2422973d88bc",
       "haskell/app/Trader/TopComboScoring.hs": "ccf0ea696a15174de751335c02571c75ccc08f019c9ed28037d184c191a7a3a1",
-      "haskell/app/Trader/TopCombosStore.hs": "01558a6188e9aa64bfbee6653d4ff1dcac4a7b244919c3cc9ed0dd39dc907638",
+      "haskell/app/Trader/TopCombosStore.hs": "35d5aadd0ed62b59b5baa8cf047178b05521a6362e0368936e8a9de298836487",
       "haskell/app/Trader/TradeLogRiskState.hs": "cffb3b7b6e9c4f80f4a232396f8541bd7ad799a2a4e4cc9b8f77e3a50e78059b",
       "haskell/app/Trader/TradeMethodGate.hs": "3c1f3f49c090335950b4d392e2648a76129eb694bf00d785982150057abcd2cd",
       "haskell/app/Trader/Trading.hs": "c65596455803112e30986fc638e5975daac0ab4e57dc0206454fc49888473693",
@@ -1058,6 +1067,146 @@
         "constructor",
         "effect"
       ]
+    }
+  },
+  "causalOpeV8": {
+    "bounds": {
+      "behaviorFloorLog2": -10,
+      "certifiedImplications": 4,
+      "horizonBound": 32,
+      "lawGapLog2": -50,
+      "satisfiableControls": 1,
+      "stepGapLog2": -40,
+      "weightGapLog2": -34
+    },
+    "conformance": {
+      "capacityRejections": 1,
+      "economicEvidence": false,
+      "evaluations": 18,
+      "marketDataReads": 0,
+      "oracleEpisodes": 24,
+      "prefixRewrites": 12,
+      "rejections": 26,
+      "runs": 6,
+      "samplingLawChecks": 96,
+      "seeds": [
+        11,
+        23,
+        47
+      ],
+      "status": "property_tested"
+    },
+    "model": {
+      "orderTransitions": 0,
+      "publishingTransitions": 4,
+      "requests": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "scope": "finite stage abstraction over small run counts; numeric values abstracted",
+      "states": 48,
+      "status": "model_checked",
+      "transitions": 52
+    },
+    "smt": {
+      "F-RL-OPE-V8-ARITH": "unsat"
+    },
+    "source": {
+      "closure": [
+        "causal_ope_v8",
+        "causal_optimizer_v5",
+        "causal_ppo_v7",
+        "causal_replay_v3",
+        "causal_transition_v4",
+        "causal_value_v6",
+        "gae_targets_v2",
+        "ope_rational_v2",
+        "ppo_objective_v2",
+        "replay_accounting_v2",
+        "value_objective_v2"
+      ],
+      "defaultDisabledEntries": 1,
+      "definitions": 5,
+      "externalImports": [
+        "__future__",
+        "dataclasses",
+        "fractions",
+        "math",
+        "numpy"
+      ],
+      "frozenModulesInClosure": 0,
+      "scope": "complete reviewed AST, frozen-free import closure, recognized learner results, no dropped or padded run, behavior floor, guarded values, prefix-only reads, distinct streams, checked estimate and single publication; runtime semantics assumed",
+      "status": "exhaustively_checked"
+    }
+  },
+  "causalPpoV7": {
+    "bounds": {
+      "certifiedImplications": 6,
+      "magnitudeGuardLog2": 99,
+      "maximumOptimizerSteps": 16384,
+      "normalizedAdvantageBound": 16,
+      "residualBoundLog2": 101,
+      "satisfiableControls": 1
+    },
+    "conformance": {
+      "economicEvidence": false,
+      "marketDataReads": 0,
+      "oracleTargets": 822,
+      "prefixRewrites": 12,
+      "rejections": 8,
+      "runs": 9,
+      "sampledActions": 822,
+      "seeds": [
+        11,
+        23,
+        47
+      ],
+      "status": "property_tested"
+    },
+    "model": {
+      "orderTransitions": 0,
+      "publishingTransitions": 20,
+      "requests": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rolloutBound": 2,
+      "scope": "finite stage abstraction over small request, rollout and update bounds; numeric values abstracted",
+      "states": 240,
+      "status": "model_checked",
+      "transitions": 289,
+      "updatesPerRollout": 2
+    },
+    "smt": {
+      "F-RL-PPO-V7-ARITH": "unsat"
+    },
+    "source": {
+      "closure": [
+        "causal_optimizer_v5",
+        "causal_ppo_v7",
+        "causal_replay_v3",
+        "causal_transition_v4",
+        "gae_targets_v2",
+        "ppo_objective_v2",
+        "replay_accounting_v2"
+      ],
+      "defaultDisabledEntries": 1,
+      "definitions": 11,
+      "externalImports": [
+        "__future__",
+        "dataclasses",
+        "fractions",
+        "math",
+        "numpy"
+      ],
+      "frozenModulesInClosure": 0,
+      "scope": "complete reviewed AST, frozen-free import closure, draw-before-outcome order, probability floor, magnitude guards, checked stages, joint updates and single publication; runtime semantics assumed",
+      "status": "exhaustively_checked"
     }
   },
   "causalReplayV3": {
@@ -1085,6 +1234,71 @@
       "defaultDisabledEntries": 3,
       "definitions": 13,
       "scope": "complete reviewed AST, all entry guards and observation/accounting composition; interpreter trusted",
+      "status": "exhaustively_checked"
+    }
+  },
+  "causalValueV6": {
+    "bounds": {
+      "certifiedImplications": 6,
+      "magnitudeGuardLog2": 99,
+      "maximumOptimizerSteps": 16384,
+      "satisfiableControls": 2,
+      "targetBoundLog2": 100
+    },
+    "conformance": {
+      "economicEvidence": false,
+      "marketDataReads": 0,
+      "oracleTargets": 822,
+      "prefixRewrites": 12,
+      "rejections": 7,
+      "runs": 9,
+      "seeds": [
+        11,
+        23,
+        47
+      ],
+      "status": "property_tested"
+    },
+    "model": {
+      "orderTransitions": 0,
+      "publishingTransitions": 20,
+      "requests": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rolloutBound": 2,
+      "scope": "finite stage abstraction over small request, rollout and update bounds; numeric values abstracted",
+      "states": 292,
+      "status": "model_checked",
+      "transitions": 337,
+      "updatesPerRollout": 2
+    },
+    "smt": {
+      "F-RL-VALUE-V6-ARITH": "unsat"
+    },
+    "source": {
+      "closure": [
+        "causal_optimizer_v5",
+        "causal_replay_v3",
+        "causal_transition_v4",
+        "causal_value_v6",
+        "replay_accounting_v2",
+        "value_objective_v2"
+      ],
+      "defaultDisabledEntries": 1,
+      "definitions": 10,
+      "externalImports": [
+        "__future__",
+        "dataclasses",
+        "fractions",
+        "math",
+        "numpy"
+      ],
+      "frozenModulesInClosure": 0,
+      "scope": "complete reviewed AST, frozen-free import closure, draw-before-outcome order, magnitude guards, checked stages and single publication; runtime semantics assumed",
       "status": "exhaustively_checked"
     }
   },
@@ -1967,7 +2181,7 @@
     "smt": {
       "F-INVENTORY-READINESS-PREDICATE": "unsat"
     },
-    "sourceHash": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253"
+    "sourceHash": "58f1607895e42c0221f7fc4d78bee54d3b30a3b4bb9d6f551946bf5374b72fed"
   },
   "lifecycleStage": {
     "conformance": {
@@ -2349,7 +2563,7 @@
         "test-order-probe"
       ],
       "sha256": {
-        "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
+        "haskell/app/Main.hs": "58f1607895e42c0221f7fc4d78bee54d3b30a3b4bb9d6f551946bf5374b72fed",
         "haskell/app/Trader/App/ManualTradeOwnership.hs": "3a5e32049c06d55ae1a05d653fb9642bb4d5e0cc8232fbf1668b338b25a889a1"
       },
       "status": "exhaustively_checked"
@@ -2384,6 +2598,45 @@
     },
     "softmaxImplementationVerified": false,
     "universalRuntimeRefinement": false
+  },
+  "ppoObjectiveV2": {
+    "bounds": {
+      "certifiedImplications": 8,
+      "finiteLimitLog2": 220,
+      "gradientBoundLog2": 202,
+      "lossBoundLog2": 201,
+      "ratioBoundLog2": 101
+    },
+    "conformance": {
+      "economicEvidence": false,
+      "finiteDifferenceChecks": 24,
+      "frozenDifferential": 96,
+      "inactiveRows": 1640,
+      "marketDataReads": 0,
+      "oracleBatches": 96,
+      "seed": 20261111,
+      "status": "property_tested",
+      "witnesses": {
+        "CE-RL-012": "rejected; in-domain analogue finite with zero gradient",
+        "CE-RL-013": "reproduced (intended)"
+      }
+    },
+    "model": {
+      "orderTransitions": 0,
+      "scope": "finite stage abstraction; numeric values abstracted",
+      "states": 6,
+      "status": "model_checked",
+      "transitions": 9
+    },
+    "smt": {
+      "F-RL-PPOOBJ-V2-ARITH": "unsat"
+    },
+    "source": {
+      "defaultDisabledEntries": 1,
+      "definitions": 7,
+      "scope": "complete reviewed AST, difference-only softmax, branch-selected coefficient and finite guard; runtime semantics assumed",
+      "status": "exhaustively_checked"
+    }
   },
   "ppoProcessBridge": {
     "boundary": {
@@ -3567,6 +3820,11 @@
           "replay.step(float(ACTIONS[a]))"
         ]
       ],
+      "immutableEngineeringConsumers": [
+        "causal_optimizer_v5",
+        "causal_ppo_v5",
+        "causal_transition_v4"
+      ],
       "modules": 20,
       "pendingAndEnableWrites": [
         [
@@ -3593,8 +3851,64 @@
       "receiverUses": 89,
       "researchImporters": [
         [
+          "scripts/research/causal_ope_v8.py",
+          "from ope_rational_v2 import VERSION as ESTIMATOR, Episode, Estimate, estimate_v2"
+        ],
+        [
+          "scripts/research/causal_optimizer_v5.py",
+          "from causal_replay_v3 import OBSERVATION"
+        ],
+        [
+          "scripts/research/causal_ppo_v5.py",
+          "from gae_targets_v2 import batch_v2"
+        ],
+        [
+          "scripts/research/causal_ppo_v5.py",
+          "from sequential_learning import ppo_gradient, softmax"
+        ],
+        [
+          "scripts/research/causal_ppo_v5.py",
+          "import causal_replay_v3 as replay"
+        ],
+        [
+          "scripts/research/causal_ppo_v5.py",
+          "import replay_accounting_v2 as accounting"
+        ],
+        [
+          "scripts/research/causal_ppo_v7.py",
+          "from gae_targets_v2 import VERSION as TARGETS, batch_v2"
+        ],
+        [
+          "scripts/research/causal_ppo_v7.py",
+          "import causal_replay_v3 as replay"
+        ],
+        [
+          "scripts/research/causal_ppo_v7.py",
+          "import replay_accounting_v2 as accounting"
+        ],
+        [
           "scripts/research/causal_replay_v3.py",
           "import replay_accounting_v2 as a"
+        ],
+        [
+          "scripts/research/causal_transition_v4.py",
+          "import causal_replay_v3 as replay"
+        ],
+        [
+          "scripts/research/causal_transition_v4.py",
+          "import replay_accounting_v2 as accounting"
+        ],
+        [
+          "scripts/research/causal_value_v6.py",
+          "from value_objective_v2 import VERSION as OBJECTIVE, objective_v2"
+        ],
+        [
+          "scripts/research/causal_value_v6.py",
+          "import causal_replay_v3 as replay"
+        ],
+        [
+          "scripts/research/causal_value_v6.py",
+          "import replay_accounting_v2 as accounting"
         ],
         [
           "scripts/research/point_in_time_v3.py",
@@ -3827,6 +4141,7 @@
     "F-RL-OPE-DR-TELESCOPE": "unsat",
     "F-RL-OPE-ESS-REAL": "unsat",
     "F-RL-OPE-V2-ARITH": "unsat",
+    "F-RL-OPE-V8-ARITH": "unsat",
     "F-RL-OPE-WIS-REAL": "unsat",
     "F-RL-PIT-TIME": "unsat",
     "F-RL-POSTCOST-EXPOSURE": "unsat",
@@ -3834,6 +4149,8 @@
     "F-RL-PPO-OBJECTIVE": "unsat",
     "F-RL-PPO-V2-BOUNDS": "unsat",
     "F-RL-PPO-V2-FINITE": "unsat",
+    "F-RL-PPO-V7-ARITH": "unsat",
+    "F-RL-PPOOBJ-V2-ARITH": "unsat",
     "F-RL-PROCESS-ADMISSION": "unsat",
     "F-RL-PROMOTION-METADATA": "unsat",
     "F-RL-PROMOTION-SCHEMA": "unsat",
@@ -3860,6 +4177,7 @@
     "F-RL-TERMINAL-REAL": "unsat",
     "F-RL-TRANSITION-ADMISSION": "unsat",
     "F-RL-VALUE-V2-ARITH": "unsat",
+    "F-RL-VALUE-V6-ARITH": "unsat",
     "F-RL-WEALTH-FOLD": "unsat",
     "F-ROUND-DOWN-FINITE": "unsat",
     "F-ROUND-DOWN-INTEGER": "unsat",
@@ -3944,7 +4262,7 @@
     "universalRuntimeRefinement": false
   },
   "sourceHashes": {
-    ".github/workflows/ci.yml": "0f1f919a2af4d03d49ac9810186d8354bd063c7a78895406380d6039293d6626",
+    ".github/workflows/ci.yml": "98c230f460246ca82235357ac47f579f4bb77794c1b715516e2806021c0d8613",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "formal/research/AdmissionProgress.hs": "62bf77149e36459169414f66c9a6cec93aa48a941c1a0c6cca1868185651c0e7",
@@ -3961,7 +4279,7 @@
     "formal/research/WorkerRegistry.hs": "da3bf9285ca80653aa0da61c6f6b1a523ae06da3b12cb699f1c44656610ce7f4",
     "formal/research/accounting-reconciliation-contract.md": "da2f48c99730625161e11fcede5edee9ecf3d3a890003570230cad3050ff724e",
     "formal/research/admission-progress-contract.md": "55f4c29b69773009b831936af2dc732d11f6c1193fd1b7726b1f2a3e474ebd50",
-    "formal/research/admission-progress-source.json": "d6b27fc549e8b34119e84fe8e2100ce08a46dcbd000f06ad58578182213fc7ee",
+    "formal/research/admission-progress-source.json": "5124c6aae04bee221e6e842f357ca1050ab0182bbcfbecf07ed17f38ee51e532",
     "formal/research/artifact-admission-contract.md": "e94a27b55dd57d55d537d6858ef10b804dab160e17678295e2d90bd715a3b15f",
     "formal/research/artifact-composition-contract.md": "465ed8fd5c7371f3cbde6f47303e9093b99949de833cacc95127751ed8e6685c",
     "formal/research/artifact-composition-source.json": "97173e9a93d3cf3d7636ea625091c168ec4e6fb3a8b3c411cbd7b6a8834d217a",
@@ -3969,24 +4287,33 @@
     "formal/research/artifact-legacy-loader.json": "70b0d6100c25a6c4af88c31ad600a41d000fd0fcdf5a1a46117c7a7630f7dc8b",
     "formal/research/async-job-admission-contract.md": "da92366084a287bd590fb3ca3446c784f85bc83f99405307f647f958223ab964",
     "formal/research/async-job-admission-counterexamples.json": "37546208297c2d1f11fb2f2014de6c3660e5df4a57a339402830c80b511120f3",
-    "formal/research/async-job-admission-source.json": "54c6c73cf9afced14907cdc9617a800a01221edacb69a9d900db75a9e06a9fbe",
+    "formal/research/async-job-admission-source.json": "5a9f70e1cd18607432fe1f45cc0df38d456a78d4465d5ed19405350287197ab5",
     "formal/research/async-shutdown-seal-contract.md": "bc67d02e844bf3bfeac2e6ec245fa5459ff0bb6cc0617a011d31efb039fb4fcc",
     "formal/research/async-shutdown-seal-counterexamples.json": "e061d5e9b3a88ec53059cc0a76b6b24f66f9bde1b105ee346dccad7a0bed6dff",
-    "formal/research/async-shutdown-seal-source.json": "d45379a0f7d820879db997e8449d58413b083490676ced67105054f8bf065897",
+    "formal/research/async-shutdown-seal-source.json": "dd484dc1f3678fe12d59a53b828f4b695f6b5edcf3f8ad195261cf65851ee0c9",
     "formal/research/async-stop-counterexample.json": "36919f9b814dd58ce7617bd683e86de852dfccf355c181ba12e7b0bab0ca1d6e",
     "formal/research/backtest-gate-contract.md": "c775f0b2cb1f12e4283dba625a5b13fb061de41132e5af4fe2285014baa45e26",
     "formal/research/backtest-gate-counterexamples.json": "659172cc22fc4a2120d6d3024b689e55f88a93751440cb78ffa7641a58a12f85",
-    "formal/research/backtest-gate-source.json": "99517c9f9c7dc4c0f4f8f746b807acc55dd257400cc96c55d51d583db924954d",
+    "formal/research/backtest-gate-source.json": "4b809820f0e35c8169dd8a8feb4071f7788f4f710a3712e8fd698e7575821183",
     "formal/research/bot-worker-publication-contract.md": "af42fbb7b0edd88bda0a610d37313c43e8cad801abca2b6dedf264aa5d5e9cf4",
     "formal/research/bot-worker-publication-legacy.json": "9958775abab9f15de1b58201771232467644404839e0799ae153f1fd1e5b5f46",
-    "formal/research/bot-worker-publication-source.json": "be483fd69f0d18038ddbec60062249756ffce04ec05255238fed7758c1bdf56e",
+    "formal/research/bot-worker-publication-source.json": "729ab49d34d845125a4c7fc060fcbdb27aa4b9b73a95511350345de07d50114e",
     "formal/research/bounded-values-contract.md": "24b4fe4612eca150aaec5a27751cbacc413067af4e9fbb78c558e7bd06707cbb",
     "formal/research/capability-isolation-contract.md": "68fe1ddc9e5ba6278a2c8ea1c8f4ad4c0b94a72cce1471d7a4bd03165c8dab2e",
-    "formal/research/capability-source-contract.json": "22ad4da04c6201b9a1b31063b0d9f5b11fff81cdc3bb44323174e8f16bb357f4",
+    "formal/research/capability-source-contract.json": "fece07c506cde445c3c33f20f2ae894ab577011674b29d32000d8df2c99b2d72",
     "formal/research/causal-counterexamples.json": "df8900e303541ee7f69ab402a2506a6207f7c72387cdc0f4d63c6273eb031b40",
     "formal/research/causal-footprint-contract.md": "4aa14cd83c2060e45326610dd5e30cc6920b3142cb76e55b8b57f218de32e26b",
+    "formal/research/causal-ope-v8-contract.md": "29a397f2f578008495d03700d8c68c220352ddff119448409fd83a1fa56b1c03",
+    "formal/research/causal-ope-v8-source.json": "2287c477fac386e195d9a1ed88923a9e1b190fc404f924ce66ed22ad1b0b8151",
+    "formal/research/causal-ppo-v5-consumer-source.json": "5e072f7037022396bca4424cdf8c98d4c29f22ce3c21f7b42b3c68c563ac5400",
+    "formal/research/causal-ppo-v5-contract.md": "63c4ddf58bd46e632a7213c2de76510eda41fe0c10889c14ac4dae24a0cb720f",
+    "formal/research/causal-ppo-v7-contract.md": "e15c850d96213c5c6e3b381345e0e19fa9404710898d92aea54a7ad72107e18b",
+    "formal/research/causal-ppo-v7-source.json": "26a518a3fc527317bf092daf73f5adaaa9d3c70bd77bf3bf130d03bdc16f5aa2",
     "formal/research/causal-replay-v3-contract.md": "7c4d1a5cc5086b17d164f82b101b470a13ce8c9e61fc1d7fdaf9824db01e51a6",
     "formal/research/causal-replay-v3-source.json": "7da0614db25217ed9a7f168ee4c99b4058bf937411bc98656f550857ca224457",
+    "formal/research/causal-transition-v4-contract.md": "47a6bfaab4f78ad86c406a55727b16718c7b82140aa90e0bfe7015063c709c30",
+    "formal/research/causal-value-v6-contract.md": "69887731d53316e22631c98cb0e3f5263e4a45c9b4bdc45fa02f0bf944b136b0",
+    "formal/research/causal-value-v6-source.json": "01ef9c6817775b597a09632f63f73d9e31267874e8ec91be325ca74dd516563f",
     "formal/research/champion-archive-contract.md": "7f184d931a68f620707b532cb93c76158bd2978a190cf74b8f3a05f36a2098b7",
     "formal/research/champion-archive-legacy.json": "2af6360c3b735da5ab3ed805362f439eb47f3931acdcb49e11aacd49b66f0df0",
     "formal/research/champion-archive-source.json": "3b888de2da28cf1dad3449b78a0c5965c7258a0011d3ea9d2cfde09d55c71683",
@@ -4003,7 +4330,7 @@
     "formal/research/drain-gates-counterexample.json": "581c38316a7812185c2c2158c2b37095f029106236a2f51eb5e73fc77e74b39b",
     "formal/research/drain-pool-contract.md": "3767e06d29e7a19b4db6439cbac68550e21d0ffa667af64330b8a523e06845b0",
     "formal/research/drain-pool-counterexamples.json": "9046e06d60ef6be96080ef0935592c8972ee1fb5bacc60ad4092e8f4a8bf3b36",
-    "formal/research/drain-pool-source.json": "079ae8da46ed51cc3cc9cea7bfa0a612affbef5927849fd9e653c68839968d68",
+    "formal/research/drain-pool-source.json": "f209052696c78bc745ee518d0fe46553af63dcedb5f19bae13ee019a2a8e2a00",
     "formal/research/ess-v2-contract.md": "a4f73a8e95156068f44131e63137fdd9871641599615cae5efa91e08b441e400",
     "formal/research/fixtures/admission-progress-before.hs": "25a34ade4acf336d865d103f3c2af1b652a172ceab4412e5722c607ab5e2d8b3",
     "formal/research/fixtures/admission-progress-witness.hs": "866dc747f34b80c5ba3652a66add1a0de5072973984f03b3e600ae36e063484e",
@@ -4034,10 +4361,10 @@
     "formal/research/inference-process-v2-contract.md": "bea4b290d3caa4049e54973fa7296f89f9b0714291c158ee3e751307ebc2d098",
     "formal/research/inventory-readiness-contract.md": "62ed9b43677b172db451457b49bf2be2290d4c1b9547a63ceb207e1109d04c8f",
     "formal/research/inventory-readiness-legacy.json": "e3f84c421b12641d09987702de700f06a9066047e97c146888ef5bc9640fef47",
-    "formal/research/inventory-readiness-source.json": "2e7a707b73301b4e9a6625be571ecebe5bda7b6064a789f83651d51e8f8f4440",
+    "formal/research/inventory-readiness-source.json": "b72f35f917c2a43d171149552ace800872b2887569a536e02c3d39e2f17ab062",
     "formal/research/lifecycle-stage-contract.md": "7a52c730fd28b12134da369cfef3267cfe3cc22eeadccb1bc356009e3fa4af53",
-    "formal/research/obligation-closure-audit.md": "546c1de98fdc32afa942a4f0c09f39332dac971eeed4d049491b0e8605914d27",
-    "formal/research/obligation-contracts.json": "bbe31041d96131245ab5d7c5eb2b2a82605a8894d5bbc8e509d1ae56aa8eef12",
+    "formal/research/obligation-closure-audit.md": "9ce0e9f41242242f8523d958ca7354628378f6536c5fe1d1087345ce21a57b9f",
+    "formal/research/obligation-contracts.json": "2941430eb2342daa021318d4634b67fc908df2b72a2abb25ae4d98aa64723af5",
     "formal/research/observation-causality-contract.md": "32b3587b36e68e7f54cf406d0ab488bc4503f322e4faa45ef6141bbf90462a76",
     "formal/research/observation-counterexamples.json": "d04034215925261ef43ee6965fce8fc8af676e9f796557fa395b243e2891896e",
     "formal/research/ope-algebra-contract.md": "a55f92ae300792668cd55357ee1a5edb127cdbd767e65d8f74a0672f7b6209e2",
@@ -4050,7 +4377,7 @@
     "formal/research/order-idempotence-counterexample.json": "caf13e5fa601ddbd0af5c3c0d48e010dce34300fa509c029660e6a0f10bf4e37",
     "formal/research/order-number-contract.md": "d61347e59351cb8b18dbe6580dc7d32c9cb109d8690e616b83b427f597f41f18",
     "formal/research/order-number-counterexamples.json": "23112a613e3871ce772a23e4d925d6d77bbaf6d37a8c94296aeb58092151bfca",
-    "formal/research/order-number-source.json": "8296199eb21d833a4275215b1628f94595473d42b2a95ce387a088b2769b5bb2",
+    "formal/research/order-number-source.json": "e6f62ea9ed028101bc35382c3858af2a216f5eaf1d660ebb7236bf22f6734a7d",
     "formal/research/order-wire-contract.md": "794cf91c9cb4ec88e6a552c7a36c0e8fbebc545069162281f4192f764a2f63ac",
     "formal/research/order-wire-counterexamples.json": "cbb47e0115de1535b4d390973e7d8e77da05e434cde93821d40917542ee70b3d",
     "formal/research/point-in-time-contract.md": "da8c71a6a8efb61ac4e7d7551a409397a222e90397a79ccefcd949380264dda6",
@@ -4060,13 +4387,15 @@
     "formal/research/ppo-artifact-v4-source.json": "9f8134e1005ebf2325645da7c5dac1e724741ae4f19221bbbcdbc1b74b3f2c2a",
     "formal/research/ppo-counterexamples.json": "8a04f9f03815811f10270f027d972a1a6da3f46300c3eabed29fd1187d20bfd8",
     "formal/research/ppo-objective-contract.md": "51eb4f6d0250cd7f1552d10ee75e246a0a3ea0f691b2df0a938caa702038d730",
+    "formal/research/ppo-objective-v2-contract.md": "1a82b497185f23b9d4e6b314ecc314034786fc9c932ea37e70b4cd27304879b6",
+    "formal/research/ppo-objective-v2-source.json": "2ca12a3ecf0a2567bdb9343c25dc15beb22df63c52e51d727114f84f8c9dc1b1",
     "formal/research/ppo-process-bridge-source.json": "41db0057b11313b1e641be56dcd6ac473eaa25f9f369dc2723fb9673b895634a",
     "formal/research/ppo-process-bridge-v3-contract.md": "69a8a784ad4a4ab24b383436bf27474cb0c9f4d95e63f5b7d9610f46a4f88bf1",
     "formal/research/ppo-successor-source.json": "b58e97c2ab60b48fe812e8c7b92ff1de9d40cb5c7399a0f60eb786d22956c08c",
     "formal/research/ppo-successor-v2-contract.md": "f5ebb254ed719e7e77bf3f0efb3332120a4c7601fec98ead550fe84db6bf7be0",
     "formal/research/promotion-boundary-contract.md": "09d17f3056806b8912a4ca2abcb111469d1c54dafe0756a60c11c25d06010996",
     "formal/research/promotion-boundary-source.json": "de35b449737a7cba839e45d7eb411bde6f041d5635618c084b1b4deb815f68da",
-    "formal/research/proof-ledger.json": "1d3b530e6c27fba9631a00a90b057af83bd5f5566fe30e6361fe20d4760add54",
+    "formal/research/proof-ledger.json": "dc75f009e3e9c8534140e08747e8edd5c8860ada14b61307d509820e6d1e414c",
     "formal/research/quantity-rounding-contract.md": "6fffe2aca1782705a8e12e671926737ecf32e9b80810bd491d559ebb080fe7a4",
     "formal/research/quantity-rounding-counterexamples.json": "53100d80459f979775c22bb766be29d2dd1ca8c60a19ff40b04a0d2224413491",
     "formal/research/quantity-rounding-source.json": "b4b72fbdc9df7d4b2cc54475bc227bf6e7d5b25dd66e08a463e88042aab6edff",
@@ -4080,7 +4409,7 @@
     "formal/research/replay-order-fixtures.json": "2c44f45007f86a9d84103ad4a06f92e8a9d2fcfbab60dccdcc32a4ba62d9f3fc",
     "formal/research/replay-runner-v2-contract.md": "9217abc289918542aff888a51309afa34b8a17bd49db2088a34d8342c50620c9",
     "formal/research/replay-runner-v2-source.json": "7b0b5bdaff59c5ce076407ee5f27f22f7a60cc18c38013a3f660969d78b4f726",
-    "formal/research/replay-shield-contract.md": "471825414459d02f74abb96a3bfaa16a24738c5399f613593bb14e3cdbbe5d88",
+    "formal/research/replay-shield-contract.md": "1268c048054f783a7887269b335c0823b1d1ac545d505a9d138c4516581f037e",
     "formal/research/replay-source-lock.json": "652e8b076ce8010d4c3378292e1d55f1a448441976e914be16098db48a88a925",
     "formal/research/report-bundle-contract.md": "ae5090f3dab78e2dbdb571e8f7b28036e6d9c7a85dbd55e3d3694d66a94e87ff",
     "formal/research/report-bundle-source.json": "e62e91b5e54506cc2db4029c79f9e8d6dc12d12df55bf73f371f2def55a8c3ef",
@@ -4090,7 +4419,7 @@
     "formal/research/shield-consumer-source.json": "9193fb4db9fb2a66eccf494937207d417bbff8671614e37d47799d0f568fc931",
     "formal/research/shutdown-counterexamples.json": "f07fddafffc4b417aeac4cae566c9f52de2871a0515641b1093de12f569fd203",
     "formal/research/shutdown-deadline-contract.md": "052481312f9074fc73118ce6ea9e13b8b32ff7e4f32b1a60dfff8159d661b9fd",
-    "formal/research/shutdown-source.json": "878c59e24608effffd04dd451c4687faf3d14a49c80d4da92e48b55cb572e08d",
+    "formal/research/shutdown-source.json": "7ff6788960f73eae197e764ccade7ae14531136c566f8df6ac9794c40352d499",
     "formal/research/sizing-input-contract.md": "c06ee997a5c1b7db187bba2c5bb5ebb7eaa3b5950561f3a393ccf720b5ca004f",
     "formal/research/sizing-input-counterexamples.json": "8114f4abce525905b240b633d4fe26fff28bc549ca6a21d6c35d7fd7a8156d60",
     "formal/research/sizing-input-source.json": "f2462ceeb5280e19db80889d4e750681fd44b945e0978bbcc907bc60ac8cf954",
@@ -4115,13 +4444,13 @@
     "formal/research/value-v2-counterexamples.json": "3efb3369b7df995a9a4bf08426ae10be3dd0e6a9621b788d27b3378c78d726ae",
     "formal/research/worker-registry-contract.md": "64257676f8be658d20ba644eafb4821979fc8e188d67b70072e8f626275aec93",
     "formal/research/worker-registry-counterexamples.json": "eca572f66ae5725db45f44dd9548275e9ac301a2b6b6ac98836e166cbbff249e",
-    "formal/research/worker-registry-source.json": "623861e745be99d19e01b0752de67e66781cb5a5074bfef3f1c05a6e972d2ee7",
-    "formal/specifications.json": "27edf8e572a1af4980f093aa00a8ef6dec0ff213232770b7e4738c7e61c50224",
+    "formal/research/worker-registry-source.json": "459a6ff05a68e55dddad71a78a35574a7b29f6b9c76851f954ad6720ff3b924b",
+    "formal/specifications.json": "c67d6f044764aa2167c93e949cdf6239abb51217d6333d337d7b665d4253f149",
     "haskell/app/AnalyzeCloseTimingMain.hs": "0a26fb0d4f4b7ad225314f56254a3cf38588c93f057441f6c4c578deeda36c0d",
     "haskell/app/LstmBench.hs": "85e5dec7e32e2277b063dc72c091796bd9d30df1a47ba6baaf841680c61464e0",
-    "haskell/app/Main.hs": "8c110b4f2e07ba01d943286c0e22bd08dd629a0b9db17406f4e0c4f70981b253",
+    "haskell/app/Main.hs": "58f1607895e42c0221f7fc4d78bee54d3b30a3b4bb9d6f551946bf5374b72fed",
     "haskell/app/MergeTopCombosMain.hs": "5b35284f4d1e94e47857f053197b72ad84584ca4304614c2d5ac59852283910e",
-    "haskell/app/OptimizeEquityMain.hs": "95f89ab5ae6ee07d07f88f958db05022a5ffa917ab2e07e118d58eff3819032c",
+    "haskell/app/OptimizeEquityMain.hs": "70781fee9b7adbb8c5c292246087433562a60856396a073c2813145a326dd1fe",
     "haskell/app/OutboxPublisherMain.hs": "3d99e4fb0e4c6d80ea957e0cceeb006c4f172f28a3fe9a062f4f2ad391a432aa",
     "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
     "haskell/app/Trader/App/Args.hs": "79c7b6e9bc83b36f127a8f4b7c16356b5ad06d2f91c7b8bf5b113a0ade8dfcd4",
@@ -4139,17 +4468,17 @@
     "haskell/app/Trader/App/Readiness.hs": "1271565c741a2e653a97879300199b103da4b9c68f3dc51885ff0e90142782f6",
     "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
     "haskell/app/Trader/App/WorkerPublication.hs": "bd7c41c91fc7ab3cbf8acca4105ee17a6ad1de5a8594d11a29d4e8e2dfcf485b",
-    "haskell/app/Trader/Binance.hs": "686856f7ecae82f085685b2aef23ff943f70274463ba2efb9907f23584cba278",
+    "haskell/app/Trader/Binance.hs": "627dca09a47d79cc9308e0ad8589681801b1cd51d04c211b0fa99f1cf1cda16b",
     "haskell/app/Trader/BinanceIntervals.hs": "82c7b0e8b1023a2655b3d40f9f43d0f6880c8b4251f989bd30c69a605b88fee8",
     "haskell/app/Trader/BinanceTradeAnalysis.hs": "90407ed30ed5729f3b93054096801cfc13188dd6a8a562f6c05d13288e3063a6",
     "haskell/app/Trader/BotSnapshotRecovery.hs": "5fdd9df515bf43aebc19de567a25728da591de6c000bde984b058259fffd12e4",
-    "haskell/app/Trader/BotStartSemantics.hs": "7590acf266e0bdfa03f3dacb769f429b04b35878cc0ebde0a0a462f0d20e1e64",
+    "haskell/app/Trader/BotStartSemantics.hs": "e53aec116ca8d187cf3783dd3309ab6ed079acb0f632c92166fbe735fc44bf20",
     "haskell/app/Trader/Cache.hs": "e0131bd88e33bd7c2eeaf94ff53c7a2749a9c84c1fb95cc5d339118144c15d41",
     "haskell/app/Trader/CapitalPreservation.hs": "dbdd61095b3a298f7b7713a3d1f0a255e21bbebb066c83d303862044a274aa54",
     "haskell/app/Trader/Coinbase.hs": "ea4e3f5f47e0e14b3ac44e6bda0b928a59d3576a1892c435673cdd701f2b97d6",
     "haskell/app/Trader/ComboTracking.hs": "57444fefecfefeea781a8332f36b7f6cec258d52a792d4c25ed57c503ceafb6e",
     "haskell/app/Trader/Config.hs": "3eb9fd8310ad5ae64216fd7d5640d5cdb70bd4ba86e12a3be419e3cce173613f",
-    "haskell/app/Trader/Cors.hs": "ee7c86f4620636265409444a39fdd11a006e96fc395ad99a329c67b1cbf6c67a",
+    "haskell/app/Trader/Cors.hs": "0e9ac758ed759c099c223713911c10f03f5cfdc72db3b67b7f7086e5c67e4015",
     "haskell/app/Trader/CostCalibration.hs": "52c087c4d447ef1d516f2c57d678f47aee9f6377f135b405453db376a0fdf5c1",
     "haskell/app/Trader/CrossSectionalMomentum.hs": "6321d93b886227af6cbde5def7511b6bcc8fedd4f2ed049b592e169ca1413abf",
     "haskell/app/Trader/Dex.hs": "a9ceb968b63e798e64d10065b5850181248205fd53da2ab1ced1e23a2d2dd859",
@@ -4180,21 +4509,23 @@
     "haskell/app/Trader/NeuralGovernor.hs": "5ace954cdd3e3ebec07633ac985610392e08061681fb843306b020a3b55dde1a",
     "haskell/app/Trader/Normalization.hs": "aeb9ca46c07ba57192fe5b5f7eb09ea0df9efbe5fb3d7be2119c64be0d51b9b1",
     "haskell/app/Trader/OnlineStats.hs": "3a449c61fdcbb7d5022a79a04aedcc5fe81315b8d82c099a755752902a94b76b",
-    "haskell/app/Trader/Ops/Migrations.hs": "ee4da48090953d21bb866c8d634887d05b98faac57c9bf4e9aab6327c9fd9e17",
+    "haskell/app/Trader/Ops/ComboParameters.hs": "6f83ba36a7fba5bd9da4f2193ffc2223f5de8e2ecc0216a79ff2bb5961aa54ef",
+    "haskell/app/Trader/Ops/GraduationTrace.hs": "58641427d0697afbab73e8f797d5ee4478c55c79eeeb5013093d6772f6320c85",
+    "haskell/app/Trader/Ops/Migrations.hs": "01dc5c5173443017e47ba6a02e129a7ad0f50a6bb4a949d8ef6946e7cc2dd324",
     "haskell/app/Trader/Optimization.hs": "63c7a9bee9a9964dce845384ed61e4bcb3d64bf4d0bb8865c71b85aa472cd643",
     "haskell/app/Trader/Optimizer/Common.hs": "4de82093001a695e9ad930fb575efd970baeac052b4b79e8fd4d3dd4810ab018",
     "haskell/app/Trader/Optimizer/Json.hs": "89dc758d65df8828857f57335f3ac4de61657f185ff7a3d734497ca9956b276f",
-    "haskell/app/Trader/Optimizer/Merge.hs": "62d207698bcff6cf99b0d2a4b6f3043502ff10e17480e2f577555de29da6cbd0",
-    "haskell/app/Trader/Optimizer/Optimize.hs": "69f4bb68c98fb03335d272282577715de2c995304c9246de46bffae90cdba94e",
+    "haskell/app/Trader/Optimizer/Merge.hs": "15aa8cb6995b7cde9d8525f19770d0ebca785d50cfe889b17a04b2ea1ca1d69d",
+    "haskell/app/Trader/Optimizer/Optimize.hs": "1419bfb0bff23881c77e72c69a36a6f3e533e0029d1f86ae840e152039078ae5",
     "haskell/app/Trader/Optimizer/OverfitAudit.hs": "ae9c828b83db28497de265a36e49aacff25606d702317f2e356fc15a3da75f8b",
     "haskell/app/Trader/Optimizer/Random.hs": "36d9186efc777687fbaed5004f6c96656547fe4a8a05567d13740e87501f9c6f",
-    "haskell/app/Trader/OrderExecution.hs": "82650db3b52d85a46227363ab3ed7a14b4e0458b3189aeab0515564d0dd86dc0",
+    "haskell/app/Trader/OrderExecution.hs": "913e1d1301bd3f9b3a21094cd95c02d15d69c714a4160c2b932f2645596541b2",
     "haskell/app/Trader/OrderNumeric.hs": "926722f0356dc72b1d88b8debcb137009e74288b2c51538370961933ee7077bb",
     "haskell/app/Trader/Platform.hs": "42a7d8dc5df322578bd128c10cfc3669d2c1b790fb0fec7d457e95ba8328ca5a",
     "haskell/app/Trader/PointInTimeUniverse.hs": "77f2c9ac3c4eb67b8b0fa0c8d16852bc9a322fd6f9e6a31aad360a6e768dc71e",
     "haskell/app/Trader/PointInTimeUniverseV2.hs": "d4eb76f2fd964192920185757a067153e118fe8f28ac1f0f3c4003b2fd13f35b",
     "haskell/app/Trader/Poloniex.hs": "502fa8950b667be4acae8826bd77527880068168166947b35173f30d474b5fd8",
-    "haskell/app/Trader/PortfolioSelection.hs": "afa267fde3f35d852abaa6141b2d53cce9ffc503435a6d6e06e56a58684c9d76",
+    "haskell/app/Trader/PortfolioSelection.hs": "1bd9eb92295d6f982c5b9a7854dbc012810a9089acf0e7e0184958b7d76a2a6d",
     "haskell/app/Trader/PredictionMarkets.hs": "cbca06be04514adad2bdf6074f499b9f6b50a09b5c442a1ea6257865eebe8253",
     "haskell/app/Trader/Predictors.hs": "16fe6c580e3da263c2af9c5ed2f0b36e64d02f599a163261d04374204d05c510",
     "haskell/app/Trader/Predictors/Conformal.hs": "4178b94587c321985d5560521d38f8358e8f3ae4e61008d86c0a705e917f1393",
@@ -4225,18 +4556,19 @@
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
     "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
     "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
-    "haskell/app/Trader/S3.hs": "5e541b7cc2d3b20c4c039c5ebdbfdbf4d03de586177f31556325364d33056ef5",
+    "haskell/app/Trader/S3.hs": "f8b7457165c49c6d5fcc0fd998fad75525f80a69dd237bfaaaf06d8b5a1d5bf8",
     "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
     "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
     "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
     "haskell/app/Trader/Split.hs": "c816d6020fd3b52e9c1c1f9c340c9218cae5f2c001bf6342784d111cdedf8398",
     "haskell/app/Trader/Symbol.hs": "ed853c32ef1c8e34b911203ce66e4b7e8771ed337de6a6d18ed73fac252c7d05",
-    "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "b0c1e7d00103f919b413236d86b671789c721ee5250853e2b5e090d2f51d39cc",
-    "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "63070d18f18688073a38ecb839f4fc56c1e4cd5bfacef74e7f5b0097ce3474a2",
+    "haskell/app/Trader/TechnicalAnalysis/Indicators.hs": "cc864d89e3f537480042140ce310e67f6212a3d28bc4ee89faa26f237db91721",
+    "haskell/app/Trader/TechnicalAnalysis/Strategies.hs": "03bb23b7702624e6f044fda01234c5886a0ab6b4be8bf23db62bd925f284472f",
     "haskell/app/Trader/Text.hs": "2358b8c83b04534cf98cdd5b55af6c44922ab4e642689d25149923b58b527287",
     "haskell/app/Trader/ThresholdCalibration.hs": "4c5c968e25c0f51b8162b7807ea09102a4577cf7063b2b4c60619cdfc362e93e",
+    "haskell/app/Trader/TopComboRetention.hs": "8e1343fbc1cf4c1a73f583e9fef7df775fd7970a654cbf98ca3e2422973d88bc",
     "haskell/app/Trader/TopComboScoring.hs": "ccf0ea696a15174de751335c02571c75ccc08f019c9ed28037d184c191a7a3a1",
-    "haskell/app/Trader/TopCombosStore.hs": "01558a6188e9aa64bfbee6653d4ff1dcac4a7b244919c3cc9ed0dd39dc907638",
+    "haskell/app/Trader/TopCombosStore.hs": "35d5aadd0ed62b59b5baa8cf047178b05521a6362e0368936e8a9de298836487",
     "haskell/app/Trader/TradeLogRiskState.hs": "cffb3b7b6e9c4f80f4a232396f8541bd7ad799a2a4e4cc9b8f77e3a50e78059b",
     "haskell/app/Trader/TradeMethodGate.hs": "3c1f3f49c090335950b4d392e2648a76129eb694bf00d785982150057abcd2cd",
     "haskell/app/Trader/Trading.hs": "c65596455803112e30986fc638e5975daac0ab4e57dc0206454fc49888473693",
@@ -4245,16 +4577,17 @@
     "haskell/research/InferenceProcessV2.hs": "d5a01cded9ab8b110e0e14ad7348323102e1452e5c2a4fb9397284d722bb2ad1",
     "haskell/research/SnapshotRequestV3.hs": "75894ae701096cda051269c3f86162a1527b688ebaf8749c3fd2fc077991fc85",
     "haskell/scripts/rollup_performance.sh": "450d7650ca208938cbc4c7ef24c630415b9a15c06e8bbdb06437942354c5d5e4",
-    "haskell/test/TestMain.hs": "de4fb1b9bae28346683566665fc0a85840d754641fbe61c7ce596a6cd7d4ee43",
+    "haskell/test/TestMain.hs": "a0a43b2115406ccbff7ff0edc92ad4e2ff3ec319704c2a11eda6eb07ff69b98a",
     "haskell/test/Trader/Test/AdmissionProgress.hs": "aaae04d8b6b315dc8214abd1e4b8363ee54f52159717c2577427aa0118c74451",
     "haskell/test/Trader/Test/AsyncJobAdmission.hs": "fdc49dec38a4805b18a993c6b3858e073bcad163d53340fb84b889a8d80c5a48",
     "haskell/test/Trader/Test/BacktestGate.hs": "8bd8432d6fccfa69a180f64476269c47c1a77cd0673bed21482c83c8c1ece9bf",
     "haskell/test/Trader/Test/DrainPool.hs": "80c310115e97a338062f02bb0176e85c100b79a33d886653f78bddd7a4186430",
     "haskell/test/Trader/Test/GracefulShutdown.hs": "5237934157849b58700ff5dc9dcddc8bb647b5a8c09e41c43b191448e837c872",
+    "haskell/test/Trader/Test/GraduationTrace.hs": "772abcb35a4ddf03f59a00a0efc672a01f2e09a3c3ea825f1063f07158397a4a",
     "haskell/test/Trader/Test/OrderNumeric.hs": "1d0dda9cb5e99f98be7f01b5b40daf0257b4c22650983496de91e2cb14c0406d",
     "haskell/test/Trader/Test/QuantityRounding.hs": "beca37e3abb7cf99cbad7898dcedcada61dd2acf510f41d6ee6b92991cf0da64",
     "haskell/test/Trader/Test/WorkerPublication.hs": "27a9f405c1569354bfb380fcdc1e7aae0d3f42d718491d15d64176fb06a1d908",
-    "haskell/trader.cabal": "2b96862e23bf431094dedc271bbd0707182b4cba7049fff21d46ba5f999b78af",
+    "haskell/trader.cabal": "6549d2da5f464e77d597b2dddcf883a943d3d8b545db6dfc8b32527e64c8edfe",
     "research-notes/registrations/accounting-reconciliation-engineering.json": "1c5fc386b44170e1714cc5b1c1f74d5680d4a9d723ec0426d3902c74547c48f7",
     "research-notes/registrations/admission-progress-engineering.json": "1ff0bf3d120c065c0bcb13b92478564221a8459cf6e8ad323a4cb2e014f61489",
     "research-notes/registrations/artifact-admission-engineering.json": "4f213bd86f2ffcda662f1c2f2a4a1f6e11bc25ef8fe92202dfed5389b79cc258",
@@ -4264,7 +4597,13 @@
     "research-notes/registrations/bot-worker-publication-engineering.json": "77846ffc265249da2354459fc23eebebd9da357e2e92c0b5d0ed7df7330a1bf5",
     "research-notes/registrations/bounded-values-engineering.json": "810539526ecc24f5a1d686f2a965f5aa9ebf9229604dedc6c7525d40589306d0",
     "research-notes/registrations/capability-isolation-engineering.json": "d569c690b4c04a6df0df950a34645939755c2388ef456b9032c0e2b13083fae1",
+    "research-notes/registrations/causal-ope-v8-engineering.json": "4b2d59e92414b07a7230c24ee924dbce1f68848e8f4630ca5a49e6d85db2f799",
+    "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json": "628b6c470fbf31c6d4ddfa78f1c392375f2608caf9bc564fff3b9d506c58c56a",
+    "research-notes/registrations/causal-ppo-v5-engineering.json": "e07373f64d3e0f04f54a7642045ae95a20ed31614b9a9e7761fc518f679b6ac9",
+    "research-notes/registrations/causal-ppo-v7-engineering.json": "26dc4cf9f0ca4b39ad5933e2ab96bd706d01783ad597297d67cbc9fd537c7113",
     "research-notes/registrations/causal-replay-v3-engineering.json": "335a9d54944381d491e28b5278a395bf766a74a4f68b3f413e79ee4d050ef11d",
+    "research-notes/registrations/causal-transition-v4-engineering.json": "16f989434e7c002e46e2b34b6422e1783dd49b1603274d7210067ba5c1bacf0a",
+    "research-notes/registrations/causal-value-v6-engineering.json": "e46ac1d6a636ddac823a56b7638ed87159768cd3b7699414b9f5c669cbc7adbb",
     "research-notes/registrations/champion-archive-engineering.json": "c85ffe9f4f1dcca1bc02a83784bbe4e18278a587fced36cd417242d95eef0a00",
     "research-notes/registrations/closed-trade-recovery-engineering.json": "aab2981fb719834652e837f7801fdb1a5a606bf40093ca6be8f252631e26ab52",
     "research-notes/registrations/drain-pool-engineering.json": "061ddd0e2fa719c6e2bb4893b71d1b0b84effbab924d267133b2964f3761312e",
@@ -4288,6 +4627,7 @@
     "research-notes/registrations/point-in-time-engineering.json": "4caca2ca287f24956e9de37a0fe3c6414774cf0432ce71bb2cb3dfa751d392d3",
     "research-notes/registrations/ppo-artifact-v4-engineering.json": "06cf7d683de9c2e648e4fcd292a41bb42e1068d1ca01952e7b79c9324fb9508f",
     "research-notes/registrations/ppo-objective-audit-engineering.json": "9da3e232087fd860e10143656fa9c1ff7c00e4cbbc2ad0e8e0415e32d119a534",
+    "research-notes/registrations/ppo-objective-v2-engineering.json": "8543e1ad23ab4d5efaf730d13bf4eaf0029e9a6ebc0130c49547be735c8a6217",
     "research-notes/registrations/ppo-process-bridge-v3-engineering.json": "fff9e59d0b3ce5a3a3c72f6fd09cd585e6208ada1e09457dfe2d77abb6387fd9",
     "research-notes/registrations/ppo-successor-v2-engineering.json": "fa1b6bbbc43e669e3007d7e340eb0ef2244ea7e663a0d7fa502825373f21c09d",
     "research-notes/registrations/promotion-boundary-engineering.json": "5a9659b44e6d77557307ad033444e12543de07807155b31ef9ab05c694f21b50",
@@ -4309,6 +4649,7 @@
     "research-notes/registrations/value-objective-v2-engineering.json": "aad266aedfa8d46dc1951eea1bd08d040114461c0b62add005d5dd1220cf56bd",
     "research-notes/registrations/worker-registry-engineering.json": "b953fe44a73076e465749fb4ff18e05c939ec7ef1b0c04da5ca598fac85f0eca",
     "scripts/autoloop-lib.mjs": "b9bb1bb6c1fa9ae9d5db582330e32bf8f94329e3dcc1f304b6f1f4c2ff75fb33",
+    "scripts/check-formal-source-lock.py": "f46854bf7778aa8564cd89eccb3bcfd1cea413e97fae4b635157c1be1cdf3e72",
     "scripts/fly-radio-stations-loop.sh": "8dc73008abd3bf3bbac64ac315e4fd4706155131538cadc3709788c266625b2a",
     "scripts/formal/accounting_reconciliation.py": "0c6d24a1f6e22040ff14d86a122bf131903bb9c5c83c6647f50c2b96a1f0ddb2",
     "scripts/formal/admission_progress.py": "2b6ef29ca718329cce301c2d3823f505f8c7b97e98281c7d36f4787c1d88e8d7",
@@ -4323,7 +4664,10 @@
     "scripts/formal/bounded_values.py": "a427d268a39e194a1d2cb4c567390764ea48676cef440b3c206a971eadbacd2f",
     "scripts/formal/capability_isolation.py": "c59581adfcbb8bfb3a9e126377ee007a5d1690eb001ead68bb71fe6338dbd584",
     "scripts/formal/causal_footprint.py": "ab00acb6195817b006bf88cefee50a9ce63d4a9c648dce80374f552846afaf75",
+    "scripts/formal/causal_ope.py": "8bd85cf50ffb9c1d1a210807385630191872bf270479d8cdd4b9e4ec8b825eb3",
+    "scripts/formal/causal_ppo_learner.py": "6010eb37333e777c25e8c8893045757969ebf3a22dbc3a0eec4d35e92969c870",
     "scripts/formal/causal_replay.py": "384e26a7c7761467a82899a676555bff85ef18067d6f585aefd7ca7e9305cba5",
+    "scripts/formal/causal_value.py": "dbe807e7d3d6ee00e841bb64c6e96a9a8c57aa6bf30944c89c174a7641e73e16",
     "scripts/formal/champion_archive.py": "2ccd38fd305f7cb55cf4a75b97b4ea1f79dfe3b2b1ce624cb97e51c8f96d91f4",
     "scripts/formal/closed_trade_recovery.py": "76f07d58d1fdeb6501d5b8fb718854c6b4b4c84a8cf6f4d4714d9f816c53fa72",
     "scripts/formal/conformance.py": "b781100b3c00bf66d259e3c7be470b7d79a2c5c4a819b425a39c75e1de2818a9",
@@ -4351,6 +4695,7 @@
     "scripts/formal/point_in_time.py": "35d739aa6d24340d2db381b636130caa8915b23de465f02e4b86064429063f64",
     "scripts/formal/position_ownership.py": "0594ff5d2b2d1df0ce3d312d06969d2c2a6d6e1b01f3d8b1865d8edc2793661f",
     "scripts/formal/ppo_objective.py": "5f38856c6c3bf407848e24c61693fc9b4ae43e8315cc119d5f9b1361122e213b",
+    "scripts/formal/ppo_objective_successor.py": "a5d27f602634a8db381dc2a85b9d08f1597b4ec05cc2f89d506a23fc70f80acd",
     "scripts/formal/ppo_process_bridge.py": "f571a78b0187f5b291f64c1d6991202a6519f7b282a021ca8eb36ab0bb55723a",
     "scripts/formal/ppo_successor.py": "3b33d301723b8d8a22cbe4f1da189b6a1b412dbbbd05ad5a7fd1fe2a786351a3",
     "scripts/formal/promotion_boundary.py": "4bb77a4bc8b324f5f1b7291c738b6f38fd882c4af95e7deee9f200b9a21c243b",
@@ -4364,23 +4709,29 @@
     "scripts/formal/report_bundle.py": "4d6ff62c1e8aa275a16f44d50123ebf44acdda0fbda0b72a6347fe7b7a50d336",
     "scripts/formal/requirements.txt": "327e1ca98350ec14a9a88c40b498464511daa4667217011d0afcd086a77246bb",
     "scripts/formal/reward_accounting.py": "af7e163b98284e6220bb383eceb06faa65ab3cce153b976f815c53b48b195608",
-    "scripts/formal/shield_consumers.py": "a24a1abf1580bdfa08de27b355eeef099dbb8b2709a9f6036e50f73822893c51",
+    "scripts/formal/shield_consumers.py": "dadb3dadec4ef5f2435822007b0fbc0d2ffde9a7df2230867b9ece77fc8948ff",
     "scripts/formal/shutdown_deadline.py": "793e0dd083da053b9d3a1a57ed24f279a8e4024290e4e6cc466bc47d1ec593d7",
     "scripts/formal/sizing_inputs.py": "9a1b098828f5b10f6ed41824fafa069d8e1f4cb02659c8559d8d9c562bc657ea",
     "scripts/formal/snapshot_v2.py": "4e610b5affa6c2267150f8a4f69468662f5254b8272789038b28666d8b376db3",
     "scripts/formal/split_isolation.py": "2bce1d85906d338f0f198db03f44361025438687042446fd81cabdfb43106d85",
     "scripts/formal/target_v2.py": "6c8731796033e8d2c987e23f6161734a903664f6d80ce519566bfbdcf2b47c3a",
     "scripts/formal/terminal_numerics.py": "68acba1543227cb3b6be61610944dbcfbe20930031b2071cd84b4c6c5047c0a3",
-    "scripts/formal/test_integrity.py": "8719cea8350866d9b2f4d2f1d8e8a378d6b492024eed20b38d3f7c73f7541b3c",
+    "scripts/formal/test_integrity.py": "84aed34c80facd8bef11f8eafffd487c2c742cbbc5749aac9a928b4bf71132c7",
     "scripts/formal/training_prefix.py": "8837222286a4bccf754d45aedb1bb9c11ecb63af725987c4c0230159bcb398cf",
     "scripts/formal/transition_admission.py": "474b96cc4837cfb260c3b40758d79484412c36c74f58929c3ccdbdb5842ab748",
     "scripts/formal/upward_rounding.py": "83ee7fb21f2c56f9bdf63817bcd408131d7a023a7834a603fb98fbc427fa7a92",
     "scripts/formal/value_objective.py": "7042133263cd2869de4fbcb62f9cb7a65d4248b8efaf8ebeda5c076033d49247",
-    "scripts/formal/value_objective_successor.py": "2d4f24e07f15feeff3a3b6433bedf8aa8d1461a0298f138371ecd1d62bce1620",
-    "scripts/formal/verify.py": "e8cea8f4fb3c8dd3bba6a2edef0bfe49982d58ee08da8673c918166d85022314",
+    "scripts/formal/value_objective_successor.py": "937cd069807a761c206952790fe485e14793dce01f9878aa9df7db49ff25a865",
+    "scripts/formal/verify.py": "908bcea3afb7fe456fc6d91a8e976d4ca32a5f9a9bd57f0136e5a52117578ca2",
     "scripts/formal/worker_registry.py": "7862dd941d26ccc42d68140b193ca3dd9a90a631c41030d69888dbb02d449179",
     "scripts/maintain-radio-stations.mjs": "91dd47014129f474af20667255f27fa93efa92eae226577294bc4c82e3856037",
+    "scripts/research/causal_ope_v8.py": "7c2d1159f58b31f5aafad820be98e820c17dbb611664e9b49c826239fb58fc53",
+    "scripts/research/causal_optimizer_v5.py": "a18d6f1107141dbba199ca45e8fe1a90de72512c2b8d9269e039b356c8143f19",
+    "scripts/research/causal_ppo_v5.py": "7fa7d7b46a8effd80c55c1261ec1fda691afa2476687b7e49a8a069f8ec7c072",
+    "scripts/research/causal_ppo_v7.py": "386400495c0dbe04cab79b75cefabf3b7bc43331b2fa8aac4af3d74ef61fc297",
     "scripts/research/causal_replay_v3.py": "cbb24a39126375322866d4e27ce17180b1e620906e6a849d777b12a2df3c8a17",
+    "scripts/research/causal_transition_v4.py": "c16a358c9605bc894ddf6bf5b259836c8fe9a20f5a0f0fd39a519c5f5f4312cd",
+    "scripts/research/causal_value_v6.py": "2d6964217f49cd27626c4ad0b4852cc43bd6a8d1a320c3ad74c05cbb75b13f45",
     "scripts/research/ess_rational_v2.py": "fb7c4986985df6c71a39ad8de585e8617bf601ec664aa6f9bd95b4b5688362bc",
     "scripts/research/funding_events_v2.py": "362e3c59961839a5874106188023e9e55b9dc56026c31aec53101ffe0805f1af",
     "scripts/research/gae_targets_v2.py": "f805f20743d229b8f314702e933e7c5d1a5e93f5e64f2c609959b1ea4a0a8923",
@@ -4389,6 +4740,7 @@
     "scripts/research/point_in_time_v3.py": "90e178ca0e0565c262ec2d23e53cb4c4c1522aea476a9c6ad59027caf983848f",
     "scripts/research/ppo_artifact_v4.py": "062e2e0583fc3420758610b5c511e74365b260db72448d635180305741e061f5",
     "scripts/research/ppo_inference_v3.py": "78d7a425a2619136aa5d2429c0ff069d4c03770f3260d3d7fa588e243ba656f5",
+    "scripts/research/ppo_objective_v2.py": "b99502dd9b50562bd25e9bbbfc18f5e8be44af70326b31f2e7155fd2f9902bea",
     "scripts/research/ppo_successor_v2.py": "89d66f4f096e378ee476a630f670975f6c175b118f8821765207ac562b2ac049",
     "scripts/research/replay_accounting_v2.py": "9b15586cce22acb0d80b6ce9f6abeaae107319b7eac31ea0e651201cb50690d4",
     "scripts/research/replay_runner_v2.py": "cbbe1680a37487266bf57146eaff9bc48cfd91fca8ded9fb45446755426b4bae",
@@ -4399,8 +4751,19 @@
     "scripts/research/sequential_learning.py": "398c854c51bc5aa4ae4b18cb588d87ab20384440da9905b781511b25cb2ea587",
     "scripts/research/summarize_sequential_screen.py": "64963b746e913063472aa2bb4e898770916a4edc37813e32ab79d20d1dda46aa",
     "scripts/research/value_objective_v2.py": "6e535e3ad99439c00a7c8f2bce8c7436bf8017bc14b812198bf0451c1338ae0c",
-    "scripts/verify.sh": "d40af64b27a8b4fa76fab973929848ac81077a66a65eb4d9c2ac2b8fe1235223",
+    "scripts/verify.sh": "0f7fda61f89e03259ef6a4361bb98c64074763849bfad5574c1419841cf0c127",
+    "test/causal-ope-v8.test.mjs": "79f0431e6583ae4538592287f2b0035172b4ee2396f3fd4734e963297aad3b17",
+    "test/causal-ppo-v7.test.mjs": "b77503e9711775cb08508bdacac146367d1faa36f01014e3d7c8b2052166b949",
+    "test/causal-ppo.test.mjs": "a0ca9964dfc920618333b20653a3e378c9dff65ec86ca4afbd59513d872413fa",
+    "test/causal-transition.test.mjs": "1264890bb61a0463ba96f9fa4f8a5ee6c247281e5078c433a16d4841f1847e12",
+    "test/causal-value.test.mjs": "19ae31cc21d22a2884e9ab4b322272327c5d1a6ff3392602ef0f44ca00aa2710",
+    "test/causal_ope_v8_test.py": "8a6dca2bf9bfa9d9acd2b5a3a51f1fa329d5a0cdd34fb91540f68f7f628d4629",
+    "test/causal_ppo_test.py": "eb8006f5784b6242d46774dc002cf56fcc0548b07693a15ad0b73600170d0611",
+    "test/causal_ppo_v7_test.py": "81b34850b08cfcd7605d3a825e2561fb50b3ea56f82f1c78b17ab66735ab5503",
+    "test/causal_transition_test.py": "a8c9da967ba1b06ba62b7840d3b9eb881d6507295d00e1f05aaa600e49c66dfe",
+    "test/causal_value_test.py": "940eb66382c03b53177c9bbec382baed032d94d382a017a1e2c05c8a3532090a",
     "test/fixtures/sequential-adam-v1.json": "700f87396d8b92ed02943aa3e4f90266fb59d78900a3b0c5b0bcff1567c2b7de",
+    "test/formal-source-lock.test.mjs": "cc019d1079445887240af9b162bc85e99941161cde425d27513767a3e1f83fa9",
     "test/sequential_screen_test.py": "8f2d08f2ab652655e3d217274ca119f970c81feee8c2df5ca283de9a7ef9040c"
   },
   "splitIsolation": {
@@ -4602,8 +4965,8 @@
   "valueObjectiveV2": {
     "bounds": {
       "finiteLimitLog2": 220,
-      "gradientBoundLog2": 101,
-      "lossBoundLog2": 201
+      "gradientBoundLog2": 102,
+      "lossBoundLog2": 202
     },
     "conformance": {
       "economicEvidence": false,
