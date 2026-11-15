@@ -21916,6 +21916,8 @@ topComboHasRelaxableEvidence now combo =
         && isJust (topComboMetricInt "tradeCount" combo)
         && isJust (topComboWalkForwardSharpeMean combo)
         && isJust (topComboWalkForwardSharpeStd combo)
+        -- The open-threshold ceiling is never relaxed, so an above-ceiling combo must not take a relaxation slot.
+        && comboOpenThresholdWithinAdoptionCeiling (tcOpenThreshold combo)
 
 topComboPortfolioPnlScore :: TopCombo -> Double
 topComboPortfolioPnlScore combo =
