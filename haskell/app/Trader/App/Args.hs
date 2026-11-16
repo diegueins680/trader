@@ -1795,7 +1795,9 @@ validateArgs args0 = do
     ensure "--adopt-combo-file and --adopt-combo-uuid must be given together" (isJust (argAdoptComboFile args) == isJust (argAdoptComboUuid args))
     ensure "--adopt-combo-file cannot be used with --serve, --trade-only or exchange trading" (not (isJust (argAdoptComboFile args) && (argServe args || argTradeOnly args || argBinanceTrade args || argBinanceLive args)))
     ensure "--backtest-cost-multiplier must be finite and > 0" (let m = argBacktestCostMultiplier args in not (isNaN m || isInfinite m) && m > 0)
-    ensure "backtest stresses cannot be used with --serve, --trade-only or exchange trading" (not ((argBacktestCostMultiplier args /= 1 || argBacktestSignalDelayBars args /= 0) && (argServe args || argTradeOnly args || argBinanceTrade args || argBinanceLive args)))
+    ensure "backtest stresses cannot be used with --serve, --trade-only, exchange trading or maintenance modes" (not ((argBacktestCostMultiplier args /= 1 || argBacktestSignalDelayBars args /= 0) && (argServe args || argTradeOnly args || argBinanceTrade args || argBinanceLive args || argOpsBackfillCommits args || argTopCombosBackfillCloseTiming args)))
+    -- Tuning would still read undelayed signals, so the tuned thresholds would not match the stressed timing.
+    ensure "--backtest-signal-delay-bars cannot be used with --sweep-threshold or --optimize-operations" (not (argBacktestSignalDelayBars args /= 0 && (argSweepThreshold args || argOptimizeOperations args)))
     ensure "--top-combos-backfill-close-timing cannot be used with --serve" (not (argTopCombosBackfillCloseTiming args && argServe args))
     ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)

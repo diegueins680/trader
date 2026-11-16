@@ -207,7 +207,7 @@
     "haskell/app/OptimizeEquityMain.hs": "70781fee9b7adbb8c5c292246087433562a60856396a073c2813145a326dd1fe",
     "haskell/app/OutboxPublisherMain.hs": "3d99e4fb0e4c6d80ea957e0cceeb006c4f172f28a3fe9a062f4f2ad391a432aa",
     "haskell/app/Trader/Api/Routes.hs": "af0437d11c03c8c76e745ce195663adc023e1c81296228106ce02521d345dd1a",
-    "haskell/app/Trader/App/Args.hs": "5154dd13aa961b7548d505b208be9197ee4af2243cd6bfa3fdb41b2300d16938",
+    "haskell/app/Trader/App/Args.hs": "f26a74cea2f54b7e35c06f74a685a687c432f9532998564ec7774e92d70fc429",
     "haskell/app/Trader/App/AutoStartBackoff.hs": "e266e14435f513868a0f4474ec5210e17a2ef220a679d8ad320d1754f37f9f5c",
     "haskell/app/Trader/App/BinanceProbe.hs": "9586d20e8ff6ac8a99c8fddf4ad2f4709d388589ee44dbe798357ed3a908fa94",
     "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
