@@ -132,6 +132,10 @@
         "formal/research/causal-ope-v8-contract.md",
         "formal/research/causal-ope-v8-source.json",
         "scripts/formal/causal_ope.py",
+        "scripts/research/ope_rational_v3.py",
+        "formal/research/ope-rational-v3-contract.md",
+        "formal/research/ope-rational-v3-source.json",
+        "scripts/formal/ope_capacity.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -1001,6 +1005,22 @@
         {
           "id": "F-RL-OPE-V8-CONFORMANCE",
           "statement": "Registered synthetic evaluations over both successor learners are deterministic and reject by default and under a wrong version; every published estimate field equals an independent exact-rational evaluation of the recorded transitions; a target equal to the recorded behavior gives unit weights and full effective sample size; for every evaluated policy-gradient step the exact drawing probabilities counted on the 2^-53 grid reproduce the recorded action and lie within the certified gaps of the recorded probabilities; rewriting every outcome beyond the horizon leaves the evaluation unchanged; a run ending at the horizon is admitted; short, forged, reused, out-of-domain and oversized inputs reject; and the estimator's rational size limit rejects six fixture runs at horizon 32 while admitting four."
+        },
+        {
+          "id": "F-RL-OPE-V3-SOURCE",
+          "statement": "Exact OPE v3 equals the hash-pinned reviewed ope-rational-v2 module up to exactly three registered tokens, each occurring once: the version string, the entry name and a rational size limit of 2^20 bits instead of 8192; the predecessor's complete definition lock, activation-first default rejection, whole-batch admission, checked arithmetic primitives and private publication boundary therefore apply verbatim; the bounds are 256 episodes and 32 decisions; and it imports only the standard library and has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-OPE-V3-ARITH",
+          "statement": "For every admitted batch of 1..256 episodes and 1..32 decisions of finite binary64 values, every value handed to the estimator's size check has numerator and denominator bit lengths of at most 1,006,337, below the 2^20-bit limit, so the size check cannot reject an admitted batch: each checked value has a multiplier, a product of powers of behavior numerators below 2^53 and a power of two, that makes it an integer, and a magnitude bound; a reduced denominator divides the multiplier; and the product, common-multiple sum, reciprocal-probability and common-multiplier quotient rules preserve such certificates, while an unreduced fraction is not so bounded."
+        },
+        {
+          "id": "F-RL-OPE-V3-FLOW",
+          "statement": "Through the source identity with ope-rational-v2, the finite exact-OPE abstraction performs no arithmetic before whole-batch admission and publishes only a complete batch; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V3-CONFORMANCE",
+          "statement": "Registered synthetic batches are deterministic and reject by default and under a wrong version; every published field equals an independent exact-rational oracle and equals ope-rational-v2 wherever that publishes; in instrumented runs over uniform, full-mantissa, subnormal, largest-finite and mixed binary64 inputs every checked value is integral under its certificate's concrete multiplier and within its magnitude and bit bounds; a full 256-episode 32-decision batch that the predecessor rejects is admitted; lowering the limit to 8192 rejects the same batch; and invalid, foreign-typed and oversized batches reject."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",
