@@ -16,6 +16,8 @@ corsSuite =
     [ ("implicit cors allows health reads", testHealthReadAllowed)
     , ("implicit cors allows readiness reads", testReadinessReadAllowed)
     , ("implicit cors allows optimizer combos reads", testOptimizerCombosReadAllowed)
+    , ("implicit cors allows the conditional preflight for optimizer combos reads", testOptimizerCombosConditionalPreflightAllowed)
+    , ("implicit cors rejects other preflights for optimizer combos reads", testOptimizerCombosOtherPreflightBlocked)
     , ("implicit cors rejects tenant-scoped query reads", testTenantScopedQueryReadBlocked)
     , ("implicit cors rejects tenant-scoped reads without auth headers", testTenantScopedReadRequiresAuthHeader)
     , ("implicit cors rejects non-read tenant routes without auth headers", testTenantScopedWriteStillBlocked)
@@ -61,6 +63,27 @@ testOptimizerCombosReadAllowed :: IO ()
 testOptimizerCombosReadAllowed =
     expectOriginAllowed "GET /api/optimizer/combos echoes origin" (mkRequest "GET" ["api", "optimizer", "combos"] [] [])
 
+testOptimizerCombosConditionalPreflightAllowed :: IO ()
+testOptimizerCombosConditionalPreflightAllowed = do
+    expectOriginAllowed
+        "OPTIONS /optimizer/combos for GET with if-none-match echoes origin"
+        (mkRequest "OPTIONS" ["optimizer", "combos"] [] [("Access-Control-Request-Method", "GET"), ("Access-Control-Request-Headers", "if-none-match")])
+    expectOriginAllowed
+        "OPTIONS /optimizer/combos for GET without requested headers echoes origin"
+        (mkRequest "OPTIONS" ["optimizer", "combos"] [] [("Access-Control-Request-Method", "get")])
+
+testOptimizerCombosOtherPreflightBlocked :: IO ()
+testOptimizerCombosOtherPreflightBlocked = do
+    expectOriginBlocked
+        "OPTIONS /optimizer/combos requesting a non-conditional header is blocked"
+        (mkRequest "OPTIONS" ["optimizer", "combos"] [] [("Access-Control-Request-Method", "GET"), ("Access-Control-Request-Headers", "if-none-match,x-custom")])
+    expectOriginBlocked
+        "OPTIONS /optimizer/combos for POST is blocked"
+        (mkRequest "OPTIONS" ["optimizer", "combos"] [] [("Access-Control-Request-Method", "POST"), ("Access-Control-Request-Headers", "if-none-match")])
+    expectOriginBlocked
+        "OPTIONS on a tenant route with only if-none-match is still blocked"
+        (mkRequest "OPTIONS" ["bot", "status"] [] [("Access-Control-Request-Method", "GET"), ("Access-Control-Request-Headers", "if-none-match")])
+
 testTenantScopedQueryReadBlocked :: IO ()
 testTenantScopedQueryReadBlocked =
     expectOriginBlocked
@@ -100,7 +123,7 @@ testTenantWritePreflightAllowsRequestProgressHeader = do
         (lookupResponseHeader "Access-Control-Allow-Origin" headers)
     expectEq
         "OPTIONS /binance/positions allows request-progress header"
-        (Just "Authorization,Content-Type,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
+        (Just "Authorization,Content-Type,If-None-Match,X-API-Key,X-Tenant-Key,X-Trader-Request-Id")
         (lookupResponseHeader "Access-Control-Allow-Headers" headers)
 
 expectEq :: (Eq a, Show a) => String -> a -> a -> IO ()

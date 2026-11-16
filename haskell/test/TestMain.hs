@@ -4,8 +4,10 @@
 
 module Main (main) where
 
-import Control.Exception (SomeException, evaluate, toException, try)
-import Control.Monad (forM_, unless)
+import Control.Concurrent (forkFinally, killThread, threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryReadMVar)
+import Control.Exception (IOException, MaskingState (MaskedInterruptible, Unmasked), SomeException, bracket, bracket_, evaluate, finally, getMaskingState, mask_, toException, try)
+import Control.Monad (forM_, replicateM_, unless, void, when)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -15,23 +17,27 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Either (isLeft)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (find, intercalate, isInfixOf, isPrefixOf, nub)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.HTTP.Client (HttpException (..), HttpExceptionContent (..), parseRequest_, requestHeaders)
 import Options.Applicative (ParserResult (..), auto, defaultPrefs, execParserPure, info, long, option, switch, value)
 import System.Directory (removeFile)
-import System.IO (hClose, openTempFile)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.IO (BufferMode (NoBuffering), hClose, hIsClosed, hSetBuffering, openTempFile)
+import System.Timeout (timeout)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
 import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxOpenThreshold, adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboOpenThresholdWithinAdoptionCeiling, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -193,9 +199,11 @@ import Trader.Optimizer.Optimize (
     dedupeFirstByKey,
     defaultOptimizerEdgeScoreConfig,
     defaultPriorMissingAgeMultiplier,
+    deflatedWfSharpeMean,
     emptyOptimizerRecordsSummary,
     emptyTechniqueSummary,
     extractPortfolioEvidence,
+    extractWalkForwardFoldCount,
     kellyLiteExposureContractReason,
     normalizeOptimizerRiskPerTrade,
     optimizerOptionPresent,
@@ -213,6 +221,8 @@ import Trader.Optimizer.Optimize (
     qualityPresetBudget,
     qualityPresetCeiling,
     qualityPresetWeightFloor,
+    wfEvaluatedFolds,
+    wfSharpeTrialsHaircut,
  )
 import Trader.Optimizer.OverfitAudit (OverfitTrial (..), optimizerOverfitAudit)
 import Trader.OrderExecution (OrderExecutionEvidence (..), applyExecutedQuantity, applyReduceOnlyExecutedQuantity, applySplitReversalExecutedQuantities, confirmedCloseExecutedQuantity, orderAppliedFraction)
@@ -253,11 +263,13 @@ import Trader.PortfolioSelection (
     defaultPortfolioSelectorConfig,
     portfolioAnnualizedReturn,
     portfolioFailureCacheLookup,
+    portfolioGraduationCollectedEvidence,
     portfolioGraduationFleetEquities,
     portfolioGraduationLatestStatusesHealthy,
     portfolioGraduationPerformance,
     portfolioGraduationReview,
     portfolioGraduationReviewApplies,
+    portfolioGraduationReviewWithEvidenceError,
     portfolioGraduationStatusCoverage,
     portfolioMaxDrawdown,
     portfolioMembersRemainAdmitted,
@@ -432,6 +444,9 @@ import Trader.SignalGates (
     signalTrendSmaConfirmed,
     signalTrendSmaConfirmedWithConfig,
  )
+import Trader.Split (Split (..), splitTrainBacktest)
+import Trader.Test.GraduationTrace (graduationTraceSuite)
+import Trader.Test.OpsMigrations (testOpsMigrations)
 
 import Trader.Test.AdmissionProgress (admissionProgressSuite)
 import Trader.Test.ApiRoutes (apiRouteSuite)
@@ -473,12 +488,20 @@ import Trader.ThresholdCalibration (
     validateCalibrationMethod,
     validateThresholdCalibrationConfig,
  )
+import Trader.TopComboRetention (comboUuidText, parseRetainedComboUuids, retainRankedCombos)
 import Trader.TopComboScoring (TopComboScoringConfig (..), defaultTopComboScoringConfig, topComboFreshnessMultiplier, topComboMinimumFinalEquity)
 import Trader.TopCombosStore (
     ComboBacktestApplyStats (..),
     ComboBacktestRefreshPolicy (..),
     ComboBacktestUpdate (..),
     ComboLiveStats (..),
+    TopCombosBuildGateEvent (..),
+    TopCombosDbReadEvent (..),
+    TopCombosDbReadStage (..),
+    TopCombosStore (..),
+    TopCombosSyncFingerprint (..),
+    TopCombosSyncPhase (..),
+    TopCombosSyncPhaseEvent (..),
     applyComboUpdatesKeepAllWithStats,
     applyComboUpdatesWithStats,
     applyComboUpdatesWithStatsWithPolicy,
@@ -489,18 +512,39 @@ import Trader.TopCombosStore (
     comboBacktestFreshEnoughForMaxAge,
     comboBacktestFreshnessMs,
     comboBacktestStaleAfterMs,
+    comboFinalEquityValue,
     comboIdentityKey,
     comboLiveQuarantined,
     comboLiveStats,
     comboLiveStatsFromObject,
     comboPerformanceKey,
+    defaultComboBacktestRefreshPolicy,
+    etagMatches,
     liveStatsFamilyQuarantined,
     liveStatsQuarantined,
     mergeTopCombosPayloads,
     mergeTopCombosPayloadsWithStatsAndDeployableOverrides,
+    mergeTopCombosPayloadsWithStatsAndRetention,
+    newTopCombosStore,
+    normalizeTopCombosPayload,
+    normalizeTopCombosPayloadWithRetention,
+    prepareTopCombosPayloadComparison,
     recalculateComboPerformanceFromOperation,
     selectCombosForBacktestRefresh,
     selectCombosForBacktestRefreshWithPolicy,
+    topCombosHaveAtLeastWithRetention,
+    topCombosPayloadEquivalentWithRetention,
+    topCombosPayloadMatches,
+    topCombosSyncCanSettle,
+    topCombosSyncCanSkip,
+    validateTopCombosReplicaPayload,
+    withTopCombosBuildGate,
+    withTopCombosBuildGateObserved,
+    withTopCombosDbReadObserved,
+    withTopCombosSyncPhaseObserved,
+    writeTopCombosBuildGateEvent,
+    writeTopCombosDbReadEvent,
+    writeTopCombosSyncPhaseEvent,
  )
 import Trader.TradeMethodGate (MethodGateConfig (..), MethodGateDecision (..), MethodResultStats (..), conservativeUnavailableEvidenceSize, loadMethodResultStats, methodGateDecision, unavailableEvidenceSizeCap, unavailableEvidenceSizeMultiplier)
 import Trader.Trading (
@@ -554,6 +598,14 @@ import Trader.VolConfGate (
 
 main :: IO ()
 main = do
+    testOpsMigrations
+    testTopCombosSyncSkipAndEtag
+    testTopCombosBuildGateObservation
+    testTopCombosBuildGateLogAtomicity
+    testTopCombosSyncPhaseObservation
+    testTopCombosSyncPhaseLog
+    testTopCombosDbReadObservation
+    testTopCombosDbReadLog
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
     testTradeAllowedDefaultsAndAnyOverride
     testTradeMethodGateUsesResultEvidence
@@ -739,8 +791,13 @@ main = do
     testTopComboProcessingCarriesOverfitAndMapEliteMetadata
     testMergeDedupesSourceAndNullEquivalentCombos
     testDeployableTierRanksAheadOfUnvalidatedCandidate
+    testTopComboRankingPreservesTies
+    testTopComboCountGuard
     testDeployableTierRequiresCompleteAdoptionEvidence
     testExplicitDeployableOverrideIsBoundedAndAuditable
+    testComboOpenThresholdWithinAdoptionCeiling
+    testDegenerateOpenThresholdIsCandidateAndOverrideAuditable
+    testMergeExecutableRejectsInvalidOpenThreshold
     testTopComboFreshnessMultiplierDefaultsDisabled
     testPortfolioAnnualizationAndDrawdown
     testOptimizerExtractsTimestampedPortfolioEvidence
@@ -803,7 +860,10 @@ main = do
     testAutoOptimizerObjectiveAlignment
     testOptimizerAdmissionStats
     testSweepThresholdMinRoundTripsFallback
+    testWfSharpeTrialsHaircutProperties
+    testWfSharpeHaircutUsesEvaluatedFolds
     testSweepThresholdZeroCandidatesKeepsBasePair
+    testSplitKeepsTuneWindowOutOfBacktest
     testOptimizerPublicSurfaceRegression
     testOptimizerRiskPerTradeNormalization
     testOptimizerQualityBudgetRegression
@@ -824,6 +884,9 @@ main = do
     testOptimizerRecordsRetryDiscoveryStopsWhenEligible
     testOptimizerSoftSearchEligibility
     testTopComboBacktestPrunesRoiLosers
+    testRetainedTopCombos
+    testTopCombosPayloadComparison
+    testRetainedOptimizerExport
     testMetricsConsumesTradingPublicResults
     testMetricsFiniteInputBoundary
     testOnlineStatsFiniteInputBoundary
@@ -875,6 +938,7 @@ main = do
     runOnlineNeuralTests
     runResearchPolicyTests
     runTechnicalAnalysisTests
+    runSuite "graduationTrace" graduationTraceSuite
     runSuite "apiRoutes" apiRouteSuite
     runSuite "cors" corsSuite
     runSuite "formalVerification" formalVerificationSuite
@@ -920,6 +984,314 @@ degenerate, because its largest single-bar step cannot clear the entry
 threshold. A live forecaster, or any run that actually closed trades, must not
 be flagged.
 -}
+testTopCombosSyncSkipAndEtag :: IO ()
+testTopCombosSyncSkipAndEtag = do
+    let fp = TopCombosSyncFingerprint{tcsfLocal = Just "100:1", tcsfDb = Just "3:9:9", tcsfS3 = Just "\"abc\"", tcsfStateSyncConfigured = False}
+    assert "reconciled pass without diagnostics settles" (topCombosSyncCanSettle False [])
+    assert "unavailable retained records alone allow settling" (topCombosSyncCanSettle False ["retention"])
+    assert "pending repair does not settle despite retention-only diagnostics" (not (topCombosSyncCanSettle True ["retention"]))
+    assert "pending repair without diagnostics does not settle" (not (topCombosSyncCanSettle True []))
+    forM_ ["local", "db", "s3", "state-sync", "unknown-replica"] $ \source -> do
+        assert "storage failure prevents settling" (not (topCombosSyncCanSettle False [source]))
+        assert "retention diagnostic does not hide storage failure" (not (topCombosSyncCanSettle False ["retention", source]))
+    assert "no settled fingerprint never skips" (not (topCombosSyncCanSkip Nothing fp))
+    assert "identical complete fingerprint skips" (topCombosSyncCanSkip (Just fp) fp)
+    assert "changed local replica reruns" (not (topCombosSyncCanSkip (Just fp) fp{tcsfLocal = Just "100:2"}))
+    assert "changed S3 ETag reruns" (not (topCombosSyncCanSkip (Just fp) fp{tcsfS3 = Just "\"def\""}))
+    assert "unfingerprintable replica reruns" (not (topCombosSyncCanSkip (Just fp{tcsfDb = Nothing}) fp{tcsfDb = Nothing}))
+    assert "state-sync peer disables skipping" (not (topCombosSyncCanSkip (Just fp{tcsfStateSyncConfigured = True}) fp{tcsfStateSyncConfigured = True}))
+    assert "strong etag matches itself" (etagMatches "\"abc\"" "\"abc\"")
+    assert "weak etag compares equal" (etagMatches "W/\"abc\"" "\"abc\"")
+    assert "etag list matches any member" (etagMatches "\"x\", \"abc\"" "\"abc\"")
+    assert "star matches" (etagMatches "*" "\"abc\"")
+    assert "different etag does not match" (not (etagMatches "\"abd\"" "\"abc\""))
+    assert "empty etag never matches" (not (etagMatches "" ""))
+
+testTopCombosBuildGateObservation :: IO ()
+testTopCombosBuildGateObservation = do
+    store <- newTopCombosStore "unused-observed-gate" Nothing
+    events <- newIORef []
+    finishedOutsideGate <- newIORef False
+    queued <- newEmptyMVar
+    started <- newEmptyMVar
+    done <- newEmptyMVar
+    let observe event = do
+            modifyIORef' events (event :)
+            case event of
+                TopCombosBuildWaiting -> putMVar queued ()
+                TopCombosBuildFinished _ _ -> do
+                    free <- tryReadMVar (tcsBuildGate store)
+                    writeIORef finishedOutsideGate (isJust free)
+                _ -> pure ()
+        action = putMVar started () >> threadDelay 20000
+        await label signal = do
+            result <- timeout 5000000 (takeMVar signal)
+            maybe (ioError (userError label)) pure result
+    bracket_ (takeMVar (tcsBuildGate store)) (void (tryPutMVar (tcsBuildGate store) ())) $
+        bracket
+            (forkFinally (withTopCombosBuildGateObserved store observe action) (putMVar done))
+            killThread
+            ( \_ -> do
+                await "gate waiter did not announce itself" queued
+                threadDelay 20000
+                early <- tryReadMVar started
+                assert "observed gate still serializes actions" (isNothing early)
+                putMVar (tcsBuildGate store) ()
+                outcome <- await "gate action did not finish" done
+                assert "observed gate preserves normal completion" (not (isLeft outcome))
+            )
+    recorded <- reverse <$> readIORef events
+    outside <- readIORef finishedOutsideGate
+    assert "finished observers run after releasing the shared gate" outside
+    case recorded of
+        [TopCombosBuildWaiting, TopCombosBuildAcquired waited, TopCombosBuildFinished waited' (Just held)] -> do
+            assert "gate queue time includes contention" (waited >= 10)
+            assert "gate queue time is stable across events" (waited == waited')
+            assert "gate occupancy includes the protected action" (held >= 10)
+        _ -> assert "gate events follow waiting, acquired, finished" False
+    let collect event = modifyIORef' events (event :)
+    writeIORef events []
+    cancelledWait <-
+        withTopCombosBuildGate store $
+            timeout 20000 (withTopCombosBuildGateObserved store collect (putMVar started ()))
+    assert "cancellation can interrupt gate waiting" (isNothing cancelledWait)
+    waitingEvents <- reverse <$> readIORef events
+    case waitingEvents of
+        [TopCombosBuildWaiting, TopCombosBuildFinished waited Nothing] ->
+            assert "cancelled waiter reports elapsed wait without occupancy" (waited >= 10)
+        _ -> assert "cancelled waiter never claims acquisition" False
+    writeIORef events []
+    cancelledHold <- timeout 20000 (withTopCombosBuildGateObserved store collect (threadDelay 1000000))
+    assert "cancellation can interrupt a protected action" (isNothing cancelledHold)
+    holdingEvents <- reverse <$> readIORef events
+    case holdingEvents of
+        [TopCombosBuildWaiting, TopCombosBuildAcquired _, TopCombosBuildFinished _ (Just held)] ->
+            assert "cancelled holder reports its observed occupancy" (held >= 10)
+        _ -> assert "cancelled holder emits a finished event" False
+    let unavailable _ = ioError (userError "observer unavailable")
+    value <- withTopCombosBuildGateObserved store unavailable (pure (7 :: Int))
+    assert "synchronous observer failures do not prevent the action" (value == 7)
+    failed <- try (withTopCombosBuildGateObserved store unavailable (ioError (userError "action failed"))) :: IO (Either IOException ())
+    assert "protected action failures still propagate" (isLeft failed)
+    unmasked <- withTopCombosBuildGateObserved store (const (pure ())) getMaskingState
+    assert "setup masking does not mask the protected action" (unmasked == Unmasked)
+    inherited <- mask_ (withTopCombosBuildGateObserved store (const (pure ())) getMaskingState)
+    assert "the protected action preserves inherited masking" (inherited == MaskedInterruptible)
+    writeIORef events []
+    let cancellableObserver event = do
+            collect event
+            case event of
+                TopCombosBuildWaiting -> threadDelay 1000000
+                _ -> pure ()
+    observerCancelled <- timeout 20000 (withTopCombosBuildGateObserved store cancellableObserver (pure ()))
+    assert "observer handling does not swallow cancellation" (isNothing observerCancelled)
+    initialObserverEvents <- reverse <$> readIORef events
+    case initialObserverEvents of
+        [TopCombosBuildWaiting, TopCombosBuildFinished _ Nothing] -> pure ()
+        _ -> assert "cancellation in the initial observer still closes the attempt" False
+    available <- timeout 1000000 (withTopCombosBuildGate store (pure True))
+    assert "all exit paths leave the gate reusable" (available == Just True)
+
+testTopCombosBuildGateLogAtomicity :: IO ()
+testTopCombosBuildGateLogAtomicity =
+    bracket
+        (openTempFile "/tmp" "trader-gate-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            hSetBuffering handle NoBuffering
+            done <- newEmptyMVar
+            let labels = map show [1 .. 48 :: Int]
+                emit label = writeTopCombosBuildGateEvent handle "response" label 1000 (TopCombosBuildFinished 12 (Just 34))
+            bracket
+                (mapM (\label -> forkFinally (emit label) (putMVar done)) labels)
+                (mapM_ killThread)
+                ( \_ -> replicateM_ (length labels) $ do
+                    outcome <- timeout 5000000 (takeMVar done)
+                    assert "concurrent gate log write completed" (maybe False (not . isLeft) outcome)
+                )
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            decoded <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let labelOf value = case value of
+                    Aeson.Object o -> KM.lookup "attemptId" o >>= AT.parseMaybe Aeson.parseJSON
+                    _ -> Nothing
+            assert "unbuffered concurrent gate logs remain separate JSON records" (length rows == length labels)
+            assert "concurrent gate logs retain every attempt exactly once" (Set.fromList (mapMaybe labelOf decoded) == Set.fromList labels)
+
+testTopCombosSyncPhaseObservation :: IO ()
+testTopCombosSyncPhaseObservation = do
+    events <- newIORef []
+    ran <- newIORef False
+    let collect event = modifyIORef' events (event :)
+        checkClosed label = do
+            recorded <- reverse <$> readIORef events
+            case recorded of
+                [TopCombosSyncPhaseStarted SyncPlan, TopCombosSyncPhaseFinished SyncPlan elapsed] ->
+                    assert label (elapsed >= 0 && not (isNaN elapsed) && not (isInfinite elapsed))
+                _ -> assert (label ++ ": incomplete phase") False
+    value <- withTopCombosSyncPhaseObserved SyncPlan collect (pure (7 :: Int))
+    assert "sync phase tracing preserves the action result" (value == 7)
+    checkClosed "normal sync phase closes"
+    writeIORef events []
+    failed <- try (withTopCombosSyncPhaseObserved SyncPlan collect (ioError (userError "private-sync-action"))) :: IO (Either IOException ())
+    assert "sync phase tracing preserves action failure" (isLeft failed)
+    checkClosed "failed sync phase closes"
+    writeIORef events []
+    cancelled <- timeout 20000 (withTopCombosSyncPhaseObserved SyncPlan collect (threadDelay 1000000))
+    assert "sync phase action remains cancellable" (isNothing cancelled)
+    checkClosed "cancelled sync phase closes"
+    writeIORef events []
+    let cancelObserver event = do
+            collect event
+            case event of
+                TopCombosSyncPhaseStarted _ -> threadDelay 1000000
+                _ -> pure ()
+    observerCancelled <- timeout 20000 (withTopCombosSyncPhaseObserved SyncPlan cancelObserver (writeIORef ran True))
+    actionRan <- readIORef ran
+    assert "sync observer cancellation propagates before action admission" (isNothing observerCancelled && not actionRan)
+    checkClosed "cancelled initial sync observer closes"
+    let unavailable _ = ioError (userError "private-sync-observer")
+    unaffected <- withTopCombosSyncPhaseObserved SyncPlan unavailable (pure (11 :: Int))
+    assert "synchronous sync observer errors do not prevent action execution" (unaffected == 11)
+    actionFailed <- try (withTopCombosSyncPhaseObserved SyncPlan unavailable (ioError (userError "private-sync-action"))) :: IO (Either IOException ())
+    assert "observer failure does not replace the action error" (either (isInfixOf "private-sync-action" . show) (const False) actionFailed)
+    unmasked <- withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState
+    inherited <- mask_ (withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState)
+    assert "sync phase preserves caller masking" (unmasked == Unmasked && inherited == MaskedInterruptible)
+
+testTopCombosSyncPhaseLog :: IO ()
+testTopCombosSyncPhaseLog =
+    bracket
+        (openTempFile "/tmp" "trader-sync-phase-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            hSetBuffering handle NoBuffering
+            let phases = [SyncReadDb, SyncReadS3, SyncReadState, SyncPlan, SyncWriteDb, SyncWriteRemote]
+                labels = ["read-db", "read-s3", "read-state-sync", "plan", "write-db", "write-remote"] :: [String]
+                emit (phase, label) = withTopCombosSyncPhaseObserved phase (writeTopCombosSyncPhaseEvent handle label 1000) (pure ())
+            done <- newEmptyMVar
+            bracket
+                (mapM (\pair -> forkFinally (emit pair) (putMVar done)) (zip phases labels))
+                (mapM_ killThread)
+                ( \_ -> replicateM_ (length phases) $ do
+                    result <- timeout 5000000 (takeMVar done)
+                    assert "concurrent sync phase observation completed" (maybe False (not . isLeft) result)
+                )
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            decoded <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let textField :: AK.Key -> Aeson.Value -> Maybe String
+                textField key value = case value of
+                    Aeson.Object obj -> KM.lookup key obj >>= AT.parseMaybe Aeson.parseJSON
+                    _ -> Nothing
+                valid value = case value of
+                    Aeson.Object obj ->
+                        Set.fromList (KM.keys obj) == Set.fromList ["event", "attemptId", "atMs", "phase", "state", "elapsedMs"]
+                            && textField "event" value == Just ("top_combos_sync_phase" :: String)
+                            && textField "phase" value == textField "attemptId" value
+                            && KM.lookup "atMs" obj == Just (Aeson.toJSON (1000 :: Int))
+                            && case textField "state" value of
+                                Just "started" -> KM.lookup "elapsedMs" obj == Just Aeson.Null
+                                Just "finished" -> case KM.lookup "elapsedMs" obj >>= AT.parseMaybe Aeson.parseJSON of
+                                    Just elapsed -> elapsed >= (0 :: Double) && not (isNaN elapsed) && not (isInfinite elapsed)
+                                    Nothing -> False
+                                _ -> False
+                    _ -> False
+            assert "sync phase logs remain separate fixed-shape JSON records" (length rows == 12 && all valid decoded)
+            forM_ labels $ \label -> do
+                let matching = filter (\value -> textField "attemptId" value == Just label) decoded
+                assert "sync phase records retain their attempt identity and lifecycle" (map (textField "state") matching == [Just ("started" :: String), Just "finished"])
+
+testTopCombosDbReadObservation :: IO ()
+testTopCombosDbReadObservation = do
+    events <- newIORef []
+    calls <- newIORef (0 :: Int)
+    gate <- newEmptyMVar
+    putMVar gate ()
+    let collect event = modifyIORef' events (event :)
+        provide action = bracket_ (takeMVar gate) (putMVar gate ()) (action ())
+        stages = map (\event -> (tcdrStage event, tcdrQueryAttempt event)) . reverse <$> readIORef events
+        closed label = do
+            observed <- stages
+            assert label (observed == [(DbReadConnectionWait, 1), (DbReadQuery, 1)])
+            measured <- readIORef events
+            assert "DB read durations are finite and nonnegative" (all (\e -> tcdrElapsedMs e >= 0 && not (isNaN (tcdrElapsedMs e)) && not (isInfinite (tcdrElapsedMs e))) measured)
+    value <- withTopCombosDbReadObserved collect provide (const (pure (7 :: Int)))
+    assert "DB read observation preserves values" (value == 7)
+    closed "normal DB query closes"
+    writeIORef events []
+    failed <- try (withTopCombosDbReadObserved collect provide (const (ioError (userError "private-db-query")))) :: IO (Either IOException ())
+    assert "DB read observation preserves query exceptions" (either (isInfixOf "private-db-query" . show) (const False) failed)
+    closed "failed DB query closes"
+    writeIORef events []
+    cancelled <- timeout 20000 (withTopCombosDbReadObserved collect provide (const (threadDelay 1000000)))
+    assert "DB query remains cancellable" (isNothing cancelled)
+    closed "cancelled DB query closes"
+    released <- tryReadMVar gate
+    assert "DB observation preserves provider cleanup after cancellation" (released == Just ())
+    writeIORef events []
+    let retry action = do
+            first <- try (action ()) :: IO (Either IOException Int)
+            either (const (action ())) pure first
+        flaky _ = do
+            modifyIORef' calls (+ 1)
+            count <- readIORef calls
+            if count == 1 then ioError (userError "retry-fixture") else pure 9
+    retried <- withTopCombosDbReadObserved collect retry flaky
+    count <- readIORef calls
+    observed <- stages
+    assert "DB observation delegates retry policy without another acquisition record" (retried == 9 && count == 2 && observed == [(DbReadConnectionWait, 1), (DbReadQuery, 1), (DbReadQuery, 2)])
+    let unavailable _ = ioError (userError "private-db-observer")
+    unaffected <- withTopCombosDbReadObserved unavailable provide (const (pure (11 :: Int)))
+    assert "DB observer failure does not prevent a query" (unaffected == 11)
+    observerFailed <- try (withTopCombosDbReadObserved unavailable provide (const (ioError (userError "private-db-query")))) :: IO (Either IOException ())
+    assert "DB observer failure does not replace the query exception" (either (isInfixOf "private-db-query" . show) (const False) observerFailed)
+    ran <- newIORef False
+    let cancelObserver event = do
+            collect event
+            when (tcdrStage event == DbReadConnectionWait) (threadDelay 1000000)
+    observerCancelled <- timeout 20000 (withTopCombosDbReadObserved cancelObserver provide (const (writeIORef ran True)))
+    queryRan <- readIORef ran
+    releasedAfterObserver <- tryReadMVar gate
+    assert "DB observer cancellation preserves admission and provider cleanup" (isNothing observerCancelled && not queryRan && releasedAfterObserver == Just ())
+    _ <- withTopCombosDbReadObserved collect provide (const (pure (error "DB result must remain lazy" :: Int)))
+    unmasked <- withTopCombosDbReadObserved collect provide (const getMaskingState)
+    inherited <- mask_ (withTopCombosDbReadObserved collect provide (const getMaskingState))
+    assert "DB observation preserves caller masking" (unmasked == Unmasked && inherited == MaskedInterruptible)
+
+testTopCombosDbReadLog :: IO ()
+testTopCombosDbReadLog =
+    bracket
+        (openTempFile "/tmp" "trader-db-read-log.jsonl")
+        ( \(path, handle) -> do
+            closed <- hIsClosed handle
+            unless closed (hClose handle)
+            removeFile path
+        )
+        $ \(path, handle) -> do
+            _ <- withTopCombosDbReadObserved (writeTopCombosDbReadEvent handle "gate-attempt" 1000) (\action -> action ()) (const (pure ()))
+            hClose handle
+            rows <- BL8.lines <$> BL.readFile path
+            values <- mapM (either (ioError . userError) pure . Aeson.eitherDecode) rows
+            let valid value = case value of
+                    Aeson.Object obj ->
+                        Set.fromList (KM.keys obj) == Set.fromList ["event", "attemptId", "atMs", "stage", "queryAttempt", "elapsedMs"]
+                            && KM.lookup "event" obj == Just (Aeson.String "top_combos_db_read")
+                            && KM.lookup "attemptId" obj == Just (Aeson.String "gate-attempt")
+                            && KM.lookup "atMs" obj == Just (Aeson.toJSON (1000 :: Int))
+                            && KM.lookup "queryAttempt" obj == Just (Aeson.toJSON (1 :: Int))
+                            && KM.lookup "stage" obj `elem` [Just (Aeson.String "connection-wait"), Just (Aeson.String "query")]
+                    _ -> False
+            assert "DB read logs contain only fixed labels and numeric observations" (length values == 2 && all valid values)
+
 testPredictorLivenessDetectsDegenerateForecast :: IO ()
 testPredictorLivenessDetectsDegenerateForecast = do
     let openThreshold = 0.0024 :: Double
@@ -2497,7 +2869,7 @@ testTopComboBacktestPrunesRoiLosers = do
                             && cbasPrunedKeys stats == [key]
                         )
                     let lenientPolicy =
-                            ComboBacktestRefreshPolicy
+                            defaultComboBacktestRefreshPolicy
                                 { cbrpStaleAfterMs = comboBacktestStaleAfterMs
                                 , cbrpPruneFinalEquityFloor = 0.95
                                 }
@@ -2519,6 +2891,250 @@ testTopComboBacktestPrunesRoiLosers = do
                                     && cbasUpdatedCount boundaryStats == 1
                                     && cbasPrunedCount boundaryStats == 0
                                 )
+
+testTopCombosPayloadComparison :: IO ()
+testTopCombosPayloadComparison = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        profitable = selectionComboForTest "profitable" 0.2 (Just 1000) Nothing
+        adverse = selectionComboForTest "adverse" (-0.2) (Just 1000) Nothing
+        payload :: [Aeson.Value] -> Aeson.Value
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int), "source" .= ("local" :: T.Text), "combos" .= rows]
+        setField key value input = case input of
+            Aeson.Object fields -> Aeson.Object (KM.insert key value fields)
+            other -> other
+        original = payload [profitable, adverse]
+        fixtures =
+            [ Aeson.Null
+            , Aeson.String "not a board"
+            , Aeson.object []
+            , payload []
+            , payload [profitable]
+            , payload [adverse]
+            , original
+            , payload [adverse, profitable]
+            , payload [profitable, profitable]
+            , setField "generatedAtMs" (Aeson.toJSON (9000 :: Int)) original
+            , setField "source" (Aeson.String "remote") original
+            , setField "metadata" (Aeson.String "changed") original
+            , payload [setField "rank" (Aeson.toJSON (99 :: Int)) profitable, adverse]
+            , payload [setField "backtestRefreshedAtMs" (Aeson.toJSON (2000 :: Int)) adverse]
+            , payload [setField "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) profitable]
+            ]
+        stripEphemeral input = case input of
+            Aeson.Object fields -> Aeson.Object (KM.delete "generatedAtMs" (KM.delete "source" fields))
+            other -> other
+        legacyEquivalent retained a b =
+            stripEphemeral (normalizeTopCombosPayloadWithRetention retained a)
+                == stripEphemeral (normalizeTopCombosPayloadWithRetention retained b)
+    forM_ [Set.empty, Set.singleton pin] $ \retained ->
+        forM_ fixtures $ \reference -> do
+            let comparison = prepareTopCombosPayloadComparison retained reference
+                expected = map (legacyEquivalent retained reference) fixtures
+            assert
+                "shared replica comparison preserves legacy normalization, metadata and retention decisions"
+                (map (topCombosPayloadMatches comparison) fixtures == expected)
+            assert
+                "pairwise replica comparison preserves its public behavior"
+                (map (topCombosPayloadEquivalentWithRetention retained reference) fixtures == expected)
+    _ <- evaluate (prepareTopCombosPayloadComparison Set.empty (error "unused comparison payload was forced"))
+    pure ()
+
+testRetainedTopCombos :: IO ()
+testRetainedTopCombos = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        otherUuid = "11111111-1234-5678-9abc-def012345678"
+        retained = Set.singleton pin
+        pinned = selectionComboForTest "pin" 0.2 (Just 1000) Nothing
+        pinnedTwin = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
+            value -> value
+        other = case selectionComboForTest "other" 0.5 (Just 1000) Nothing of
+            Aeson.Object obj -> Aeson.Object (KM.insert "uuid" (Aeson.String otherUuid) obj)
+            value -> value
+        payload :: [Aeson.Value] -> Aeson.Value
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int), "combos" .= rows]
+        rows value = case value of
+            Aeson.Object obj -> case KM.lookup "combos" obj of
+                Just (Aeson.Array values) -> V.toList values
+                _ -> []
+            _ -> []
+        mergeAt capacity values = fst (mergeTopCombosPayloadsWithStatsAndRetention retained [pin] capacity 3000 values)
+        merge = mergeAt 1
+        loss =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.8 :: Double), "tradeCount" .= (30 :: Int), "annualizedReturn" .= (-0.2 :: Double)]
+                , cbuFinalEquity = Just 0.8
+                , cbuScore = Just (-0.2)
+                , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
+                }
+        policy = defaultComboBacktestRefreshPolicy{cbrpRetainedUuids = retained}
+        unstampedLoss = selectionComboForTest "unstamped-loss" (-0.2) (Just 1000) Nothing
+        infeasible = case pinned of
+            Aeson.Object obj -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) obj)
+            value -> value
+        normalize = normalizeTopCombosPayloadWithRetention retained
+    assert
+        "retention UUIDs canonicalize and deduplicate"
+        (parseRetainedComboUuids " 0BADC0DE-1234-5678-9ABC-DEF012345678,0badc0de-1234-5678-9abc-def012345678" == Right retained)
+    assert "invalid retention UUIDs reject" (isLeft (parseRetainedComboUuids "invalid"))
+    let oversized = T.intercalate "," [T.justifyRight 8 '0' (T.pack (show n)) <> "-1234-5678-9abc-def012345678" | n <- [1 .. 257 :: Int]]
+    assert "retention list rejects more than 256 distinct pins" (isLeft (parseRetainedComboUuids (T.unpack oversized)))
+    forM_ [unstampedLoss, infeasible] $ \adverse -> do
+        let original = payload [adverse]
+            normalized = normalize original
+        assert "ordinary normalization still prunes unretained adverse rows" (null (rows (normalizeTopCombosPayload original)))
+        assert "retention normalization preserves adverse evidence as raw" (map comboProcessingTierForTest (rows normalized) == [Just "raw"])
+        assert "retention normalization is idempotent" (normalize normalized == normalized)
+        assert
+            "replica comparison detects a missing retained adverse row"
+            (not (topCombosPayloadEquivalentWithRetention retained normalized (payload [])))
+        assert
+            "replica comparison ignores generation time while preserving retained evidence"
+            (topCombosPayloadEquivalentWithRetention retained normalized (Aeson.object ["generatedAtMs" .= (9000 :: Int), "combos" .= [adverse]]))
+        forM_ ["local", "db", "s3", "state-sync"] $ \source ->
+            case validateTopCombosReplicaPayload source original of
+                Left err -> ioError (userError err)
+                Right validated -> do
+                    assert "replica validation defers pruning and preserves the original evidence" (validated == original)
+                    let merged = merge [validated, payload [other]]
+                    assert "replica validation and merge preserve the retained adverse UUID" (mapMaybe comboUuidText (rows merged) == [pin])
+                    assert "replica validation and overrides cannot authorize retained adverse evidence" (map comboProcessingTierForTest (rows merged) == [Just "raw"])
+        adverseKey <- maybe (ioError (userError "missing adverse fixture identity")) pure (comboIdentityKey adverse)
+        case applyComboUpdatesWithStats 2000 (HM.singleton adverseKey loss) original of
+            Left err -> ioError (userError err)
+            Right (dropped, _) ->
+                assert "retention respects tombstones for each adverse strategy identity" (null (rows (merge [dropped, original])))
+    assert
+        "infeasible retained threshold carries the rejection reason"
+        (maybe False ("open-threshold-infeasible" `elem`) (listToMaybe (rows (merge [payload [infeasible]])) >>= comboProcessingReasonsForTest))
+    forM_ [Aeson.Null, Aeson.object [], Aeson.object ["combos" .= ("invalid" :: T.Text)]] $ \invalid ->
+        assert "replica validation still rejects an invalid payload shape" (isLeft (validateTopCombosReplicaPayload "local" invalid))
+    let quarantined = liveComboForTest "BTCUSDT" 0.4 (Just (liveStatsForTest 0.5 (Just (-0.2)) 100))
+    assert
+        "retention and deployable overrides preserve live quarantine"
+        (map comboProcessingTierForTest (rows (merge [payload [quarantined]])) == [Just "quarantined"])
+    assert
+        "retained lower-ranked combo reserves a capacity slot"
+        (mapMaybe comboUuidText (rows (merge [payload [other, pinned]])) == [pin])
+    assert
+        "retention preserves each UUID when different retained rows share a strategy identity"
+        ( Set.fromList (mapMaybe comboUuidText (rows (fst (mergeTopCombosPayloadsWithStatsAndRetention (Set.fromList [pin, otherUuid]) [] 1 3000 [payload [pinned, pinnedTwin]]))))
+            == Set.fromList [pin, otherUuid]
+        )
+    assert
+        "an unretained identity twin cannot replace the retained UUID"
+        (mapMaybe comboUuidText (rows (merge [payload [pinnedTwin, pinned]])) == [pin])
+    forM_ [[pinned, pinnedTwin], [pinnedTwin, pinned]] $ \twins ->
+        assert
+            "unretained twins consume no spare capacity regardless of input order"
+            (mapMaybe comboUuidText (rows (mergeAt 10 [payload twins])) == [pin])
+    assert
+        "missing retained UUIDs do not suppress an ordinary identity twin"
+        (mapMaybe comboUuidText (rows (mergeAt 10 [payload [pinnedTwin]])) == [otherUuid])
+    assert
+        "pins survive even a zero capacity"
+        (retainRankedCombos Just retained 0 [otherUuid, pin] == [pin])
+    assert
+        "negative capacity cannot overflow into ordinary slots"
+        (retainRankedCombos Just retained minBound [otherUuid, pin] == [pin])
+    assert
+        "missing pins reserve no capacity"
+        (retainRankedCombos Just retained 1 [otherUuid] == [otherUuid])
+    key <- maybe (ioError (userError "missing pinned fixture identity")) pure (comboIdentityKey pinned)
+    case applyComboUpdatesWithStatsWithPolicy policy 2000 (HM.singleton key loss) (payload [pinned]) of
+        Left err -> ioError (userError err)
+        Right (updated, stats) -> do
+            assert
+                "pinned adverse refresh updates evidence without pruning"
+                (cbasUpdatedCount stats == 1 && cbasPrunedCount stats == 0 && null (cbasPrunedKeys stats))
+            let merged = merge [payload [pinned], updated]
+            assert
+                "replica merge retains fresh adverse evidence over stale profitable copy"
+                (map comboFinalEquityValue (rows merged) == [Just 0.8])
+            assert
+                "retention and deployable override cannot authorize a below-floor pin"
+                (map comboProcessingTierForTest (rows merged) == [Just "raw"])
+            case applyComboUpdatesWithStats 2000 (HM.singleton key loss) (payload [pinned]) of
+                Left err -> ioError (userError err)
+                Right (dropped, _) ->
+                    assert
+                        "retention never resurrects a tombstoned pin"
+                        (null (rows (merge [dropped, payload [pinned]])))
+
+testRetainedOptimizerExport :: IO ()
+testRetainedOptimizerExport = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-retained-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-retained-output.json"
+    hClose outputHandle
+    let restore = maybe (unsetEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS") (setEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS")
+        cleanup =
+            forM_
+                [inputPath, outputPath]
+                ( \path -> do
+                    _ <- try (removeFile path) :: IO (Either SomeException ())
+                    pure ()
+                )
+        args =
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = []
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 1
+                , maHistoryDir = Nothing
+                , maScoringConfig = defaultTopComboScoringConfig
+                , maCopyToDist = False
+                }
+        write rows = BL.writeFile inputPath (Aeson.encode (Aeson.object ["combos" .= rows]))
+        readRows = do
+            decoded <- Aeson.eitherDecode <$> BL.readFile outputPath
+            case decoded of
+                Right (Aeson.Object obj) -> case KM.lookup "combos" obj of
+                    Just (Aeson.Array rows) -> pure (V.toList rows)
+                    _ -> ioError (userError "missing exported combos")
+                _ -> ioError (userError "invalid exported payload")
+    bracket
+        (lookupEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS")
+        restore
+        ( \_ -> do
+            unsetEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS"
+            write [processingComboForTest "retained-native" "db" False (Just adoptionMinWalkForwardSharpeMean) 0.4 adoptionMinTradeCount]
+            initialCode <- runMerge args
+            initialRows <- readRows
+            original <- case initialRows of
+                [row] -> pure row
+                _ -> ioError (userError "expected one native combo")
+            uuid <- maybe (ioError (userError "missing native UUID")) pure (comboUuidText original)
+            setEnv "TRADER_TOP_COMBOS_RETAIN_UUIDS" (T.unpack uuid)
+            let adverse = case original of
+                    Aeson.Object obj ->
+                        Aeson.Object
+                            ( KM.insert
+                                "backtestRefreshedAtMs"
+                                (Aeson.toJSON (2000 :: Int))
+                                ( KM.insert
+                                    "finalEquity"
+                                    (Aeson.toJSON (0.8 :: Double))
+                                    (KM.insert "metrics" (Aeson.object ["finalEquity" .= (0.8 :: Double), "tradeCount" .= (30 :: Int), "annualizedReturn" .= (-0.2 :: Double)]) obj)
+                                )
+                            )
+                    value -> value
+            write [adverse]
+            code <- runMerge args
+            exported <- readRows
+            assert
+                "optimizer export retains the exact pinned UUID and adverse refresh"
+                (initialCode == 0 && code == 0 && map comboUuidText exported == [Just uuid] && map comboFinalEquityValue exported == [Just 0.8])
+            assert
+                "optimizer export cannot promote a retained loser"
+                (map comboProcessingTierForTest exported == [Just "raw"])
+            assert
+                "optimizer export preserves refresh stamps"
+                (all (\row -> comboBacktestFreshnessMs row == Just 2000) exported)
+        )
+        `finally` cleanup
 
 testNormalizeBarsForLookbackAutoAdjustsApiInputs :: IO ()
 testNormalizeBarsForLookbackAutoAdjustsApiInputs = do
@@ -6840,6 +7456,75 @@ testDeployableTierRanksAheadOfUnvalidatedCandidate = do
         "walk-forward deployable tier ranks ahead of a higher-return unvalidated candidate"
         (listToMaybe (mapMaybe comboProcessingTierForTest combos) == Just "deployable")
 
+testTopComboRankingPreservesTies :: IO ()
+testTopComboRankingPreservesTies = do
+    let row label = processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount
+        payload = Aeson.object ["combos" .= map row ["charlie", "alpha", "bravo"]]
+        labels value =
+            case value of
+                Aeson.Object o -> case KM.lookup "combos" o of
+                    Just (Aeson.Array rows) -> mapMaybe labelOf (V.toList rows)
+                    _ -> []
+                _ -> []
+        labelOf value =
+            case value of
+                Aeson.Object o -> KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "normalization preserves input order for equal validation and performance keys"
+        (labels (normalizeTopCombosPayload payload) == (["charlie", "alpha", "bravo"] :: [T.Text]))
+    assert
+        "bounded merge preserves deterministic identity order when performance keys tie"
+        (labels (mergeTopCombosPayloads 2 9500 [payload]) == (["alpha", "bravo"] :: [T.Text]))
+
+testTopComboCountGuard :: IO ()
+testTopComboCountGuard = do
+    let pin = "0badc0de-1234-5678-9abc-def012345678"
+        row label = processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount
+        field key value combo = case combo of
+            Aeson.Object o -> Aeson.Object (KM.insert key value o)
+            _ -> combo
+        good = field "uuid" (Aeson.String pin) (row "one")
+        adverse = field "finalEquity" (Aeson.toJSON (0.8 :: Double)) good
+        refreshedAdverse = field "backtestRefreshedAtMs" (Aeson.toJSON (2000 :: Int64)) adverse
+        infeasible = field "openThreshold" (Aeson.toJSON (signalEntryOpenThresholdFeasibilityCap + 1)) good
+        payload rows = Aeson.object ["generatedAtMs" .= (1000 :: Int64), "combos" .= rows]
+        replaceRows rows = field "combos" (Aeson.toJSON rows)
+        loss =
+            ComboBacktestUpdate
+                { cbuMetrics = Aeson.object ["finalEquity" .= (0.8 :: Double)]
+                , cbuFinalEquity = Just 0.8
+                , cbuScore = Nothing
+                , cbuOperations = Nothing
+                , cbuPortfolioEvidence = Nothing
+                }
+    identity <- maybe (ioError (userError "count fixture identity missing")) pure (comboIdentityKey good)
+    tombstoned <- case applyComboUpdatesWithStats 2000 (HM.singleton identity loss) (payload [good]) of
+        Left err -> ioError (userError err)
+        Right (value, _) -> pure (replaceRows [good] value)
+    let fixtures =
+            [ Aeson.Null
+            , Aeson.object []
+            , Aeson.object ["combos" .= ("invalid" :: T.Text)]
+            , payload ([] :: [Aeson.Value])
+            , payload [Aeson.Null, Aeson.Bool True, Aeson.object [], good]
+            , payload [good, row "two", good]
+            , payload [adverse, infeasible, good]
+            , payload [refreshedAdverse, good]
+            , tombstoned
+            , replaceRows [field "backtestRefreshedAtMs" (Aeson.toJSON (3000 :: Int64)) good] tombstoned
+            ]
+    forM_ [Set.empty, Set.singleton pin] $ \retained ->
+        forM_ fixtures $ \value -> do
+            let normalizedCount = max 0 (topCombosCount (normalizeTopCombosPayloadWithRetention retained value))
+            forM_ [minBound, -1, 0, 1, 2, 3, 4, 100, maxBound] $ \floorCount ->
+                assert
+                    "bounded count agrees with full normalization across retention, refreshes, duplicates and tombstones"
+                    (topCombosHaveAtLeastWithRetention retained floorCount value == (normalizedCount >= floorCount))
+    assert "retention cannot make a tombstoned row count toward the floor" (not (topCombosHaveAtLeastWithRetention (Set.singleton pin) 1 tombstoned))
+    assert "refreshed adverse evidence counts before merge admission" (topCombosHaveAtLeastWithRetention Set.empty 1 (payload [refreshedAdverse]))
+    assert "duplicate rows count before merge deduplication" (topCombosHaveAtLeastWithRetention Set.empty 2 (payload [good, good]))
+
 testDeployableTierRequiresCompleteAdoptionEvidence :: IO ()
 testDeployableTierRequiresCompleteAdoptionEvidence = do
     let valid =
@@ -6905,6 +7590,165 @@ testDeployableTierRequiresCompleteAdoptionEvidence = do
         ( (unstableMerged >>= comboProcessingTierForTest) == Just "candidate"
             && maybe False ("walk-forward-std-above-ceiling" `elem`) (unstableMerged >>= comboProcessingReasonsForTest)
         )
+
+testComboOpenThresholdWithinAdoptionCeiling :: IO ()
+testComboOpenThresholdWithinAdoptionCeiling = do
+    assert "open-threshold ceiling is 25x the venue round-trip cost floor" (abs (adoptionMaxOpenThreshold - 0.03) < 1e-12)
+    assert "a missing open threshold passes" (comboOpenThresholdWithinAdoptionCeiling Nothing)
+    assert "a sane open threshold passes" (comboOpenThresholdWithinAdoptionCeiling (Just 0.0049))
+    assert "the ceiling itself passes" (comboOpenThresholdWithinAdoptionCeiling (Just adoptionMaxOpenThreshold))
+    assert
+        "the 2026-10-09 degenerate live thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0.386, 0.918]))
+    assert
+        "non-finite or negative thresholds fail"
+        (not (any (comboOpenThresholdWithinAdoptionCeiling . Just) [0 / 0, 1 / 0, -0.001]))
+    let grid = [0, 0.001 .. 0.05] :: [Double]
+    assert
+        "open-threshold ceiling is monotone"
+        ( and
+            [ comboOpenThresholdWithinAdoptionCeiling (Just lo)
+            | lo <- grid
+            , hi <- grid
+            , lo <= hi
+            , comboOpenThresholdWithinAdoptionCeiling (Just hi)
+            ]
+        )
+
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable :: IO ()
+testDegenerateOpenThresholdIsCandidateAndOverrideAuditable = do
+    let withOpenThreshold label threshold =
+            case processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" (Aeson.toJSON (threshold :: Double)) o)
+                other -> other
+        sane = withOpenThreshold "sane-threshold" 0.0049
+        degenerate = withOpenThreshold "degenerate-threshold" 0.386
+        invalidText =
+            case processingComboForTest "invalid-threshold" "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" (Aeson.String "NaN") o)
+                other -> other
+        mergedInvalid = listToMaybe (mergedCombosForTest [invalidText])
+        pinned = withOpenThreshold "pinned-degenerate" 0.918
+        mergedSane = listToMaybe (mergedCombosForTest [sane])
+        mergedDegenerate = listToMaybe (mergedCombosForTest [degenerate])
+        (stored, _) =
+            mergeTopCombosPayloadsWithStatsAndDeployableOverrides
+                ["pinned-degenerate"]
+                10
+                9500
+                [Aeson.object ["combos" .= [degenerate, pinned]]]
+        storedCombos =
+            case stored of
+                Aeson.Object o | Just (Aeson.Array values) <- KM.lookup "combos" o -> V.toList values
+                _ -> []
+        byUuid :: T.Text -> Maybe Aeson.Value
+        byUuid uuid =
+            find
+                ( \case
+                    Aeson.Object o -> (KM.lookup "uuid" o >>= AT.parseMaybe Aeson.parseJSON) == Just uuid
+                    _ -> False
+                )
+                storedCombos
+        relaxedReasons :: Maybe [T.Text]
+        relaxedReasons =
+            byUuid "pinned-degenerate" >>= \case
+                Aeson.Object o | Just (Aeson.Object processing) <- KM.lookup "processing" o -> KM.lookup "relaxedReasons" processing >>= AT.parseMaybe Aeson.parseJSON
+                _ -> Nothing
+    assert
+        "a sane open threshold keeps complete evidence deployable"
+        ((mergedSane >>= comboProcessingTierForTest) == Just "deployable")
+    assert
+        "a degenerate open threshold stays a candidate with a reason"
+        ( (mergedDegenerate >>= comboProcessingTierForTest) == Just "candidate"
+            && maybe False ("open-threshold-above-ceiling" `elem`) (mergedDegenerate >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "a present but unparseable open threshold is failed evidence, not an absent field"
+        ( (mergedInvalid >>= comboProcessingTierForTest) /= Just "deployable"
+            && maybe False ("open-threshold-above-ceiling" `elem`) (mergedInvalid >>= comboProcessingReasonsForTest)
+        )
+    assert
+        "the store keeps an unpinned degenerate threshold out of the deployable tier"
+        ((byUuid "degenerate-threshold" >>= comboProcessingTierForTest) == Just "candidate")
+    assert
+        "an explicit UUID override still relaxes the ceiling and records it for pin review"
+        ( (byUuid "pinned-degenerate" >>= comboProcessingTierForTest) == Just "deployable"
+            && maybe False ("open-threshold-above-ceiling" `elem`) relaxedReasons
+        )
+
+testMergeExecutableRejectsInvalidOpenThreshold :: IO ()
+testMergeExecutableRejectsInvalidOpenThreshold = do
+    (inputPath, inputHandle) <- openTempFile "/tmp" "trader-merge-threshold-input.json"
+    hClose inputHandle
+    (outputPath, outputHandle) <- openTempFile "/tmp" "trader-merge-threshold-output.json"
+    hClose outputHandle
+    let withOpenThreshold label threshold =
+            case processingComboForTest label "db" False (Just adoptionMinWalkForwardSharpeMean) 1.0 adoptionMinTradeCount of
+                Aeson.Object o -> Aeson.Object (KM.insert "openThreshold" threshold o)
+                other -> other
+        payload =
+            Aeson.object
+                [ "combos"
+                    .= [ withOpenThreshold "sane-threshold" (Aeson.toJSON (0.0049 :: Double))
+                       , withOpenThreshold "degenerate-threshold" (Aeson.toJSON (0.918 :: Double))
+                       , withOpenThreshold "invalid-threshold" (Aeson.String "NaN")
+                       ]
+                , "generatedAtMs" .= (9000 :: Int64)
+                , "source" .= ("test" :: T.Text)
+                ]
+    (jsonlPath, jsonlHandle) <- openTempFile "/tmp" "trader-merge-threshold-input.jsonl"
+    hClose jsonlHandle
+    let jsonlRecord label threshold =
+            case withOpenThreshold label threshold of
+                Aeson.Object o -> Aeson.Object (KM.insert "ok" (Aeson.Bool True) o)
+                other -> other
+    BL.writeFile inputPath (Aeson.encode payload)
+    BL.writeFile
+        jsonlPath
+        ( BL.intercalate
+            "\n"
+            [ Aeson.encode (jsonlRecord "jsonl-sane-threshold" (Aeson.toJSON (0.0049 :: Double)))
+            , Aeson.encode (jsonlRecord "jsonl-invalid-threshold" (Aeson.String "NaN"))
+            ]
+        )
+    code <-
+        runMerge
+            MergeArgs
+                { maTopJson = inputPath
+                , maFromJsonl = [jsonlPath]
+                , maFromTopJson = []
+                , maOut = outputPath
+                , maMax = 10
+                , maHistoryDir = Nothing
+                , maScoringConfig = defaultTopComboScoringConfig
+                , maCopyToDist = False
+                }
+    decoded <- (Aeson.eitherDecode <$> BL.readFile outputPath) :: IO (Either String Aeson.Value)
+    let combos =
+            case decoded of
+                Right (Aeson.Object o) | Just (Aeson.Array v) <- KM.lookup "combos" o -> V.toList v
+                _ -> []
+        tierOf :: T.Text -> Maybe T.Text
+        tierOf method =
+            find
+                ( \case
+                    Aeson.Object o
+                        | Just (Aeson.Object params) <- KM.lookup "params" o ->
+                            (KM.lookup "method" params >>= AT.parseMaybe Aeson.parseJSON) == Just method
+                    _ -> False
+                )
+                combos
+                >>= comboProcessingTierForTest
+    assert "threshold merge exits successfully" (code == 0)
+    assert "merge keeps a sane open threshold deployable" (tierOf "sane-threshold" == Just "deployable")
+    assert "merge keeps a degenerate open threshold out of the deployable tier" (tierOf "degenerate-threshold" == Just "candidate")
+    assert "merge never deploys a present but unparseable open threshold" (tierOf "invalid-threshold" /= Just "deployable")
+    assert "merge reads a sane JSONL open threshold as deployable" (tierOf "jsonl-sane-threshold" == Just "deployable")
+    assert "merge never deploys an unparseable JSONL open threshold" (tierOf "jsonl-invalid-threshold" /= Just "deployable")
+    _ <- try (removeFile jsonlPath) :: IO (Either SomeException ())
+    _ <- try (removeFile inputPath) :: IO (Either SomeException ())
+    _ <- try (removeFile outputPath) :: IO (Either SomeException ())
+    pure ()
 
 testExplicitDeployableOverrideIsBoundedAndAuditable :: IO ()
 testExplicitDeployableOverrideIsBoundedAndAuditable = do
@@ -7230,6 +8074,48 @@ testPortfolioGraduationPerformanceAndPersistence = do
     let review = portfolioGraduationReview portfolioGraduationConfigForTest 2000 ["uuid-a"] passingPortfolioGraduationEvidence
         decoded = Aeson.eitherDecode (Aeson.encode review) :: Either String PortfolioGraduationReview
     assert "portfolio graduation reviews round-trip through their durable JSON marker" (decoded == Right review)
+    let legacyValue =
+            case Aeson.toJSON review of
+                Aeson.Object obj -> Aeson.Object (KM.delete "evidenceError" obj)
+                value -> value
+    assert
+        "graduation reviews written before evidence diagnostics remain readable"
+        ((Aeson.eitherDecode (Aeson.encode legacyValue) :: Either String PortfolioGraduationReview) == Right review)
+    let (partialEvidence, evidenceError) =
+            portfolioGraduationCollectedEvidence
+                (Left "graduation baseline is missing for a reviewed UUID")
+                (20, 19)
+                (1000, 990)
+                True
+        partialReview = portfolioGraduationReviewWithEvidenceError portfolioGraduationConfigForTest 2000 ["uuid-a"] partialEvidence evidenceError
+        otherwisePassing = portfolioGraduationReviewWithEvidenceError portfolioGraduationConfigForTest 2000 ["uuid-a"] passingPortfolioGraduationEvidence evidenceError
+    assert
+        "a missing graduation baseline preserves independent execution and status evidence"
+        ( pgeExecutionAttempts partialEvidence == 20
+            && pgeExecutionSuccesses partialEvidence == 19
+            && pgeStatusSamples partialEvidence == 1000
+            && pgeHealthyStatusSamples partialEvidence == 990
+            && pgeLatestStatusesHealthy partialEvidence
+        )
+    assert
+        "unavailable graduation performance remains pending with its specific evidence error"
+        ( pgrDecision partialReview == PortfolioGraduationPending
+            && pgrEvidenceError partialReview == evidenceError
+            && "graduation-evidence-unavailable" `elem` pgrReasons partialReview
+            && pgeDailyObservationCount partialEvidence == 0
+        )
+    assert
+        "an evidence error prevents graduation even if every numerical gate passes"
+        ( pgrDecision otherwisePassing == PortfolioGraduationPending
+            && not (portfolioGraduationReviewApplies portfolioGraduationConfigForTest ["uuid-a"] otherwisePassing{pgrDecision = PortfolioGraduated})
+        )
+    assert
+        "graduation evidence errors persist across review JSON round trips"
+        ((Aeson.eitherDecode (Aeson.encode partialReview) :: Either String PortfolioGraduationReview) == Right partialReview)
+    let (completeEvidence, completeError) = portfolioGraduationCollectedEvidence (Right [1.01, 1.02]) (20, 19) (1000, 990) True
+    assert
+        "complete graduation performance preserves calculated observations and has no collection error"
+        (pgeDailyObservationCount completeEvidence == 2 && abs (pgeNetReturn completeEvidence - 0.02) < 1.0e-12 && isNothing completeError)
 
 testPortfolioSelectionRejectsSparseWinner :: IO ()
 testPortfolioSelectionRejectsSparseWinner = do
@@ -7475,7 +8361,7 @@ testSelectCombosForBacktestRefreshIncludesEveryStaleCombo = do
         missingWalkForward = selectionComboForTestWithWalkForward False "missing-walk-forward" 0.35 (Just (now - oneDay)) Nothing
         exactlyAtBoundary = selectionComboForTest "boundary" 0.4 (Just (now - comboBacktestStaleAfterMs)) Nothing
         shortStalePolicy =
-            ComboBacktestRefreshPolicy
+            defaultComboBacktestRefreshPolicy
                 { cbrpStaleAfterMs = oneDay
                 , cbrpPruneFinalEquityFloor = 1.0
                 }
@@ -8427,8 +9313,7 @@ testMarketContextFactorV2 = do
                         Nothing -> False
             assert
                 "missing, premature, impossible, or non-finite selected peer returns are explicitly unavailable"
-                ( all unavailable [missingChosen, invalidTiming, futureAvailability, invalidReturn, nonFiniteReturn]
-                )
+                (all unavailable [missingChosen, invalidTiming, futureAvailability, invalidReturn, nonFiniteReturn])
             assert
                 "an observed zero market return stays distinct from unavailable evidence"
                 ( case marketContextFactorRowV2 "BTCUSDT" 2 0 intervalMs selected observedZero of
@@ -9064,6 +9949,48 @@ testThresholdFactorChangesSimulatorAdmission = do
         (Left err, _) -> ioError (userError ("disabled threshold-factor regression failed to simulate: " ++ err))
         (_, Left err) -> ioError (userError ("enabled threshold-factor regression failed to simulate: " ++ err))
 
+-- Multiple-testing haircut invariants: zero for a single trial, when disabled,
+-- or without fold dispersion; grows with the trial count, shrinks with more
+-- folds, never goes negative, and matches the closed form.
+testWfSharpeTrialsHaircutProperties :: IO ()
+testWfSharpeTrialsHaircutProperties = do
+    let eps = 1e-9
+        near a b = abs (a - b) < eps
+    assert "haircut is zero for a single trial" (near (wfSharpeTrialsHaircut 1.0 1 5 0.8) 0)
+    assert "haircut is zero when disabled (scale 0)" (near (wfSharpeTrialsHaircut 0 300 5 0.8) 0)
+    assert "haircut is zero without fold dispersion" (near (wfSharpeTrialsHaircut 1.0 300 5 0) 0)
+    assert "haircut is never negative" (wfSharpeTrialsHaircut 1.0 300 5 0.8 >= 0)
+    assert "haircut grows with the trial count" (wfSharpeTrialsHaircut 1.0 300 5 0.8 > wfSharpeTrialsHaircut 1.0 30 5 0.8)
+    assert "haircut shrinks as more folds are averaged" (wfSharpeTrialsHaircut 1.0 300 5 0.8 < wfSharpeTrialsHaircut 1.0 300 2 0.8)
+    -- closed form: scale * sqrt (2 ln 100) * (1 / sqrt 4)
+    assert "haircut matches the closed form" (near (wfSharpeTrialsHaircut 1.0 100 4 1.0) (0.5 * sqrt (2 * log 100)))
+    assert "non-finite dispersion is treated as zero" (near (wfSharpeTrialsHaircut 1.0 300 5 (0 / 0)) 0)
+    assert "deflated mean subtracts the haircut" (near (deflatedWfSharpeMean 1.0 100 4 2.0 1.0) (2.0 - 0.5 * sqrt (2 * log 100)))
+    assert "deflation is a no-op when disabled" (near (deflatedWfSharpeMean 0 300 5 1.3 0.8) 1.3)
+
+-- The haircut must divide by the folds the walk-forward report actually
+-- evaluated, not the requested count: short windows and the embargo shrink the
+-- evaluated count, and a larger divisor understates the standard error.
+-- Reproduces the reviewed case: 7 requested folds, 2 evaluated, scale 1,
+-- 100 trials, mean 2, std 1 -> deflated -0.146 (rejected at 0.3) rather than
+-- 0.853 (wrongly admitted).
+testWfSharpeHaircutUsesEvaluatedFolds :: IO ()
+testWfSharpeHaircutUsesEvaluatedFolds = do
+    let summary = Aeson.object ["sharpeMean" Aeson..= (2.0 :: Double), "sharpeStd" Aeson..= (1.0 :: Double)]
+        walkForward = Aeson.object ["foldCount" Aeson..= (2 :: Int), "summary" Aeson..= summary]
+        report = Aeson.object ["backtest" Aeson..= Aeson.object ["walkForward" Aeson..= walkForward]]
+        eps = 1e-9
+        near a b = abs (a - b) < eps
+        deflatedEvaluated = deflatedWfSharpeMean 1.0 100 (wfEvaluatedFolds (Just report) 7) 2.0 1.0
+        deflatedRequested = deflatedWfSharpeMean 1.0 100 7 2.0 1.0
+    assert "evaluated fold count is read from the report" (extractWalkForwardFoldCount (Just report) == Just 2)
+    assert "evaluated folds prefer the report over the requested count" (wfEvaluatedFolds (Just report) 7 == 2)
+    assert "evaluated folds fall back to the requested count without a report" (wfEvaluatedFolds Nothing 7 == 7)
+    assert "evaluated folds never drop below one" (wfEvaluatedFolds Nothing 0 == 1)
+    assert "deflating by evaluated folds matches the closed form" (near deflatedEvaluated (2.0 - sqrt (2 * log 100) / sqrt 2))
+    assert "evaluated folds reject the reviewed case at a 0.3 floor" (deflatedEvaluated < 0.3)
+    assert "the requested count would have wrongly admitted it" (deflatedRequested > 0.3)
+
 testSweepThresholdMinRoundTripsFallback :: IO ()
 testSweepThresholdMinRoundTripsFallback = do
     let prices :: [Double]
@@ -9121,6 +10048,54 @@ testSweepThresholdZeroCandidatesKeepsBasePair = do
             assert "zero dynamic threshold candidates keep the configured open threshold" (abs (openThr - 0.01) < 1e-12)
             assert "zero dynamic threshold candidates keep the configured close threshold" (abs (closeThr - 0.03) < 1e-12)
             assert "zero dynamic threshold candidates still report tune stats" (tsFoldCount stats > 0)
+
+{- | The threshold sweep (`sweepThresholdWithHLWith`) only ever sees the tune
+window that `Main.hs` carves out of `splitTrain`, while the walk-forward report
+simulates the frozen thresholds over `splitBacktest`. This pins the contract
+that makes the sweep fold-local: train and backtest partition the series in
+order, the tune window (the trailing `tuneRatio` share of the train slice) ends
+exactly at `splitTrainEnd`, and every tune bar strictly precedes every backtest
+bar, so a swept threshold can never have seen the data it is later tested on.
+-}
+testSplitKeepsTuneWindowOutOfBacktest :: IO ()
+testSplitKeepsTuneWindowOutOfBacktest = do
+    let prices :: [Double]
+        prices = map fromIntegral [1 .. 100 :: Int]
+        lookback = 10 :: Int
+        tuneWindow :: Double -> [Double] -> [Double]
+        tuneWindow tuneRatio train =
+            let trainSize = length train
+                tuneSize = max 0 (min trainSize (floor (fromIntegral trainSize * tuneRatio)))
+                fitSize = max 0 (trainSize - tuneSize)
+             in drop fitSize train
+    case splitTrainBacktest lookback 0.3 prices of
+        Left err -> assert ("train/backtest split rejected a valid series: " ++ err) False
+        Right split -> do
+            let train = splitTrain split
+                backtest = splitBacktest split
+                trainEnd = splitTrainEnd split
+                tune = tuneWindow 0.5 train
+            assert "train and backtest partition the series in order" (train ++ backtest == prices)
+            assert "train slice is exactly the first trainEnd prices" (length train == trainEnd && take trainEnd prices == train)
+            assert "raw and effective train end agree" (splitTrainEndRaw split == trainEnd)
+            assert "train slice covers the lookback plus one bar" (trainEnd >= lookback + 1)
+            assert "backtest slice keeps at least two prices" (length backtest >= 2)
+            assert "tune window is non-empty" (not (null tune))
+            assert "tune window ends exactly at the train end" (last tune == last train)
+            assert "every tune bar strictly precedes every backtest bar" (maximum tune < minimum backtest)
+            assert "a full-ratio tune window is still confined to the train slice" (maximum (tuneWindow 0.999999 train) < minimum backtest)
+    case splitTrainBacktest lookback 0.0 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a zero backtest ratio must be rejected" False
+    case splitTrainBacktest lookback 1.0 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a unit backtest ratio must be rejected" False
+    case splitTrainBacktest lookback (0 / 0) prices of
+        Left _ -> pure ()
+        Right _ -> assert "a NaN backtest ratio must be rejected" False
+    case splitTrainBacktest 98 0.3 prices of
+        Left _ -> pure ()
+        Right _ -> assert "a lookback that leaves no training bars must be rejected" False
 
 -- Fresh-entry sizing-validity regression: malformed cap/floor evidence must
 -- fail closed before a new position can open, while valid zero and minimum

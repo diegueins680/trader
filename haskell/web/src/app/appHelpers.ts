@@ -3171,7 +3171,9 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
 }
 
 export const CUSTOM_SYMBOL_VALUE = "__custom__";
-export const TOP_COMBOS_POLL_MS = 30_000;
+// Each full leaderboard response costs the API a multi-gigabyte decode; polls that hit
+// an unchanged board answer 304, so a slower cadence mainly bounds the worst case.
+export const TOP_COMBOS_POLL_MS = 300_000;
 export const TOP_COMBOS_DISPLAY_DEFAULT = 5;
 export const TOP_COMBOS_DISPLAY_MIN = 1;
 export const MIN_LOOKBACK_BARS = 2;

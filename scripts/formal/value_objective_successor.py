@@ -123,8 +123,9 @@ def chain():
     gradient = residual * g + 2 * g * g
     worst = max(mse, penalty, loss, gradient)
     require(worst < FINITE_LIMIT < Q(int(sys.float_info.max)), 'admitted-domain magnitude chain')
-    return {'lossBoundLog2': math.ceil(math.log2(float(loss))), 'gradientBoundLog2': math.ceil(math.log2(float(gradient))),
-            'finiteLimitLog2': 220}
+    # Exact ceilings: float log2 rounded the small excess over a power of two away (corrected 2026-11-12).
+    from ppo_objective_successor import ceil_log2
+    return {'lossBoundLog2': ceil_log2(loss), 'gradientBoundLog2': ceil_log2(gradient), 'finiteLimitLog2': 220}
 
 
 def prove(nodes):

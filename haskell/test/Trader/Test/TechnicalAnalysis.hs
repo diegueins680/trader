@@ -16,6 +16,7 @@ runTechnicalAnalysisTests = do
     testAtrNonNegative
     testAroonPeriodOneFailsClosed
     testAroonTiesPreferMostRecentExtreme
+    testLatestJustRespectsStalenessCap
     testRegimeSelectorFindsTrend
     testTrendCandidateFailsClosedOnShortSeries
     testBreakoutCandidateCanTriggerLong
@@ -28,6 +29,27 @@ runTechnicalAnalysisTests = do
 assert :: String -> Bool -> IO ()
 assert message condition =
     unless condition (ioError (userError ("Assertion failed: " ++ message)))
+
+-- latestJust/laggedJust may fall back past missing readings only within
+-- defaultMaxIndicatorStaleBars; an older reading is stale and must not feed a
+-- signal. Covers a fresh value, a value exactly at the cap, a value past the
+-- cap, the strict cap 0, an explicit lag offset and the empty series.
+testLatestJustRespectsStalenessCap :: IO ()
+testLatestJustRespectsStalenessCap = do
+    let cap = defaultMaxIndicatorStaleBars
+        fresh = V.fromList [Just (1 :: Int), Nothing, Just 2, Just 3]
+        atCap = V.fromList (Just (7 :: Int) : replicate cap Nothing)
+        pastCap = V.fromList (Just (7 :: Int) : replicate (cap + 1) Nothing)
+        lagged = V.fromList [Just (1 :: Int), Just 2, Nothing, Nothing, Just 5]
+    assert "default staleness cap is non-negative" (cap >= 0)
+    assert "latestJust returns the newest present value" (latestJust fresh == Just 3)
+    assert "latestJust accepts a value exactly at the staleness cap" (latestJust atCap == Just 7)
+    assert "latestJust rejects a value older than the staleness cap" (isNothing (latestJust pastCap))
+    assert "laggedJustAgeWithin reports the age of a fallback reading" (laggedJustAgeWithin cap 0 atCap == Just (cap, 7))
+    assert "a zero cap accepts only the newest bar" (isNothing (latestJustWithin 0 (V.fromList [Just (1 :: Int), Nothing])) && latestJustWithin 0 fresh == Just 3)
+    assert "the cap applies relative to the lagged bar" (laggedJustWithin cap 1 lagged == Just 2 && isNothing (laggedJustWithin 0 1 lagged))
+    assert "an offset past the start fails closed" (isNothing (laggedJustWithin cap 9 lagged))
+    assert "latestJust fails closed on an empty series" (isNothing (latestJust (V.empty :: V.Vector (Maybe Int))))
 
 testRegimeCalibration :: RegimeCalibration
 testRegimeCalibration =

@@ -50,9 +50,12 @@
       "haskell/web/vite.config.ts",
       "haskell/web/public/trader-config.js",
       "research-notes/registrations/sequential-control-screen-v1.json",
+      "research-notes/registrations/causal-transition-v4-engineering.json",
+      "research-notes/registrations/causal-ppo-v5-engineering.json",
       "research-notes/registrations/har-rv-risk-gate-v1.json",
       "research-notes/registrations/depth-normalized-ofi-v1.json",
-      "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json"
+      "research-notes/registrations/missingness-aware-calibrated-shallow-v1.json",
+      "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json"
     ]
   },
   "specifications": [
@@ -113,6 +116,26 @@
         "formal/research/value-objective-v2-source.json",
         "formal/research/value-v2-counterexamples.json",
         "scripts/formal/value_objective_successor.py",
+        "scripts/research/causal_value_v6.py",
+        "formal/research/causal-value-v6-contract.md",
+        "formal/research/causal-value-v6-source.json",
+        "scripts/formal/causal_value.py",
+        "scripts/research/ppo_objective_v2.py",
+        "formal/research/ppo-objective-v2-contract.md",
+        "formal/research/ppo-objective-v2-source.json",
+        "scripts/formal/ppo_objective_successor.py",
+        "scripts/research/causal_ppo_v7.py",
+        "formal/research/causal-ppo-v7-contract.md",
+        "formal/research/causal-ppo-v7-source.json",
+        "scripts/formal/causal_ppo_learner.py",
+        "scripts/research/causal_ope_v8.py",
+        "formal/research/causal-ope-v8-contract.md",
+        "formal/research/causal-ope-v8-source.json",
+        "scripts/formal/causal_ope.py",
+        "scripts/research/ope_rational_v3.py",
+        "formal/research/ope-rational-v3-contract.md",
+        "formal/research/ope-rational-v3-source.json",
+        "scripts/formal/ope_capacity.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -909,7 +932,7 @@
         },
         {
           "id": "F-RL-VALUE-V2-ARITH",
-          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^201 and gradients below 2^101, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
+          "statement": "Under IEEE correct rounding, exactly shifted operands yield value-equal rounded differences and the row maximum commutes with the shift, so every quantity the kernel consumes is shift-invariant and canonicalized published values are bitwise invariant; on the admitted domain the standard rounding model bounds loss below 2^202 and gradients below 2^102, so admitted inputs never overflow and alpha = 0 cannot produce NaN."
         },
         {
           "id": "F-RL-VALUE-V2-FLOW",
@@ -918,6 +941,86 @@
         {
           "id": "F-RL-VALUE-V2-CONFORMANCE",
           "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, gradients match oracle finite differences, underflow counts match the oracle, the CE-RL-014 witness rejects with a finite in-domain analogue, and the CE-RL-015 and CE-RL-024 witnesses yield bitwise-equal canonical published values."
+        },
+        {
+          "id": "F-RL-VALUE-V6-SOURCE",
+          "statement": "Causal value v6 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly two generator draws per step, magnitude guards on every consumed reward and network value, terminal rows without bootstrap, checked transition, objective and optimizer stages, target replacement only after the final update of a rollout and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-VALUE-V6-ARITH",
+          "statement": "Under the standard rounding model, rewards and selected target-network values bounded by 2^99 give a Double-DQN target of magnitude at most 2^100 after one rounded multiplication by the discount and one rounded addition, so admitted targets lie in the value-objective-v2 domain and cannot overflow, and the bound is exceeded without either guard; epsilon-greedy behavior probabilities are positive, below one and sum to one, equal to 11/12 and 1/24 at the registered rate; the first maximal online value selects a bounded target-network value; and at most 16384 optimizer steps occur, below the optimizer step cap."
+        },
+        {
+          "id": "F-RL-VALUE-V6-FLOW",
+          "statement": "The finite causal-value training abstraction publishes only after activation and after every rollout's collection, target formation, fixed update count and target replacement succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and the target snapshot is replaced only after the final update of a rollout."
+        },
+        {
+          "id": "F-RL-VALUE-V6-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout target equals an independent exact-rational evaluation of the two correctly rounded operations bit for bit; behavior probabilities equal the exact rule for the recorded action; rewriting every outcome from step k onward leaves earlier transitions, targets and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes and out-of-bound values reject."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-SOURCE",
+          "statement": "PPO objective v2 has a completely reviewed scalar-only source boundary with no NumPy/BLAS reduction, a finite magnitude-bounded admission domain with an old-probability floor of 2^-100, activation-first default rejection, a softmax computed from differences to the row maximum only, a coefficient selected by branch rather than multiplied by an activity flag, fsum reductions, zero canonicalization and a final finiteness guard before a single immutable publication; it has no learner, data, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-ARITH",
+          "statement": "Under the standard rounding model on the admitted domain, softmax terms lie in [0,1] with total in [1,3], the probability ratio is at most 2^100(1+u)^2, the clipped ratio lies in [0.8,1.2], the surrogate term is bounded by the larger factor magnitude, an inactive row has coefficient exactly zero and an active nonnegative-advantage row has a coefficient bounded by the clip ceiling times the advantage; loss stays below 2^201 and gradients below 2^202, so admitted inputs never overflow and no zero-times-infinity product can form."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-FLOW",
+          "statement": "The finite PPO-objective publication abstraction publishes only after activation, admission, computation over active or inactive rows and the finite guard; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-PPOOBJ-V2-CONFORMANCE",
+          "statement": "Seeded batches agree with a 60-digit decimal oracle and with the frozen helper on ordinary inputs within 1e-12 relative tolerance, inactive rows publish exactly zero gradients, gradients match oracle finite differences away from clip boundaries, the CE-RL-012 witness rejects with a finite in-domain analogue whose gradient is exactly zero, the CE-RL-013 witness reproduces coefficient -8 as intended clipped-objective behavior, and underflowed terms are counted with canonical published zeros."
+        },
+        {
+          "id": "F-RL-PPO-V7-SOURCE",
+          "statement": "Causal PPO v7 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, an action draw that precedes every read of the step's outcome with exactly one generator draw per step, a difference-only softmax with a 2^-100 floor on all three action probabilities, magnitude guards on every consumed reward, network value, raw advantage, target, normalized advantage and critic residual, terminal rows without a next-value evaluation, checked transition, target, objective and optimizer stages, joint acceptance of actor and critic candidates and a single publication site; it has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-PPO-V7-ARITH",
+          "statement": "Softmax terms in [0,1] with one equal to one give a total in [1,3] and quotient probabilities in [0,1] that sum to one; for probabilities that sum to one the cumulative rule selects exactly one action for every draw in [0,1) with interval lengths equal to the three probabilities; in exact real arithmetic a centered advantage whose square is at most n times the squared scale, with n at most 256, is at most 16 scales; two values guarded at 2^99 have a twice-rounded residual below 2^101, exceeded without the target guard; and at most 16384 optimizer steps occur per network, below the optimizer step cap, with the critic seed below 2^32."
+        },
+        {
+          "id": "F-RL-PPO-V7-FLOW",
+          "statement": "The finite causal-PPO training abstraction publishes only after activation and after every rollout's collection, target formation and fixed count of joint actor-critic updates succeeded; any failure is terminal and publishes nothing; no outcome is consumed before its action draw; and actor and critic step counts are equal at every rollout boundary and at publication."
+        },
+        {
+          "id": "F-RL-PPO-V7-CONFORMANCE",
+          "statement": "Registered synthetic runs are deterministic and reject by default and under a wrong version; every first-rollout action and behavior probability equals an independent recomputation from the seeded actor and the replayed uniform draws; every first-rollout critic target equals an independent exact-rational evaluation of the correctly rounded GAE recursion bit for bit; normalized advantages are centered with magnitude at most the square root of the rollout length up to rounding; rewriting every outcome from step k onward leaves earlier transitions, actions and behavior probabilities unchanged; a terminal row publishes its reward as the target; and invalid outcomes, out-of-bound values and sub-floor probabilities reject."
+        },
+        {
+          "id": "F-RL-OPE-V8-SOURCE",
+          "statement": "Causal OPE v8 has a completely reviewed source boundary: activation-first default rejection, an exact import list whose transitive closure contains no frozen v1 training, evaluation or loading module, admission of exactly the causal-value-v6 and causal-ppo-v7 result types under their own versions, rejection of the whole evaluation when any run is shorter than the horizon so that no run is dropped or padded, horizon-prefix-only access to every run, a 2^-10 floor on every evaluated behavior probability with the value learner's probabilities required to be exactly 11/12 or 1/24, magnitude guards on rewards and supplied values, distinct (version, seed) streams, a checked estimate and a single publication site; it neither trains nor samples and has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-OPE-V8-ARITH",
+          "statement": "Under one correctly rounded sum and three correctly rounded quotients the three recorded softmax probabilities sum to one within 2u/(1-u) for u = 2^-53; with one rounded addition and a uniform draw on the 2^-53 grid, the probability with which the cumulative rule draws each action differs from its recorded probability by at most 2^-50; for a recorded probability of at least 2^-10 the drawing probability is positive and differs relatively by at most 2^-40, which fails without the floor; over at most 32 decisions the trajectory weight formed from recorded probabilities is within a factor 2^-34 of one of the weight under the drawing law; and the binary64 conversions of 11/12 and 1/24 are within 2^-53 relatively."
+        },
+        {
+          "id": "F-RL-OPE-V8-FLOW",
+          "statement": "The finite causal-OPE abstraction publishes only after activation, conversion of every requested run, the stream-distinctness check and a checked estimate; no run is dropped; and any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V8-CONFORMANCE",
+          "statement": "Registered synthetic evaluations over both successor learners are deterministic and reject by default and under a wrong version; every published estimate field equals an independent exact-rational evaluation of the recorded transitions; a target equal to the recorded behavior gives unit weights and full effective sample size; for every evaluated policy-gradient step the exact drawing probabilities counted on the 2^-53 grid reproduce the recorded action and lie within the certified gaps of the recorded probabilities; rewriting every outcome beyond the horizon leaves the evaluation unchanged; a run ending at the horizon is admitted; short, forged, reused, out-of-domain and oversized inputs reject; and the estimator's rational size limit rejects six fixture runs at horizon 32 while admitting four."
+        },
+        {
+          "id": "F-RL-OPE-V3-SOURCE",
+          "statement": "Exact OPE v3 equals the hash-pinned reviewed ope-rational-v2 module up to exactly three registered tokens, each occurring once: the version string, the entry name and a rational size limit of 2^20 bits instead of 8192; the predecessor's complete definition lock, activation-first default rejection, whole-batch admission, checked arithmetic primitives and private publication boundary therefore apply verbatim; the bounds are 256 episodes and 32 decisions; and it imports only the standard library and has no file, artifact, policy or order effect."
+        },
+        {
+          "id": "F-RL-OPE-V3-ARITH",
+          "statement": "For every admitted batch of 1..256 episodes and 1..32 decisions of finite binary64 values, every value handed to the estimator's size check has numerator and denominator bit lengths of at most 1,006,337, below the 2^20-bit limit, so the size check cannot reject an admitted batch: each checked value has a multiplier, a product of powers of behavior numerators below 2^53 and a power of two, that makes it an integer, and a magnitude bound; a reduced denominator divides the multiplier; and the product, common-multiple sum, reciprocal-probability and common-multiplier quotient rules preserve such certificates, while an unreduced fraction is not so bounded."
+        },
+        {
+          "id": "F-RL-OPE-V3-FLOW",
+          "statement": "Through the source identity with ope-rational-v2, the finite exact-OPE abstraction performs no arithmetic before whole-batch admission and publishes only a complete batch; any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V3-CONFORMANCE",
+          "statement": "Registered synthetic batches are deterministic and reject by default and under a wrong version; every published field equals an independent exact-rational oracle and equals ope-rational-v2 wherever that publishes; in instrumented runs over uniform, full-mantissa, subnormal, largest-finite and mixed binary64 inputs every checked value is integral under its certificate's concrete multiplier and within its magnitude and bit bounds; a full 256-episode 32-decision batch that the predecessor rejects is admitted; lowering the limit to 8192 rejects the same batch; and invalid, foreign-typed and oversized batches reject."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",
@@ -1278,6 +1381,8 @@
         "terminal accounting",
         "simulated behavior coverage",
         "off-policy evaluation",
+        "exact causal transition adapter",
+        "nine-input causal PPO engineering composition",
         "no live exploration",
         "no automatic promotion"
       ],
@@ -1290,8 +1395,16 @@
         "scripts/research/run_sequential_screen.py",
         "scripts/research/summarize_sequential_screen.py",
         "scripts/research/sequential_registry.py",
+        "scripts/research/causal_transition_v4.py",
+        "scripts/research/causal_optimizer_v5.py",
+        "scripts/research/causal_ppo_v5.py",
+        "formal/research/causal-transition-v4-contract.md",
+        "formal/research/causal-ppo-v5-contract.md",
+        "research-notes/registrations/causal-transition-v4-engineering.json",
+        "research-notes/registrations/causal-ppo-v5-engineering.json",
         "research-notes/registrations/sequential-control-screen-v1.json",
-        "research-notes/sequential-control-2026-09-17/**"
+        "research-notes/sequential-control-2026-09-17/**",
+        "research-notes/registrations/causal-ppo-v5-consumer-audit-engineering.json"
       ],
       "uses": [
         "G-FAIL-CLOSED",
@@ -1410,6 +1523,14 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-R26",
           "statement": "The offline screen captures its registered source and registration files once before data admission and compares those exact bytes with blobs from one resolved Git commit. It parses the registration and computes source/registration provenance from admitted snapshots, retaining the same registration hash in the manifest and every saved policy. Later pathname replacement cannot change parsed settings or relabel provenance. Mismatching captured bytes reject before dataset access or archive creation; a fresh invocation validates fresh snapshots. Valid artifact fields and hashes retain their semantics. This checks file bytes, not loaded-interpreter attestation, dependency/environment identity, Git trust, data authenticity or economic efficacy; no order authority or promotion permission is added."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R27",
+          "statement": "The separate causal-transition-v4 adapter requires explicit enabled=True, its exact version, an exact integer action 0..2 and replay-v3-admissible inputs. It consumes one next bar and aligned funding tuple. It preserves nine exact inputs and rejects invalid nonterminal next observations without publishing a partial sample; previous immutable sessions remain unchanged. It does not authenticate caller policy information, availability or funding alignment, and cannot load frozen twelve-input learner artifacts."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-R28",
+          "statement": "Causal-ppo-v5 is separately versioned and default disabled, accepts a replay-v3 initial prefix, 1..4096 next outcomes and exact seed 0..2^32-2, and collects at most 256 causal transitions per batch. Its nine-value rational encoder and reward conversion reject nonfinite, subnormal, zero-underflow or relative conversion error above 2^-52. The separate functional optimizer admits exact nine-input snapshot schemas, finite buffers and nonnegative variances, and stages every update in a new immutable snapshot. Caller buffers must remain stable during copying; trusted CPython/Fraction/NumPy and availability/funding assumptions apply."
         }
       ],
       "ensures": [
@@ -1432,6 +1553,14 @@
         {
           "id": "A-SEQUENTIAL-RESEARCH-E5",
           "statement": "Internal archive reconciliation preserves failed fits and stopped replays in descriptive statistics and rejects missing OPE rows or malformed v1 OPE outcome payloads for successful fits. OPE schema checks require nonempty failed/invalid outcomes or complete finite conditional-estimate/support/interval fields with reliability false; they do not establish estimator truth. Nested result fields cannot shadow validated trial identity in exported CSVs. Failed training/terminal/replay outcomes require nonblank non-reserved reasons and complete outcomes have no reason; training-row reasons must match terminal-event reasons. The runner records exception class names in training/OPE/replay failure reasons, including empty or reserved messages, so these failures remain exportable without losing trials. Manifest and summary dispositions must remain non-authorizing contaminated development with no candidate passed, no opened holdout and null v1 promotion statistics before output creation. Original v1 successful training records without a status field remain supported when ledger completion and verified artifact identity agree. Reconciliation does not establish external preregistration completeness, recompute path economics or validate OPE estimates."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E6",
+          "statement": "Causal-transition-v4 records the requested action separately from the support-adjusted accounting target and preserves the actual replay-v3 receipt. Reward net-equity-delta-v4 equals after.equity minus before.equity in exact initial-equity units. Terminal samples retain loss and liquidation evidence, including nonpositive equity, with no next observation. Nonterminal samples carry an admissible next observation. Target, partial fill and realized inventory remain distinct; no probability, learner loss, float conversion, new formal closure or production authority is inferred."
+        },
+        {
+          "id": "A-SEQUENTIAL-RESEARCH-E7",
+          "statement": "The causal PPO engineering successor samples requested actions from old observations before consuming each next outcome, retains their behavior probabilities even when replay support neutralizes targets, and uses actual transition receipts and terminal-safe GAE-v2 targets. It performs four actor/critic updates per rollout and publishes only a complete immutable result. Batch boundaries are nonterminal; replay termination retains adverse rows and explicit unused counts without padding or validating unused inputs. Input exhaustion is not liquidation. Any stage failure publishes no partial result. Regression evidence does not extend existing formal certificates or establish library-level arithmetic accuracy, authenticated data, physical fills, profitability or order authority."
         }
       ],
       "invariants": [
@@ -1467,6 +1596,26 @@
           "level": "regression",
           "path": "test/sequential-screen.test.mjs",
           "contains": "offline sequential contracts"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal-transition.test.mjs",
+          "contains": "causal transition adapter"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal_transition_test.py",
+          "contains": "test_exact_receipts_rewards_and_nine_input_schema"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal-ppo.test.mjs",
+          "contains": "causal PPO composition"
+        },
+        {
+          "level": "regression",
+          "path": "test/causal_ppo_test.py",
+          "contains": "test_multiple_batches_keep_boundary_nonterminal_and_publish_all_updates"
         },
         {
           "level": "regression",
@@ -2331,18 +2480,20 @@
     {
       "id": "H-COMBOS",
       "title": "Top-combo scoring, portfolio selection, freshness, quarantine, tombstones, and bot adoption",
-      "features": ["combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "portfolio bootstrap selection", "bot start ordering"],
+      "features": ["bounded pinned-record retention", "combo identity", "ranking", "merge", "freshness", "backtest refresh", "live blend", "quarantine", "tombstone", "adoption evidence", "portfolio bootstrap selection", "bot start ordering"],
       "criticality": "safety",
-      "implementation": ["haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs", "haskell/app/Trader/PortfolioSelection.hs"],
+      "implementation": ["haskell/app/Trader/TopComboRetention.hs", "haskell/app/Trader/TopComboScoring.hs", "haskell/app/Trader/TopCombosStore.hs", "haskell/app/Trader/BotStartSemantics.hs", "haskell/app/Trader/PortfolioSelection.hs"],
       "uses": ["G-FINITE", "G-FAIL-CLOSED", "G-IDEMPOTENT", "G-DETERMINISTIC"],
       "dependsOn": ["H-OPTIMIZER", "H-RISK"],
       "requires": [{ "id": "H-COMBOS-R1", "statement": "A deployable combo has canonical identity, finite score/risk fields, sufficient trades, fresh timestamp, walk-forward and timestamped net-return evidence, and no active tombstone/quarantine; a portfolio snapshot matches the active selector configuration." }],
       "ensures": [{ "id": "H-COMBOS-E1", "statement": "Merge deduplicates identity and preserves the newest admissible evidence; ranking is total; deterministic portfolio selection caps member and gross exposure, admits only conservative return/drawdown distributions, and preserves explicit disabled behavior." }],
-      "invariants": [{ "id": "H-COMBOS-I1", "statement": "merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos; selected portfolios contain unique symbols and never exceed configured member, gross, or drawdown caps." }],
+      "invariants": [{ "id": "H-COMBOS-I1", "statement": "Retention reserves slots for present configured pins without bypassing evidence floors or tombstones; merge(x,x)=x after normalization; stale replicas cannot resurrect a tombstoned row; stricter evidence floors cannot add deployable combos; selected portfolios contain unique symbols and never exceed configured member, gross, or drawdown caps." }],
       "failures": [{ "id": "H-COMBOS-F1", "statement": "Malformed, stale, low-evidence, losing, quarantined, platform-incompatible, or config-mismatched combos and portfolios remain visible only in their documented non-deployable state and cannot auto-start trading." }],
       "evidence": [
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection" },
-        { "level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPortfolioSelectionIsDeterministicAndBounded" }
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPrunedBacktestTombstonePreventsStaleResurrection"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testPortfolioSelectionIsDeterministicAndBounded"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testRetainedTopCombos"},
+        {"level": "regression", "path": "haskell/test/TestMain.hs", "contains": "testRetainedOptimizerExport"}
       ]
     },
     {
@@ -2457,7 +2608,7 @@
     {
       "id": "W-PRESENTATION",
       "title": "Web optimizer, combos, charts, telemetry, performance, and navigation presentation",
-      "features": ["optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "revenue assurance reports", "data log panel", "configuration dock", "pagination"],
+      "features": ["fleet review progress and blockers", "optimizer panel", "top combos", "backtest chart", "bot state chart", "line chart", "prediction diff", "telemetry chart", "performance panel", "revenue assurance reports", "data log panel", "configuration dock", "pagination"],
       "criticality": "presentation",
       "implementation": ["haskell/web/src/components/**", "haskell/web/src/app/revenueReport.ts"],
       "uses": ["G-FINITE", "G-DETERMINISTIC"],
@@ -2467,8 +2618,9 @@
       "invariants": [{ "id": "W-PRESENTATION-I1", "statement": "Rendering, sorting, filtering, pagination, or report export cannot mutate trading state or misrepresent missing evidence as zero; revenue exports preserve exchange-accounting fields and explicitly mark truncation or unclassified income as review-required evidence." }],
       "failures": [{ "id": "W-PRESENTATION-F1", "statement": "Malformed/non-finite rows are rejected or rendered as unavailable and never converted into a default deployable combo." }],
       "evidence": [
-        { "level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build" },
-        { "level": "regression", "path": "haskell/web/test/revenueReport.test.mjs", "contains": "preserves accounting authority" }
+        {"level": "static", "path": "scripts/verify.sh", "contains": "npm --workspaces=false run build"},
+        {"level": "regression", "path": "haskell/web/test/revenueReport.test.mjs", "contains": "preserves accounting authority"},
+        {"level": "regression", "path": "haskell/web/test/portfolioGraduation.test.mjs", "contains": "stale strategy sets and configurations"}
       ]
     },
     {
@@ -2701,23 +2853,23 @@
     {
       "id": "A-CALIBRATION",
       "title": "Operational analysis, optimizer wrappers, scorecards, and risk gates",
-      "features": ["edge extraction", "regime calibration", "volatility-confidence scorecard", "position-history analysis", "Binance trade summary", "ROI scorecard", "bot-day review", "optimizer wrapper", "risk schema gates"],
+      "features": ["UTC fleet evidence report", "unapplied fleet-bound graduation window proposal", "edge extraction", "regime calibration", "volatility-confidence scorecard", "position-history analysis", "Binance trade summary", "ROI scorecard", "bot-day review", "optimizer wrapper", "risk schema gates"],
       "criticality": "correctness",
-      "implementation": ["scripts/extract_edges.py", "scripts/calibrate-regime-params.py", "scripts/run-volconf-scorecard.py", "scripts/risk/**", "haskell/scripts/analyze_position_history.py", "haskell/scripts/summarize_binance_trades.py", "haskell/scripts/review_bot_day.py", "haskell/scripts/optimize_adoption_gates.py", "haskell/scripts/volatility_gating_scorecard.py", "haskell/scripts/generate_roi_scorecard.sh", "haskell/scripts/rollup_performance.sh", "haskell/scripts/run_optimize_equity_top5.sh"],
+      "implementation": ["scripts/report-live-fleet.mjs", "scripts/extract_edges.py", "scripts/calibrate-regime-params.py", "scripts/run-volconf-scorecard.py", "scripts/risk/**", "haskell/scripts/analyze_position_history.py", "haskell/scripts/summarize_binance_trades.py", "haskell/scripts/review_bot_day.py", "haskell/scripts/optimize_adoption_gates.py", "haskell/scripts/volatility_gating_scorecard.py", "haskell/scripts/generate_roi_scorecard.sh", "haskell/scripts/rollup_performance.sh", "haskell/scripts/run_optimize_equity_top5.sh"],
       "uses": ["G-FINITE", "G-NO-LOOKAHEAD", "G-SECRET", "G-DETERMINISTIC"],
       "dependsOn": ["H-TELEMETRY-CALIBRATION", "H-OPTIMIZER"],
       "requires": [{ "id": "A-CALIBRATION-R1", "statement": "Input schema/version and decision-time feature population are explicit; realized outcomes are a separate labeled population and never mixed into entry-edge calibration." }],
       "ensures": [{ "id": "A-CALIBRATION-E1", "statement": "Reports are reproducible, finite, population-labeled, and risk/schema gates exit non-zero on violated invariants." }],
       "invariants": [{ "id": "A-CALIBRATION-I1", "statement": "No secret is printed and no outcome/post-trade field is interpreted as a causal entry feature." }],
       "failures": [{ "id": "A-CALIBRATION-F1", "statement": "Unknown schema, mixed population, insufficient evidence, or non-finite statistic fails the report/gate explicitly." }],
-      "evidence": [{ "level": "regression", "path": "haskell/scripts/test_analyze_position_history.py", "contains": "unittest" }]
+      "evidence": [{"level": "regression", "path": "haskell/scripts/test_analyze_position_history.py", "contains": "unittest"}, {"level": "regression", "path": "test/live-fleet-report.test.mjs", "contains": "window proposals bind a stable fleet identity"}]
     },
     {
       "id": "A-OPERATIONS",
       "title": "Monitoring, radio maintenance, restart helpers, and local process management",
-      "features": ["Postgres disk monitor", "radio registry maintenance", "trader monitor", "stack restart", "LaunchAgent install", "Fly radio loop", "bot watchdog", "background API/UI/outbox launch"],
+      "features": ["read-only fleet concurrency and memory benchmark", "Postgres disk monitor", "radio registry maintenance", "trader monitor", "stack restart", "LaunchAgent install", "Fly radio loop", "bot watchdog", "background API/UI/outbox launch"],
       "criticality": "operational",
-      "implementation": ["scripts/check-fly-postgres-disk.mjs", "scripts/maintain-radio-stations.mjs", "scripts/fly-radio-stations-loop.sh", "scripts/trader-monitor.sh", "scripts/restart-local-stack.sh", "scripts/install-autoloop-launchagent.sh", "deploy/ensure-bot-running.sh", "haskell/scripts/start_api_bg.sh", "haskell/scripts/start_ui_bg.sh", "haskell/scripts/start_outbox_publisher_bg.sh", "haskell/scripts/run_api_with_db.sh"],
+      "implementation": ["scripts/benchmark-live-fleet.mjs", "scripts/check-fly-postgres-disk.mjs", "scripts/maintain-radio-stations.mjs", "scripts/fly-radio-stations-loop.sh", "scripts/trader-monitor.sh", "scripts/restart-local-stack.sh", "scripts/install-autoloop-launchagent.sh", "deploy/ensure-bot-running.sh", "haskell/scripts/start_api_bg.sh", "haskell/scripts/start_ui_bg.sh", "haskell/scripts/start_outbox_publisher_bg.sh", "haskell/scripts/run_api_with_db.sh"],
       "uses": ["G-BOUNDED", "G-SECRET", "G-IDEMPOTENT"],
       "dependsOn": ["H-INTERFACE"],
       "requires": [{ "id": "A-OPERATIONS-R1", "statement": "A managed PID is proven to belong to the expected command; probes/URLs are allowlisted against private/metadata targets; timeouts/retries are bounded." }],
@@ -2729,16 +2881,16 @@
     {
       "id": "A-VERIFICATION",
       "title": "Canonical build, lint, test, formal coverage, and engineering review",
-      "features": ["canonical verify wrapper", "deploy configuration validation", "Fourmolu", "HLint", "Haskell smoke", "web typecheck/test/build", "automation tests", "formal coverage check", "engineering review"],
+      "features": ["canonical verify wrapper", "deploy configuration validation", "Fourmolu", "HLint", "Haskell smoke", "web typecheck/test/build", "automation tests", "formal coverage check", "engineering review", "dependency-free source-pin preflight"],
       "criticality": "operational",
-      "implementation": ["scripts/verify.sh", "scripts/verify-formal-specs.mjs", "scripts/verify-deploy-config.sh", "scripts/validate-toml.py", "scripts/engineering_review.py", "scripts/demo_engineering_workflow.sh", "haskell/scripts/ci_smoke.sh", "haskell/scripts/hlint_check.sh"],
+      "implementation": ["scripts/verify.sh", "scripts/verify-formal-specs.mjs", "scripts/verify-deploy-config.sh", "scripts/validate-toml.py", "scripts/engineering_review.py", "scripts/demo_engineering_workflow.sh", "haskell/scripts/ci_smoke.sh", "haskell/scripts/hlint_check.sh", "scripts/check-formal-source-lock.py"],
       "uses": ["G-DETERMINISTIC", "G-PROMOTION"],
       "dependsOn": [],
-      "requires": [{ "id": "A-VERIFICATION-R1", "statement": "The selected target is one of haskell, web, automation, smoke, or full and required pinned tools are available." }],
+      "requires": [{"id": "A-VERIFICATION-R1", "statement": "The selected target is one of haskell, web, automation, smoke, or full and required pinned tools are available."}, {"id": "A-VERIFICATION-R2", "statement": "Canonical automation and formal/full verification reject source-pin or application-inventory drift before importing the solver. The dependency-free preflight validates bounded metadata, unique keys, source digests and regular in-checkout paths without symlinks. It is a stable-checkout consistency check, not revision attestation, semantic correctness or an extension of existing certificates."}],
       "ensures": [{ "id": "A-VERIFICATION-E1", "statement": "Success means every commanded build/format/lint/smoke/test/formal-coverage step completed with exit 0; full is the conjunction of all target surfaces." }],
       "invariants": [{ "id": "A-VERIFICATION-I1", "statement": "Every covered production file maps to a unique-ID formal feature specification with non-empty clauses and live evidence links." }],
       "failures": [{ "id": "A-VERIFICATION-F1", "statement": "Missing tool, uncovered file, stale evidence marker, spec cycle, or failed check returns non-zero." }],
-      "evidence": [{ "level": "integration", "path": "test/formal-specs.test.mjs", "contains": "registry is coherent" }]
+      "evidence": [{"level": "integration", "path": "test/formal-specs.test.mjs", "contains": "registry is coherent"}, {"level": "regression", "path": "test/formal-source-lock.test.mjs", "contains": "source preflight accepts matching pins"}]
     },
     {
       "id": "D-FLY-AWS-RENDER",

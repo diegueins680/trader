@@ -1536,7 +1536,7 @@ test("autoloop workflow requires a dedicated push token and never skips post-pus
   assert.match(workflow, /name:\s+Require dedicated push token/);
   assert.match(workflow, /AUTOLOOP_PUSH_TOKEN is required so autoloop pushes trigger downstream CI and can poll GitHub Actions to repair failures\./);
   assert.match(workflow, /name:\s+Install HLint/);
-  assert.match(workflow, /sudo apt-get update && sudo apt-get install -y hlint/);
+  assert.match(workflow, /hlint-3\.8-x86_64-linux\.tar\.gz/);
   assert.match(workflow, /name:\s+Install fourmolu/);
   assert.match(workflow, /curl --fail --silent --show-error --location/);
   assert.match(workflow, /https:\/\/github\.com\/fourmolu\/fourmolu\/releases\/download\/v0\.15\.0\.0\/fourmolu-0\.15\.0\.0-linux-x86_64/);
@@ -1568,12 +1568,17 @@ test("CI Fly deploy gives live position recovery one uninterrupted window", asyn
   );
 });
 
-test("CI pins the checked-in GHC and Cabal toolchain", async () => {
+test("CI pins the checked-in Haskell toolchain without downloading a second compiler for HLint", async () => {
   for (const relativePath of ["../.github/workflows/ci.yml", "../.github/workflows/autoloop.yml"]) {
     const workflow = await fs.readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(workflow, /ghc:\s*"9\.4\.8"/);
     assert.match(workflow, /cabal:\s*"3\.12\.1\.0"/);
     assert.doesNotMatch(workflow, /cabal:\s*latest/);
+    assert.match(workflow, /https:\/\/github\.com\/ndmitchell\/hlint\/releases\/download\/v3\.8\/hlint-3\.8-x86_64-linux\.tar\.gz/);
+    assert.match(workflow, /882363872064c70801858b4e9fa17468531fc30b91ed5b8d260eb48fc90b3e61/);
+    assert.match(workflow, /sha256sum --check --strict/);
+    assert.match(workflow, /--retry 2 --connect-timeout 15 --max-time 120/);
+    assert.doesNotMatch(workflow, /apt-get install[^\n]*hlint/);
   }
 });
 
@@ -1694,7 +1699,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
 
   const syncLoop = sourceSection("topCombosSyncLoop ::", 4500);
   assert.match(syncLoop, /syncMaxCombos <- topCombosSyncMaxCombosFromEnv/);
-  assert.match(syncLoop, /mergeTopCombosPayloads syncMaxCombos now candidates/);
+  assert.match(syncLoop, /mergeTopCombosPayloadsWithStatsAndRetention retainedUuids \[\] syncMaxCombos now candidates/);
   assert.doesNotMatch(syncLoop, /optimizerMaxCombosFromEnv/);
 
   const serverStartup = sourceSection("runRestApi ::", 50000);
@@ -1708,7 +1713,7 @@ test("top-combo sync retention is independent from optimizer retention", async (
   assert.notEqual(importHandlerStart, -1, "expected Main.hs to contain handleStateSyncImport");
   const topCombosImport = sourceSection("case sspTopCombos payload of", 4500, importHandlerStart);
   assert.match(topCombosImport, /maxCombos <- topCombosSyncMaxCombosFromEnv/);
-  assert.match(topCombosImport, /mergeTopCombosPayloads maxCombos now \[localVal, incomingSanitized\]/);
+  assert.match(topCombosImport, /mergeTopCombosPayloadsWithStatsAndRetention retainedUuids \[\] maxCombos now \[localVal, incomingSanitized\]/);
   assert.doesNotMatch(topCombosImport, /optimizerMaxCombosFromEnv/);
 
   const retentionConfigPaths = [
@@ -1854,7 +1859,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     assert.match(config, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0\.01/);
     assert.match(config, /TRADER_BOT_PROTECTION_ORDERS=true/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
-    assert.match(config, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.01/);
+    assert.match(config, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=(?:0\.01|0\.1666)$/m);
     assert.match(config, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
   }
 
@@ -1888,6 +1893,17 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(compose, /TRADER_EXECUTION_MAKER_TIMEOUT_SEC: \$\{TRADER_EXECUTION_MAKER_TIMEOUT_SEC:-3\}/);
   assert.match(main, /lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"/);
   assert.match(main, /"executionPath"/);
+  // Startup switch orders are placed outside the candle loop; they must reach the same records.
+  assert.match(main, /\(Just portfolioCapitalPreservation\) \(recordBotStartupOrders mOps metrics mJournal mWebhook\) sym/);
+  // Recorded before post-operation optimization can replace the arguments and signal.
+  assert.match(main, /recordStartupOrders st0\n\s+if wantSwitch && appliedSwitch && desiredPos \/= 0\n\s+then botOptimizeAfterOperation st0/);
+  // A recording failure must not stop a worker that may already hold a position.
+  assert.match(main, /recorded <-\n\s+trySync \$ do\n\s+metricsRecordOrder metrics order/);
+  assert.match(main, /startup order recording failed: /);
+  assert.match(
+    main,
+    /recordBotStartupOrders mOps metrics mJournal mWebhook st =[\s\S]{0,600}metricsRecordOrder metrics order[\s\S]{0,700}"startup" \.= True[\s\S]{0,1400}"bot\.order"[\s\S]{0,1400}persistPositionOriginMaybe mOps/,
+  );
 
   const hetznerTrading = await fs.readFile(
     new URL("../deploy/hetzner/trader.trading.env.managed", import.meta.url),
@@ -1900,16 +1916,22 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /^TRADER_BOT_DISABLED_SYMBOLS=MATICUSDT$/m);
   assert.match(
     hetznerTrading,
-    /TRADER_BOT_SYMBOLS=AVAXUSDT,UNIUSDT,SUIUSDT,ETCUSDT,ADAUSDT/,
+    /^TRADER_BOT_SYMBOLS=SOLUSDT,BCHUSDT,NEARUSDT,ARBUSDT,DOGEUSDT,ETHUSDT$/m,
   );
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_TOP_COMBO_BOTS_STARTUP=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_AUTOSTART_MAX_BOTS=5/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_MAX_SYMBOLS=5/);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=6$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=6$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=6$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_START_MAX_SYMBOLS=8$/m);
+  assert.match(hetznerTrading, /^TRADER_TOP_COMBOS_SYNC_EVERY_SEC=900$/m);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
-  assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.01/);
+  // Six workers at this cap keep aggregate configured exposure at or below 100% of equity.
+  assert.match(hetznerTrading, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.1666$/m);
+  assert.match(
+    hetznerTrading,
+    /^TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=[0-9a-f-]{36}(?:,[0-9a-f-]{36}){5}$/m,
+  );
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0\.01/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0\.05/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0\.01/);
@@ -1920,6 +1942,17 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_EXECUTION_RELIABILITY=0\.95/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_AUTO_GRADUATE_MIN_STATUS_RELIABILITY=0\.99/);
   assert.match(hetznerTrading, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
+  assert.match(main, /validateApiComputeLimitsAfterLoad limits args series =[\s\S]{0,260}m \| methodIsTechnicalAnalysis m -> Right \(\)/);
+  assert.match(main, /topCombosSyncCanSkip settled fingerprint/);
+  assert.match(main, /let runPass = withLoggedTopCombosBuildGate "sync" topCombosStore/);
+  assert.match(main, /withTopCombosBuildGateObserved store observe \(action attemptId\)/);
+  assert.match(main, /Nothing -> withLoggedTopCombosBuildGate "response" topCombosStore \$ \\_ -> do/);
+  const comboStore = await fs.readFile(new URL("../haskell/app/Trader/TopCombosStore.hs", import.meta.url), "utf8");
+  assert.match(comboStore, /withTopCombosBuildGateObserved store observe action = mask \$ \\restore -> do[\s\S]*?withTopCombosBuildGate\s+store\s+\(/);
+  assert.match(comboStore, /withTopCombosBuildGate store action = withMVar \(tcsBuildGate store\) \(const action\)/);
+  assert.match(main, /etagMatches given tag -> respond \(Wai\.responseLBS status304/);
+  assert.match(main, /barsCapApplies = not \(methodIsTechnicalAnalysis \(runtimeMethod \(argMethod args\)\)\)/);
+  assert.match(main, /pinnedTargetMissing && not \(arActive adoptReq\) ->\s+recordError sym "Pinned top combo unavailable; refusing an unpinned live start\."/);
   assert.match(hetznerTrading, /TRADER_BOT_ONLINE_OPTIMIZER_ENABLED=false/);
   assert.match(hetznerTrading, /TRADER_BOT_START_TOP_COMBO_ADOPTION=true/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ALLOW_STALE_INCOMPLETE_COMBOS=true/);

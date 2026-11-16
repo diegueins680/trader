@@ -338,7 +338,7 @@ export function BinanceTradesPanel({
       value={binanceTradesLimit}
       onChange={(e) => setBinanceTradesLimit(numFromInput(e.target.value, binanceTradesLimit))}
     />
-    <div className="hint">Max 1000 per request.</div>
+    <div className="hint">Max 1000 per Binance request. Longer futures ranges are split into 7-day requests (up to 189 days).</div>
   </div>
 </div>
 <div className="row" style={{ marginTop: 10 }}>
