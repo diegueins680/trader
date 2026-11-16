@@ -5430,6 +5430,96 @@ class CausalOpeV8Tests(unittest.TestCase):
         self.assertTrue({'F-RL-OPE-V8-SOURCE','F-RL-OPE-V8-ARITH','F-RL-OPE-V8-FLOW','F-RL-OPE-V8-CONFORMANCE'}<=set(target['evidenceRequirements']))
 
 
+class OpeRationalV3Tests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import ope_capacity as p
+        return p
+
+    def test_source_bound_model_and_oracles(self):
+        p=self.proof()
+        r=p.check_ope_capacity()
+        self.assertEqual(r['smt'],{'F-RL-OPE-V3-ARITH':'unsat'})
+        b=r['bounds']
+        self.assertEqual((b['limitBits'],b['certifiedPeakBits'],b['slackBits'],b['configurations'],b['checkedCallsAtCapacity'],
+                          b['certifiedImplications'],b['satisfiableControls']),(2**20,1006337,42239,8192,116486,6,1))
+        self.assertEqual((r['source']['status'],r['source']['substitutions'],r['source']['definitions']),('exhaustively_checked',3,10))
+        self.assertEqual((r['model']['states'],r['model']['transitions'],r['model']['mutantsRejected']),(23,24,1))
+        c=r['conformance']
+        self.assertEqual((c['oracleCases'],c['predecessorAgreements'],c['instrumentedRuns'],c['checkedCalls'],c['capacityEpisodes'],
+                          c['capacityDecisions'],c['rejections'],c['limitControls'],c['marketDataReads']),(65,64,25,37845,256,32,17,1,0))
+        self.assertTrue(8192<c['observedCapacityBits']<=b['certifiedPeakBits'])
+        self.assertGreaterEqual(c['tightestCallPercent'],50)
+
+    def test_source_mutants_reject_even_with_refreshed_lock(self):
+        p=self.proof()
+        source=(ROOT/p.SOURCE).read_text()
+        mutations=[
+            ('from math import isfinite','from math import isfinite\nimport os'),
+            ('enabled: object = False','enabled: object = True'),
+            ('enabled is not True or','enabled is not True and'),
+            ('    reliable: bool = False','    reliable: bool = True'),
+            ('MAX_BITS = 1048576','MAX_BITS = 2097152'),
+            ('MAX_EPISODES = 256','MAX_EPISODES = 512'),
+            ('MAX_DECISIONS = 32','MAX_DECISIONS = 64'),
+            ('"ope-rational-v3"','"ope-rational-v2"'),
+            ('value.numerator.bit_length() > MAX_BITS or','value.numerator.bit_length() > MAX_BITS and'),
+            ('    return _bounded(a * b)','    return a * b'),
+            ('weight = _mul(weight, _div(target, behavior))','weight = _mul(weight, _div(target, max(behavior, Fraction(1, 2))))'),
+            ('all(0 < b <= 1 for b in episode.behavior)','all(0 < b for b in episode.behavior)'),
+            ('    if not all(_episode_valid(episode, horizon) for episode in episodes):\n        return None\n',''),
+            ('    except (ArithmeticError, ValueError, TypeError, MemoryError):\n        return None',
+             '    except (ArithmeticError, ValueError, TypeError, MemoryError):\n        return Estimate(VERSION, 0, 0, None, 0, 0, 0, 0, 0, ())'),
+        ]
+        for old,new in mutations:
+            with self.subTest(mutation=new), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,p.registry_for(changed))
+        with self.assertRaisesRegex(ValueError,'reviewed source or predecessor drift'):
+            p.extract(source.replace('MAX_BITS = 1048576','MAX_BITS = 2097152'))
+        previous=(ROOT/p.PREDECESSOR).read_text()
+        with self.assertRaisesRegex(ValueError,'reviewed source or predecessor drift'):
+            p.extract(previous=previous+'\n')
+        # A predecessor changed together with the successor is still caught by the predecessor's own lock.
+        both=('weights > 0','weights >= 0')
+        with self.assertRaises(ValueError):
+            changed=source.replace(*both); earlier=previous.replace(*both)
+            self.assertNotEqual(changed,source)
+            p.extract(changed,p.registry_for(changed,earlier),earlier)
+
+    def test_bound_drift_unsound_rule_and_solver_fail_closed(self):
+        p=self.proof()
+        nodes,_=p.extract()
+        with self.assertRaisesRegex(ValueError,'certified bound exceeds the limit'):
+            p.prove(nodes,limit=2**19)
+        self.assertEqual(p.bits(nodes,1,1),5378)
+        reg=read_json(ROOT/p.REGISTRATION)
+        for name,rule in (('add',lambda x,y:p.Cert(x.odd,max(x.two,y.two),max(x.mag,y.mag)+1)),
+                          ('mul',lambda x,y:p.Cert(p._merge(x.odd,y.odd,max),x.two+y.two,x.mag+y.mag)),
+                          ('add',lambda x,y:p.Cert(p._merge(x.odd,y.odd,max),max(x.two,y.two),max(x.mag,y.mag)))):
+            with self.subTest(rule=name), patch.object(p,name,rule), self.assertRaisesRegex(ValueError,'certified per-call bound'):
+                p.conformance(nodes,reg)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.lemmas()
+        with patch.object(p.z,'Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(Exception):
+                p.lemmas()
+
+    def test_ledger_state_and_untouched_adapter(self):
+        import shield_consumers as consumer
+        self.assertEqual(consumer.OPE_ADAPTER,{'causal_ope_v8'})
+        self.assertNotIn('ope_rational_v3',(ROOT/'scripts/research/causal_ope_v8.py').read_text())
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==10)
+        self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
+        self.assertTrue({'F-RL-OPE-V3-SOURCE','F-RL-OPE-V3-ARITH','F-RL-OPE-V3-FLOW','F-RL-OPE-V3-CONFORMANCE'}<=set(target['evidenceRequirements']))
+
+
 class CausalValueV6Tests(unittest.TestCase):
     @staticmethod
     def proof():
