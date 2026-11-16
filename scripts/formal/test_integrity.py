@@ -5430,6 +5430,95 @@ class CausalOpeV8Tests(unittest.TestCase):
         self.assertTrue({'F-RL-OPE-V8-SOURCE','F-RL-OPE-V8-ARITH','F-RL-OPE-V8-FLOW','F-RL-OPE-V8-CONFORMANCE'}<=set(target['evidenceRequirements']))
 
 
+class CausalOpeV9Tests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import causal_ope_successor as p
+        return p
+
+    def test_source_smt_model_and_oracles(self):
+        p=self.proof()
+        r=p.check_causal_ope_successor()
+        self.assertEqual(r['smt'],{'F-RL-OPE-V9-ARITH':'unsat'})
+        b=r['bounds']
+        self.assertEqual((b['behaviorFloorLog2'],b['lawGapLog2'],b['weightGapLog2'],b['horizonBound'],b['certifiedImplications'],
+                          b['satisfiableControls'],b['estimatorPeakBits'],b['estimatorLimitBits']),(-10,-50,-34,32,6,2,1006337,2**20))
+        self.assertEqual((r['model']['states'],r['model']['transitions'],r['model']['mutantsRejected']),(48,52,3))
+        self.assertEqual((r['source']['substitutions'],r['source']['substitutedTokens'],r['source']['frozenModulesInClosure'],
+                          r['source']['closure']),
+                         (4,6,0,['causal_ope_v9','causal_optimizer_v5','causal_ppo_v7','causal_replay_v3','causal_transition_v4',
+                                 'causal_value_v6','gae_targets_v2','ope_rational_v3','ppo_objective_v2','replay_accounting_v2',
+                                 'value_objective_v2']))
+        c=r['conformance']
+        self.assertEqual((c['runs'],c['evaluations'],c['oracleEpisodes'],c['predecessorAgreements'],c['capacityRuns'],
+                          c['capacityHorizon'],c['extremeModels'],c['rejections'],c['marketDataReads']),(48,10,72,3,48,32,1,19,0))
+
+    def test_source_mutants_reject_even_with_refreshed_lock(self):
+        p=self.proof()
+        source=(ROOT/p.SOURCE).read_text()
+        mutations=[
+            ('from fractions import Fraction as F','from fractions import Fraction as F\nimport os'),
+            ('import causal_ppo_v7 as ppo','import causal_ppo_v7 as ppo\nimport sequential_evaluation'),
+            ('enabled: object = False','enabled: object = True'),
+            ('    reliable: bool = False','    reliable: bool = True'),
+            ('FLOOR = 2.0 ** -10','FLOOR = 2.0 ** -100'),
+            ('HORIZON = 32','HORIZON = 64'),
+            ('RUNS = 256','RUNS = 512'),
+            ('from ope_rational_v3 import','from ope_rational_v2 import'),
+            ('estimate_v3(episodes, GAMMA, enabled=True)','estimate_v3(episodes, 1.0, enabled=True)'),
+            ('    if len(result.transitions) < horizon:\n        raise ValueError("run shorter than the horizon")\n',''),
+            ('type(p) is float and FLOOR <= p <= 1.0','type(p) is float and 0.0 < p <= 1.0'),
+            ('q = tuple(ppo._bounded(x) for x in model.q)','q = model.q'),
+            ('if estimate is None or len(estimate.episodes) != len(results):','if estimate is None:'),
+            ('"causal-ope-v9"','"causal-ope-v8"'),
+        ]
+        for old,new in mutations:
+            with self.subTest(mutation=new), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,p.registry_for(changed))
+        with self.assertRaisesRegex(ValueError,'reviewed source, predecessor or estimator drift'):
+            p.extract(source.replace('RUNS = 256','RUNS = 255'))
+
+    def test_estimator_predecessor_and_closure_drift_reject(self):
+        p=self.proof()
+        actual=p.read_module
+        source=(ROOT/p.SOURCE).read_text()
+        def changed(name,edit):
+            read=lambda module: edit(actual(module)) if module==name else actual(module)
+            return dict(registry=p.registry_for(source,estimator=read('ope_rational_v3')),read=read)
+        with self.assertRaisesRegex(ValueError,'OPE capacity'):
+            p.extract(**changed('ope_rational_v3',lambda text:text.replace('MAX_BITS = 1048576','MAX_BITS = 8192')))
+        with self.assertRaisesRegex(ValueError,'OPE capacity'):
+            p.extract(**changed('ope_rational_v3',lambda text:text+'\nimport sequential_evaluation\n'))
+        with self.assertRaisesRegex(ValueError,'reviewed source, predecessor or estimator drift'):
+            p.extract(read=lambda module: actual(module)+'\n' if module=='ope_rational_v3' else actual(module))
+        with self.assertRaisesRegex(ValueError,'frozen-free import closure|missing closure module'):
+            p.extract(read=lambda module: actual(module)+'\nimport sequential_evaluation\n' if module=='causal_ppo_v7' else actual(module))
+        previous=(ROOT/p.PREDECESSOR).read_text()
+        both=('RUNS = 256','RUNS = 512')
+        with self.assertRaises(ValueError):
+            later=source.replace(*both); earlier=previous.replace(*both)
+            p.extract(later,p.registry_for(later,earlier),earlier)
+
+    def test_solver_fail_closed_and_ledger_state(self):
+        p=self.proof()
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove()
+        with patch.object(p.z,'Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(Exception):
+                p.prove()
+        self.assertNotIn('ope_rational_v2',(ROOT/p.SOURCE).read_text())
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==10)
+        self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
+        self.assertTrue({'F-RL-OPE-V9-SOURCE','F-RL-OPE-V9-ARITH','F-RL-OPE-V9-FLOW','F-RL-OPE-V9-CONFORMANCE'}<=set(target['evidenceRequirements']))
+
+
 class OpeRationalV3Tests(unittest.TestCase):
     @staticmethod
     def proof():
