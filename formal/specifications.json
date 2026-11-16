@@ -136,6 +136,10 @@
         "formal/research/ope-rational-v3-contract.md",
         "formal/research/ope-rational-v3-source.json",
         "scripts/formal/ope_capacity.py",
+        "scripts/research/causal_ope_v9.py",
+        "formal/research/causal-ope-v9-contract.md",
+        "formal/research/causal-ope-v9-source.json",
+        "scripts/formal/causal_ope_successor.py",
         "formal/research/split-isolation-contract.md",
         "scripts/formal/split_isolation.py",
         "formal/research/observation-causality-contract.md",
@@ -1021,6 +1025,22 @@
         {
           "id": "F-RL-OPE-V3-CONFORMANCE",
           "statement": "Registered synthetic batches are deterministic and reject by default and under a wrong version; every published field equals an independent exact-rational oracle and equals ope-rational-v2 wherever that publishes; in instrumented runs over uniform, full-mantissa, subnormal, largest-finite and mixed binary64 inputs every checked value is integral under its certificate's concrete multiplier and within its magnitude and bit bounds; a full 256-episode 32-decision batch that the predecessor rejects is admitted; lowering the limit to 8192 rejects the same batch; and invalid, foreign-typed and oversized batches reject."
+        },
+        {
+          "id": "F-RL-OPE-V9-SOURCE",
+          "statement": "Causal OPE v9 equals the hash-pinned reviewed causal-ope-v8 module up to exactly the registered tokens with exact occurrence counts: the version string, the entry name, the estimator module ope_rational_v3 and the estimator entry estimate_v3; the predecessor's complete AST lock, activation-first rejection, recognized learner results, whole-evaluation rejection of a short run, prefix-only access, 2^-10 behavior floor, magnitude guards, distinct streams, checked estimate and single publication therefore apply verbatim; the estimator behind the import is the hash-pinned certified ope-rational-v3; and the transitive import closure is the predecessor's with that estimator in place of ope-rational-v2 and contains no frozen v1 module."
+        },
+        {
+          "id": "F-RL-OPE-V9-ARITH",
+          "statement": "The predecessor's rounded-softmax, sampling-law, floor and trajectory-weight gap implications hold unchanged for the same learners, floor and horizon; every behavior probability, target probability, value and count the adapter admits lies in ope-rational-v3's admitted domain, which the magnitude guard alone would not give; and that estimator's certified size bound of 1,006,337 bits is below its 2^20-bit limit, so an evaluation that passes the adapter's admission is not rejected for size."
+        },
+        {
+          "id": "F-RL-OPE-V9-FLOW",
+          "statement": "Through the source identity with causal-ope-v8, the finite causal-OPE abstraction publishes only after activation, conversion of every requested run, the stream-distinctness check and a checked estimate; no run is dropped; and any failure is terminal and publishes nothing."
+        },
+        {
+          "id": "F-RL-OPE-V9-CONFORMANCE",
+          "statement": "Registered synthetic evaluations over both successor learners are deterministic and reject by default and under a wrong version; every published estimate field equals an independent exact-rational evaluation of the recorded transitions and equals causal-ope-v8 wherever that publishes; a target equal to the recorded behavior gives unit weights and full effective sample size; six and 48 runs at the full 32-decision horizon, which the predecessor rejects, are published; a model with subnormal target probabilities and largest admitted values is published; and short, forged, reused, foreign-typed and out-of-domain inputs reject."
         },
         {
           "id": "F-RL-SPLIT-SOURCE",
