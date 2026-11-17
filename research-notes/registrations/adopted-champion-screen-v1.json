@@ -1,0 +1,148 @@
+{
+  "campaign": "adopted_champion_screen_v1",
+  "registrationVersion": 1,
+  "registeredOn": "2026-10-09",
+  "kind": "financial_champion_confirmation",
+  "hypothesis": "The five reviewed live combos pinned on 2026-08-26 have positive net out-of-sample economics under the costs live adoption applies.",
+  "protocol": {
+    "status": "registered_before_any_evaluation_window_result",
+    "decisionScope": "Phase retrospective can only REJECT or be INCONCLUSIVE; it can never PASS or authorize anything. Phase prospective is the only path to a PASS claim, and even a PASS grants no promotion, sizing change or live authorization (human review required).",
+    "priorEvidenceDisclosure": [
+      "Stored optimizer metrics for the five combos (Sharpe 6.9-13.6 on the optimizer's own last-20% slice) were seen; those slices also ranked/selected the combos and are not out-of-sample evidence.",
+      "The ADA combo's operational live record (metrics_json.live, 22 operations, 2026-07-21..2026-09-20) was seen; ADA is excluded from both phases.",
+      "Mechanics were validated by a full dry run on 2026-02-16..2026-03-23 (strictly before createdAtMs, i.e. inside the optimizer's own selection period; not evidence). The dry run showed the adopted UNI and ETC configurations made zero round trips there, which led to the explicit no_trades reason; no rule depends on evaluation-window rows.",
+      "Process incident (2026-10-09, before this registration was committed): a harness dry run meant for a pre-creation window ran on the real retrospective window because load_registration's default argument was bound at import time. It was killed during UNIUSDT seed 2; it wrote no results or return files and printed only per-seed bar counts (1183). No return, equity, PnL or statistic from any evaluation-window row was observed. The bug was fixed before this registration was committed."
+    ],
+    "seeds": [
+      42,
+      1,
+      2,
+      3,
+      4
+    ],
+    "liveSeed": 42,
+    "adoptionMaxPositionSizeCap": 1.0,
+    "adoptionCapNote": "Live runs with TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0.01. With proportional costs and no fixed fee the sign of net return is invariant to size, so the screen evaluates at each combo's native adopted size; drawdown is therefore the native-size drawdown (stricter than live).",
+    "momentumLookbackBars": 20,
+    "createdAtMs": 1774460298292,
+    "pinnedAtMs": 1787752049000,
+    "pinnedAtSource": "commit 75057f678f16b303c9cd1755e1a711fbfa80bcd5 (TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS)",
+    "replay": "For each consecutive chunk of chunkBars bars in the window, run trader-hs --adopt-combo-file/--adopt-combo-uuid (live adoption path: venue cost floors, adoption caps) on the combo's own windowBars rows ending at the chunk end; the backtest slice is the chunk plus one leading anchor bar. The model is refit per chunk on strictly earlier rows; parameters never change. Per-bar net returns are chained across chunks; each chunk starts flat.",
+    "baselines": "On identical rows and identical adopted per-side cost: flat, buy-and-hold at the adopted max position size, and 20-bar time-series momentum (long-short only when the combo is long-short).",
+    "rejectionRule": {
+      "statistic": "median-seed chained net result over the phase window",
+      "maxNetReturnForRejection": 0.0,
+      "maxDrawdown": 0.2,
+      "rule": "A combo is REJECTED if its median-seed net return is <= 0 or its median-seed max drawdown exceeds 20%. A median seed with zero round trips over the whole window is reported with reason no_trades: it is REJECTED because an inactive configuration demonstrates no edge (it is not evidence of a loss)."
+    },
+    "fleetRejectionMinCombos": 2,
+    "optimizerTrialLowerBound": 3261,
+    "optimizerTrialLowerBoundSource": "Combos on the production board (generatedAtMs 1791567076578); the true optimizer trial count is larger and unrecorded, so this lower bound under-deflates.",
+    "lifetimeCorrection": "lifetimeAdjustedPsr = max(0, 1 - min(1, optimizerTrialLowerBound * (1 - PSR))) (Bonferroni, repo convention)"
+  },
+  "combos": [
+    {
+      "symbol": "UNIUSDT",
+      "interval": "4h",
+      "uuid": "da78765a-657f-5589-af9c-d289555660cc",
+      "method": "10",
+      "positioning": "long-flat",
+      "windowBars": 879,
+      "chunkBars": 176,
+      "periodsPerYear": 2190,
+      "createdAtMs": 1774460298292
+    },
+    {
+      "symbol": "SUIUSDT",
+      "interval": "6h",
+      "uuid": "62c95834-cbb5-7dba-a5b9-25594e9df953",
+      "method": "01",
+      "positioning": "long-short",
+      "windowBars": 500,
+      "windowBarsNote": "params.bars=0 resolves to the Binance default of 500 bars in live",
+      "chunkBars": 100,
+      "periodsPerYear": 1460,
+      "createdAtMs": 1774460298292
+    },
+    {
+      "symbol": "ETCUSDT",
+      "interval": "4h",
+      "uuid": "76a9c22a-45ff-94b9-067f-f3d3c7b8350f",
+      "method": "01",
+      "positioning": "long-short",
+      "windowBars": 656,
+      "chunkBars": 131,
+      "periodsPerYear": 2190,
+      "createdAtMs": 1774460298292
+    }
+  ],
+  "excludedCombos": [
+    {
+      "symbol": "AVAXUSDT",
+      "uuid": "efe1c81e-2094-c945-af30-8bf25a554157",
+      "reason": "Symbol is in the sealed 1,227-return holdout universe through 2026-05-01 and in the cross_sectional_funding_carry_v1 prospective window through 2027-01-20T13:00Z; from 2027-01-21 the frozen champion is already a registered HAR-RV baseline."
+    },
+    {
+      "symbol": "ADAUSDT",
+      "uuid": "9a50374e-f0ba-f495-bb4b-2bf3c4478921",
+      "reason": "Same as AVAXUSDT."
+    }
+  ],
+  "snapshot": {
+    "path": "data/research/adopted-champion-screen-v1/champion-snapshot.json",
+    "sha256": "d427946d5d19a8a8ec415118327504d407b3bd310f95751f043a882cbba49094",
+    "source": "s3://<TRADER_STATE_S3_BUCKET>/trader-prod/optimizer/top-combos.json read 2026-10-09; the five pinned UUIDs only",
+    "notCommitted": "The repository is public; live parameters stay out of git. Each combo uuid is a SHA-256 of its params, thresholds, objective and source."
+  },
+  "data": {
+    "directory": "data/research/adopted-champion-screen-v1",
+    "source": "Binance USD-M /fapi/v1/klines, closed bars only",
+    "fetchStartMs": 1756684800000,
+    "fetchEndExclusiveMs": 1791504000000,
+    "retrospectiveManifestSha256": "14782ee85e1ea02dca9aa0cd66173bade51f8c3cc199dbd806240d7acad3d2dc"
+  },
+  "phases": {
+    "retrospective": {
+      "symbols": [
+        "UNIUSDT",
+        "SUIUSDT",
+        "ETCUSDT"
+      ],
+      "startMs": 1774460298292,
+      "endExclusiveMs": 1791504000000,
+      "dataManifest": "retrospective-manifest.json",
+      "outputDirectory": "research-notes/adopted-champion-screen-2026-10-09/retrospective",
+      "lawfulness": "UNI/SUI/ETC are outside every registered universe before 2027-01-21 (residual/funding, carry and sequential-screen universes exclude them; HAR-RV/OFI/missingness data start 2027-01-21).",
+      "selectionBiasDisclosure": "Rows before pinnedAtMs informed the 2026-08-26 pin decision, which biases this window upward; that only makes a REJECTED outcome more conservative. The post-pin subwindow is reported separately and is not a decision input."
+    },
+    "prospective": {
+      "symbols": [
+        "UNIUSDT",
+        "SUIUSDT",
+        "ETCUSDT"
+      ],
+      "startMs": 1791590400000,
+      "endExclusiveMs": 1800489600000,
+      "minimumEvaluationTimeUtc": "2027-01-21T06:00:00Z",
+      "dataManifest": "prospective-manifest.json",
+      "outputDirectory": "research-notes/adopted-champion-screen-2026-10-09/prospective",
+      "oneShot": true,
+      "beforeEvaluationPolicy": "Only metadata (row counts, gaps, hashes) may be computed before minimumEvaluationTimeUtc. No return, PnL, position or statistic on any row in the window.",
+      "passGates": [
+        "every combo NOT_REJECTED under the rejection rule",
+        "fleet equal-weight median-seed lifetimeAdjustedPsr >= 0.95",
+        "fleet max drawdown <= 20%",
+        "fleet net Sharpe above both buy-and-hold and momentum baselines",
+        "net return still > 0 with costs doubled and with a one-bar decision delay (stress implementation must be committed and tested on pre-createdAtMs data before startMs evidence is read)"
+      ],
+      "powerDisclosure": "About 600 4h / 400 6h bars. With the >=3261-trial lower bound the lifetime-adjusted gate requires PSR >= 0.99998 (z of about 4.2); a PASS is unlikely unless the edge is very large. A failed gate is a rejection, not a reason to extend the window."
+    }
+  },
+  "trialAccounting": "No new configuration is created: the five combos are frozen, already-selected optimizer outputs. Five seeds are reruns of the same configuration (median decides). This campaign is separate from the 46-trial residual/funding count.",
+  "forbiddenActions": [
+    "opening or overlapping the sealed 1,227-return holdout",
+    "reading AVAX/ADA or any carry-universe returns before 2027-01-20T13:00Z",
+    "changing combos, seeds, windows, chunking or rules after any evaluation-window result",
+    "promoting, resizing or authorizing anything from this campaign without human review"
+  ]
+}
