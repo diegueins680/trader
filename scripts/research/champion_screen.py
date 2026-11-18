@@ -197,7 +197,16 @@ def chunk_plan(open_times: list[int], start_ms: int, end_ms: int, window: int, t
 
 
 def equity_to_returns(equity: list[float]) -> list[float]:
-    return [b / a - 1.0 for a, b in zip(equity, equity[1:])]
+    if not equity or not math.isfinite(equity[0]) or equity[0] <= 0.0:
+        raise ValueError("equity curve requires a positive finite anchor")
+    returns = []
+    for previous, current in zip(equity, equity[1:]):
+        if not math.isfinite(current) or current < 0.0:
+            raise ValueError("equity curve requires finite nonnegative values")
+        if previous == 0.0 and current != 0.0:
+            raise ValueError("equity cannot recover from liquidation within a chunk")
+        returns.append(0.0 if previous == 0.0 else current / previous - 1.0)
+    return returns
 
 
 def chain(returns: list[float]) -> float:
@@ -300,7 +309,11 @@ def chunk_returns(out: dict, expected: int) -> tuple[list[float], dict]:
     if len(curve) != expected + 1:
         raise RuntimeError(f"equityCurve length {len(curve)} != chunk {expected} + 1")
     realized = out.get("costs", {}).get("attribution", {}).get("realized", {})
-    return equity_to_returns(curve), {"metrics": out.get("metrics", {}), "realizedCosts": realized, "perSideCost": out.get("costs", {}).get("perSideCost"), "maxPositionSize": out.get("maxPositionSize")}
+    returns = equity_to_returns(curve)
+    diagnostics = {"metrics": out.get("metrics", {}), "realizedCosts": realized, "perSideCost": out.get("costs", {}).get("perSideCost"), "maxPositionSize": out.get("maxPositionSize")}
+    if curve[-1] == 0.0:
+        diagnostics["liquidationReturnIndex"] = curve.index(0.0) - 1
+    return returns, diagnostics
 
 
 def daily_returns(open_times: list[int], returns: list[float]) -> dict[int, float]:
@@ -565,12 +578,20 @@ def cmd_run(args: argparse.Namespace) -> None:
                 diag[str(seed)].append({"chunk": [open_times[s], open_times[e - 1]], **d})
                 if stress:
                     costly = run_chunk(binary, snapshot, combo["uuid"], rows, s, e, combo["windowBars"], seed, cap, ["--backtest-cost-multiplier", "2"])
-                    doubled.extend(chunk_returns(costly, e - s)[0])
+                    costly_returns, costly_diagnostics = chunk_returns(costly, e - s)
+                    doubled.extend(costly_returns)
                     # Start the delayed run one bar earlier and drop that bar's return, so the
                     # chunk's first evaluated decision uses the previous bar's forecast
                     # instead of being forced flat at the slice boundary.
                     late = run_chunk(binary, snapshot, combo["uuid"], rows, s - 1, e, combo["windowBars"], seed, cap, ["--backtest-signal-delay-bars", "1"])
-                    delayed.extend(chunk_returns(late, e - s + 1)[0][1:])
+                    late_returns, late_diagnostics = chunk_returns(late, e - s + 1)
+                    delayed.extend(late_returns[1:])
+                    for mode, first_bar, diagnostics in (
+                        ("doubledCosts", s, costly_diagnostics), ("oneBarDelay", s - 1, late_diagnostics),
+                    ):
+                        if "liquidationReturnIndex" in diagnostics:
+                            bar = first_bar + diagnostics["liquidationReturnIndex"]
+                            diag[str(seed)][-1].setdefault("stressLiquidations", {})[mode] = open_times[bar]
             per_seed[str(seed)] = rets
             doubled_seed[str(seed)] = doubled
             delayed_seed[str(seed)] = delayed
@@ -658,6 +679,17 @@ def cmd_selftest(_: argparse.Namespace) -> None:
     except ValueError:
         pass
     assert abs(chain([0.1, -0.1]) - (-0.01)) < 1e-12
+    assert equity_to_returns([1.0, 1.1, 0.99]) == [1.1 / 1.0 - 1.0, 0.99 / 1.1 - 1.0]
+    for invalid in ([0.0, 0.0], [1.0, 0.0, 0.1], [1.0, -0.1], [1.0, float('nan')]):
+        try:
+            equity_to_returns(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid equity curve was accepted: {invalid}")
+    liquidated, diagnostics = chunk_returns({"split": {"backtest": 3}, "equityCurve": [1.0, 0.0, 0.0]}, 2)
+    assert liquidated == [-1.0, 0.0] and diagnostics["liquidationReturnIndex"] == 0
+    assert chain(liquidated) == -1.0 and max_drawdown(liquidated) == 1.0
     assert abs(max_drawdown([0.1, -0.5, 0.2]) - 0.5) < 1e-12
     closes = [100.0, 110.0, 99.0]
     flat = baseline_returns(closes, 1, 3, 1.0, 0.001, "flat", False, 1)
