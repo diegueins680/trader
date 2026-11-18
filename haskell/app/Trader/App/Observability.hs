@@ -52,6 +52,7 @@ import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word64, Word8)
+import qualified GHC.Stats as Stats
 import Network.HTTP.Client (
     Manager,
     Request,
@@ -160,6 +161,7 @@ renderMetricsText m botRunning = do
     ordersSent <- readIORef (mtOrdersSentTotal m)
     ordersFailed <- readIORef (mtOrdersFailedTotal m)
     botHalts <- readIORef (mtBotHaltsTotal m)
+    heap <- ghcHeapMetricLines
     let header =
             [ "# HELP trader_http_requests_total Total HTTP requests."
             , "# TYPE trader_http_requests_total counter"
@@ -185,8 +187,37 @@ renderMetricsText m botRunning = do
             , "# TYPE trader_bot_running gauge"
             , "trader_bot_running " ++ if botRunning then "1" else "0"
             ]
-        txt = unlines (header ++ byEndpoint ++ orders ++ bot)
+        txt = unlines (header ++ byEndpoint ++ orders ++ bot ++ heap)
     pure (BL.fromStrict (BS.pack txt))
+
+{- | GHC heap gauges, present only when the runtime collects statistics
+(@+RTS -T@). Live bytes after the last major GC separate retained data
+from heap the runtime holds but no longer uses.
+-}
+ghcHeapMetricLines :: IO [String]
+ghcHeapMetricLines = do
+    enabled <- Stats.getRTSStatsEnabled
+    if not enabled
+        then pure []
+        else do
+            stats <- Stats.getRTSStats
+            let details = Stats.gc stats
+                metric kind name help value =
+                    [ "# HELP " ++ name ++ " " ++ help
+                    , "# TYPE " ++ name ++ " " ++ kind
+                    , name ++ " " ++ value
+                    ]
+            pure $
+                concat
+                    [ metric "gauge" "trader_ghc_live_bytes" "Live heap bytes after the last GC." (show (Stats.gcdetails_live_bytes details))
+                    , metric "gauge" "trader_ghc_large_objects_bytes" "Live large-object bytes after the last GC." (show (Stats.gcdetails_large_objects_bytes details))
+                    , metric "gauge" "trader_ghc_mem_in_use_bytes" "Memory the runtime holds from the OS." (show (Stats.gcdetails_mem_in_use_bytes details))
+                    , metric "gauge" "trader_ghc_max_live_bytes" "Peak live heap bytes after a major GC." (show (Stats.max_live_bytes stats))
+                    , metric "gauge" "trader_ghc_max_mem_in_use_bytes" "Peak memory the runtime held from the OS." (show (Stats.max_mem_in_use_bytes stats))
+                    , metric "counter" "trader_ghc_allocated_bytes_total" "Total bytes allocated." (show (Stats.allocated_bytes stats))
+                    , metric "counter" "trader_ghc_gcs_total" "Garbage collections." (show (Stats.gcs stats))
+                    , metric "counter" "trader_ghc_major_gcs_total" "Major garbage collections." (show (Stats.major_gcs stats))
+                    ]
 
 data Journal = Journal
     { jPath :: !FilePath

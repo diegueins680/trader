@@ -214,7 +214,7 @@
     "haskell/app/Trader/App/Csv.hs": "74abb5b7825e00ce6cb5debb583cb7fdb39e4c60aeadb9afba1bf22bfc747d4a",
     "haskell/app/Trader/App/Env.hs": "72984e465476b38b0a2fdebecc911b4538b11138ef1b0f935a61a35203c97280",
     "haskell/app/Trader/App/GracefulShutdown.hs": "dfc7c4fec0d43936a186c01d0ae31141b32e009b0bd5c0f03bc6524a8ab68fcf",
-    "haskell/app/Trader/App/Observability.hs": "afac73c02bda45811616deb4c89e6e7bd64bf7c586066d62005ed200e31badf4",
+    "haskell/app/Trader/App/Observability.hs": "fd53a102f8e9ad9d70a9a9ec27b3ddee1e86c391f4339b887d193d39932f9457",
     "haskell/app/Trader/App/Runtime.hs": "8486afdf4d0b17ca296a6d5755206c604aac01c89570ed4ec2c76525d50c4941",
     "haskell/app/Trader/Binance.hs": "627dca09a47d79cc9308e0ad8589681801b1cd51d04c211b0fa99f1cf1cda16b",
     "haskell/app/Trader/BinanceIntervals.hs": "82c7b0e8b1023a2655b3d40f9f43d0f6880c8b4251f989bd30c69a605b88fee8",

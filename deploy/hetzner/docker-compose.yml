@@ -27,7 +27,8 @@ services:
       - /bin/sh
       - -ec
       - |
-        set -- trader-hs --serve --port 8080 --platform binance --futures --trade-log .tmp/trader/live_trades.ndjson
+        # +RTS -T: collect GHC heap statistics for the /metrics heap gauges.
+        set -- trader-hs +RTS -T -RTS --serve --port 8080 --platform binance --futures --trade-log .tmp/trader/live_trades.ndjson
         case "$${TRADER_BINANCE_LIVE:-false}" in
           true|TRUE|1) set -- "$$@" --binance-live ;;
           false|FALSE|0|"") ;;
