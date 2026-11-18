@@ -486,6 +486,8 @@ New runner exception records include the exception class, ensuring empty error m
 
 The preregistered [adopted-champion screen](research-notes/adopted-champion-screen-2026-10-09/report.md) (`scripts/research/champion_screen.py`) replays the live fleet's frozen UNI/SUI/ETC combos through the live adoption path on post-creation data. Its 2026-10-09 retrospective phase **rejected all three**: zero round trips in 6.5 months, because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. AVAX and ADA stay unevaluated under the holdout and carry rules. A one-shot prospective phase is readable from 2027-01-21. Nothing was promoted, resized or authorized.
 
+The proposed liquidation amendment records the first zero-equity bar as a 100% loss and subsequent zero-equity bars in that chunk as zero returns. The registered prospective phase still requires explicit approval of the amended runner and its source pins.
+
 ## CLI and API
 
 List the complete CLI surface with:

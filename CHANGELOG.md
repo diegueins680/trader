@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Research proposal: preserve liquidated chunks in the adopted-champion screen's return and diagnostic files so the registered decision rules can evaluate them. Prospective use requires an approved amendment.
 - Operations: `GET /metrics` now reports GHC heap gauges (live bytes after the last GC, memory the runtime holds, peaks, allocation and GC counts), when the runtime collects statistics (`+RTS -T`), which the Hetzner compose service now passes. The Hetzner audit reports them under `ghcHeap`. The trading API's resident memory grew from 5.1 GB to 8.5 GB over about 64 hours after the 2026-11-16 deploy; these gauges show whether that is retained live data or heap the runtime keeps.
 - Research: preregistered `adopted_champion_screen_v1` replays the live fleet's frozen combos (UNI/SUI/ETC; AVAX/ADA excluded by existing holdout/carry rules) causally on lawful post-creation data with live adoption costs, against flat/buy-and-hold/momentum baselines. The retrospective phase can only reject; a one-shot prospective phase (2026-10-10..2027-01-21) is the only route to a pass. Results: `research-notes/adopted-champion-screen-2026-10-09/`.
 - CLI: `--adopt-combo-file FILE --adopt-combo-uuid UUID` backtests one stored combo exactly as live bot adoption applies it (venue cost floors, adoption cap). JSON output is unchanged.
