@@ -162,7 +162,8 @@ executable trader-hs
                      , vector >=0.12
   -- Main.hs is large enough that GHC 9.4 optimized builds stall locally/CI;
   -- the production Docker image already builds this executable at -O0.
-  ghc-options:         -O0 -threaded -rtsopts -with-rtsopts=-N
+  -- -T makes GHC heap statistics available to /metrics (negligible overhead).
+  ghc-options:         -O0 -threaded -rtsopts "-with-rtsopts=-N -T"
 
 executable optimize-equity
   hs-source-dirs:      app

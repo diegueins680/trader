@@ -158,4 +158,11 @@ await attempt("memory", async () => {
   }));
   return { currentBytes: current, limitBytes: limit === "max" ? null : Number(limit), events };
 });
+// GHC heap gauges from /metrics (empty when the binary runs without +RTS -T).
+await attempt("ghcHeap", async () => {
+  const response = await fetch("http://127.0.0.1:8080/metrics", { headers, signal: AbortSignal.timeout(30000) });
+  if (!response.ok) throw Error(`HTTP ${response.status} on /metrics`);
+  const text = await response.text();
+  return Object.fromEntries(text.split("\n").map(line => line.match(/^trader_ghc_([a-z_]+) (\d+)$/)).filter(Boolean).map(m => [m[1], Number(m[2])]));
+});
 console.log(JSON.stringify(result));

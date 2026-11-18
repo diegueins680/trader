@@ -170,7 +170,7 @@
     "7079a6d92cb960aea3de75b969559d20f5a472e3f6e6e62681ea92bd2c112c94"
   ],
   "supportSourceHashes": {
-    "haskell/trader.cabal": "6549d2da5f464e77d597b2dddcf883a943d3d8b545db6dfc8b32527e64c8edfe",
+    "haskell/trader.cabal": "3c86fe3dc4f79a49e6ca0e4e96d4eec2de36b2fc54f00e274c34d7ec16229372",
     "Dockerfile": "8fb39006648048e427f36806b3a4929041f68038e53618e5b4e305a7a4768883",
     "Dockerfile.optimized": "6a06cc5adc916fa87091a6f22eaac9056b1defcd34079426e523f750e16c9f6b",
     "haskell/app/Main.hs": "4b235ffba7f3b78863de824b73376d97bb2a67303b6243ba6d8552c45ac303fe",
