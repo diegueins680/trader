@@ -5430,6 +5430,111 @@ class CausalOpeV8Tests(unittest.TestCase):
         self.assertTrue({'F-RL-OPE-V8-SOURCE','F-RL-OPE-V8-ARITH','F-RL-OPE-V8-FLOW','F-RL-OPE-V8-CONFORMANCE'}<=set(target['evidenceRequirements']))
 
 
+class OptimizerNumericsTests(unittest.TestCase):
+    @staticmethod
+    def proof():
+        import optimizer_numerics as p
+        return p
+
+    def test_source_lemmas_and_conformance(self):
+        p=self.proof()
+        r=p.check_optimizer_numerics()
+        self.assertEqual(r['smt'],{'F-RL-OPTNUM-V5-ARITH':'unsat'})
+        b=r['bounds']
+        self.assertEqual((b['certifiedImplications'],b['satisfiableControls'],b['momentRatio'],b['stepPerLearningRate'],
+                          b['clipExcessLog2'],b['updatesPerRun'],b['parameterBoundLog2'],b['outputBoundLog2'],b['underflowLog2']),
+                         (15,2,54,7.5,-44,16384,6,11,-1067))
+        s=r['source']
+        self.assertEqual((s['sites'],s['matrixProducts'],s['elementwise'],s['scalar'],s['learners']),(36,5,19,5,2))
+        c=r['conformance']
+        self.assertEqual((c['rangeRejections'],c['underflowChecks'],c['chains'],c['learnerSnapshots'],c['initialSeeds'],
+                          c['marketDataReads']),(12,384,12,12,512,0))
+        self.assertGreaterEqual(c['publishedUpdates'],1080)
+        self.assertTrue(all(c['observedWithinBounds'].values()) and len(c['observedWithinBounds'])==5)
+        self.assertGreater(c['roundingMovementPerLearningRate'],7.5)
+        self.assertFalse(any(key.startswith('largest') for key in c))
+
+    def test_source_mutants_reject_even_with_refreshed_lock(self):
+        p=self.proof()
+        source=p.read(p.SOURCE)
+        mutations=[
+            ('with np.errstate(all="raise"):\n            if not _admit(snapshot) or snapshot.step >= STEP_CAP:',
+             'with np.errstate(all="ignore"):\n            if not _admit(snapshot) or snapshot.step >= STEP_CAP:'),
+            ('    if not np.isfinite(preactivation).all():\n        raise ValueError("non-finite hidden state")\n',''),
+            ('    if not np.isfinite(output).all():\n        raise ValueError("non-finite output")\n',''),
+            ('            if not all(np.isfinite(g).all() for g in grads):\n                return None\n',''),
+            ('if not all(np.isfinite(g).all() for g in grads):','if not all(np.isfinite(g).all() for g in grads[2:]):'),
+            ('grads = (inputs.T @ dh, dh.sum(0), hidden.T @ residuals, residuals.sum(0))',
+             'grads = (inputs.T @ dh, dh.max(0), hidden.T @ residuals, residuals.sum(0))'),
+            ('g = grad / max(1.0, float(norm))','g = grad'),
+            ('moment = 0.9 * m + 0.1 * g','moment = 0.9 * m + 0.2 * g'),
+            ('variance = 0.999 * v + 0.001 * g**2','variance = 0.99 * v + 0.001 * g**2'),
+            ('+ 1e-8)','+ 1e-8) * 2'),
+            ('candidates.append(old - delta)','candidates.append(old - delta @ np.ones(delta.shape[-1:]))'),
+            ('hidden = np.tanh(preactivation)','hidden = np.exp(preactivation)'),
+            ('return snapshot if _admit(snapshot) else None','return snapshot'),
+            ('not np.isfinite(values).all() or','not np.isfinite(values).any() or'),
+        ]
+        for old,new in mutations:
+            with self.subTest(mutation=new), self.assertRaises(ValueError):
+                self.assertIn(old,source)
+                changed=source.replace(old,new,1)
+                p.extract(changed,p.registry_for(changed))
+        with self.assertRaisesRegex(ValueError,'reviewed optimizer or learner source drift'):
+            p.extract(source.replace('0.9 * m','0.8 * m'))
+
+    def test_learner_chain_drift_rejects(self):
+        p=self.proof()
+        source=p.read(p.SOURCE)
+        learners=[p.read(path) for path in p.LEARNERS]
+        edits=[
+            (0,'update_v5(online, inputs, np.asarray(objective.grad, dtype="float64"), enabled=True)',
+               'update_v5(online, inputs, np.asarray(objective.grad, dtype="float64"), 1.0, enabled=True)'),
+            (1,'update_v5(critic, inputs, np.asarray(residual, dtype="float64"), enabled=True)',
+               'update_v5(critic, inputs, np.asarray(residual, dtype="float64"), enabled=True, lr=0.5)'),
+            (0,'UPDATES = 4','UPDATES = 8'),
+            (1,'not 1 <= len(outcomes) <= 4096','not 1 <= len(outcomes) <= 8192'),
+            (1,'create_v5(seed, 3, enabled=True)','Snapshot(OPTIMIZER, replay.OBSERVATION, 3, 0, (), (), ())'),
+        ]
+        for index,old,new in edits:
+            with self.subTest(edit=new), self.assertRaisesRegex(ValueError,'learner optimizer chain|learner step bound|registered update bound'):
+                self.assertIn(old,learners[index])
+                changed=list(learners); changed[index]=changed[index].replace(old,new,1)
+                p.extract(source,p.registry_for(source,changed),changed)
+        with self.assertRaisesRegex(ValueError,'reviewed optimizer or learner source drift'):
+            p.extract(learners=[learners[0]+'\n',learners[1]])
+
+    def test_bound_drift_and_solver_fail_closed(self):
+        p=self.proof()
+        for kwargs in ({'ratio':40},{'step':p.Q(5)}):
+            with self.subTest(drift=kwargs), self.assertRaisesRegex(ValueError,'SAT/UNKNOWN/vacuous proof'):
+                p.prove(**kwargs)
+        for kwargs in ({'initial':40},{'updates':65536},{'step':p.Q(20)}):
+            with self.subTest(drift=kwargs), self.assertRaisesRegex(ValueError,'run bounds'):
+                p.run_bounds(**kwargs)
+        self.assertLess(p.run_bounds(),45)
+        for answer in (z3.sat,z3.unknown):
+            with patch('ppo_successor.z.Solver') as solver:
+                solver.return_value.check.return_value=answer
+                with self.assertRaises(Exception):
+                    p.prove()
+        with patch.object(p.z,'Solver') as solver:
+            solver.return_value.check.return_value=z3.unknown
+            with self.assertRaises(Exception):
+                p.prove()
+
+    def test_runtime_unchanged_and_ledger_state(self):
+        p=self.proof()
+        lock=read_json(ROOT/'formal/research/toolchain.json')['sourceHashes']
+        import hashlib
+        for path in (p.SOURCE,)+p.LEARNERS:
+            self.assertEqual(hashlib.sha256((ROOT/path).read_bytes()).hexdigest(),lock[path])
+        ledger=read_json(ROOT/'formal/research/proof-ledger.json')
+        target=next(o for o in ledger['missionObligations'] if o['number']==10)
+        self.assertEqual((target['status'],target['requiredCertificates']),('open',[]))
+        self.assertTrue({'F-RL-OPTNUM-V5-SOURCE','F-RL-OPTNUM-V5-ARITH','F-RL-OPTNUM-V5-CONFORMANCE'}<=set(target['evidenceRequirements']))
+
+
 class CausalOpeV9Tests(unittest.TestCase):
     @staticmethod
     def proof():
