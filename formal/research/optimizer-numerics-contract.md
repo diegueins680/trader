@@ -50,8 +50,13 @@ advance it only with `update_v5` at the default learning rate 0.0003, at most
 - the first moment stays within 1 + 2^-42 and the second within [0, 1 + 2^-40];
 - m^2 <= 54 v holds for every entry (a Cauchy-Schwarz bound over the history,
   proved as a one-step inductive invariant);
-- one update therefore moves a parameter by at most 7.5 times the learning
+- the computed Adam step `delta` is therefore at most 7.5 times the learning
   rate, for any learning rate in (0, 1];
+- the published parameter `fl(old - delta)` moves by at most
+  7.5 lr (1 + 2^-53) + 2^-53 |old|: the subtraction rounds once. For a
+  learning rate far below the spacing of binary64 near `old` that rounding
+  dominates; at lr = 2.5e-17 a step of about 4.95 lr moves 1.0 by 2^-52,
+  8.9 times the learning rate;
 - with initial parameters of magnitude at most 8, every parameter stays below
   2^6 for the whole run, and every network output (Q value, logit or state
   value) below 2^11.
@@ -74,15 +79,19 @@ admitted publication; hash-pinned learners that call `create_v5` and
 F-RL-OPTNUM-V5-ARITH (SMT): seven binary64 floating-point implications for
 sticky non-finiteness with one satisfiable control (infinities cancel to NaN);
 quantifier-free real implications for clipping, both moment bounds, the
-m^2 <= 54 v invariant, the per-update step bound, a rounded accumulation step
+m^2 <= 54 v invariant, the per-update step bound, the movement bound including
+subtraction rounding with a satisfiable control showing that rounding can
+exceed the step bound, a rounded accumulation step
 and the subnormal-grid error; exact rational checks of the bias-correction
 ordering 1 - 0.999^t <= (1 - 0.9^t)^2 for t = 1..16384 on the binary64 values
 the source computes, and of the run bounds.
 
 F-RL-OPTNUM-V5-CONFORMANCE: twelve crafted range failures publish nothing;
 384 matrix-product entries with underflowing products stay within the bound of
-the exact rational value; 1080 published updates over nine chains keep every
-invariant and step bound and every output within 17 times the largest
+the exact rational value; 1440 published updates over twelve chains (learning
+rates 0.0003, 1 and 2.5e-17) keep every invariant and the movement bound; a
+crafted update at learning rate 2.5e-17 moves every parameter by 2^-52, beyond
+the step bound and within the movement bound; and every output within 17 times the largest
 output-layer weight; initial parameters over 512 seeds and twelve final learner
 snapshots satisfy the run bounds. Tests are not proofs.
 

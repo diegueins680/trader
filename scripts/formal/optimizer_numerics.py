@@ -22,7 +22,8 @@ RATIO = 54                       # m^2 <= RATIO * v along every create/update ch
 CLIP = 1 + Q(1, 2 ** 44)         # magnitude of every clipped gradient entry
 MOMENT = 1 + Q(1, 2 ** 42)
 VARIANCE = 1 + Q(1, 2 ** 40)
-STEP = Q(15, 2)                  # |parameter change| <= STEP * lr per update
+STEP = Q(15, 2)                  # |computed Adam step delta| <= STEP * lr per update
+TINY = 2.5e-17                   # a supported learning rate far below the spacing of binary64 near one
 ENTRIES = 9 * 16 + 16 + 16 * 3 + 3
 INITIAL = 8                      # assumed magnitude bound on create_v5 parameters
 UPDATES = 4096 * 4               # optimizer steps per network in one learner run
@@ -212,11 +213,20 @@ def prove(ratio=RATIO, step=STEP, initial=INITIAL, updates=UPDATES):
     certify(z.And(update, magnitude(m) <= real(MOMENT)), magnitude(m1) <= real(MOMENT))
     certify(z.And(update, v >= 0, v <= real(VARIANCE)), z.And(v1 >= 0, v1 <= real(VARIANCE)))
     certify(z.And(update, v >= 0, m * m <= ratio * v), z.And(v1 >= 0, m1 * m1 <= ratio * v1))
-    # (d) One update moves a parameter by at most step * lr, given the bias-correction ordering of run_bounds.
+    # (d) The computed Adam step delta is at most step * lr, given the bias-correction ordering of run_bounds.
     b1, b2, mh, vh, r, den, num, delta, lr = z.Reals('on_b1 on_b2 on_mh on_vh on_r on_den on_num on_delta on_lr')
     certify(z.And(v >= 0, m * m <= ratio * v, b1 > 0, b2 > 0, b2 <= b1 * b1, b1 <= 1, rounded(mh, m / b1), rounded(vh, v / b2),
                   r >= 0, magnitude(r * r - vh) <= 3 * real(U) * vh, den >= r, den >= real(EPS) * real(1 - U), lr > 0, lr <= 1,
                   rounded(num, lr * mh), rounded(delta, num / den)), magnitude(delta) <= real(step) * lr)
+    # The published parameter is fl(old - delta): its change from old also carries one rounding of the subtraction,
+    # which for a learning rate far below the spacing of binary64 near old can exceed step * lr.
+    old, new = z.Reals('on_old on_new')
+    certify(z.And(lr > 0, magnitude(delta) <= real(step) * lr, rounded(new, old - delta)),
+            magnitude(new - old) <= real(step) * lr * real(1 + U) + real(U) * magnitude(old))
+    solver = z.Solver(); solver.set(timeout=10000, random_seed=0)
+    solver.add(lr == real(Q(TINY)), magnitude(delta) <= real(step) * lr, rounded(new, old - delta), old == 1,
+               magnitude(new - old) > real(step) * lr)
+    require(solver.check() == z.sat, 'subtraction rounding can exceed the step bound, so the movement bound needs its term')
     # (e) A rounded accumulation step, used for the parameter drift and for the output layer.
     acc, term, out, bound_a, bound_t = z.Reals('on_acc on_term on_out on_ba on_bt')
     certify(z.And(bound_a >= 0, bound_t >= 0, magnitude(acc) <= bound_a, magnitude(term) <= bound_t, rounded(out, acc + term)),
@@ -227,7 +237,7 @@ def prove(ratio=RATIO, step=STEP, initial=INITIAL, updates=UPDATES):
     certify(z.And(grid > 0, near == k * grid, exact >= near - grid / 2, exact <= near + grid / 2),
             magnitude(near - exact) <= grid / 2)
     return {'F-RL-OPTNUM-V5-ARITH': 'unsat'}, {
-        'certifiedImplications': 14, 'satisfiableControls': 1, 'momentRatio': ratio, 'stepPerLearningRate': float(step),
+        'certifiedImplications': 15, 'satisfiableControls': 2, 'momentRatio': ratio, 'stepPerLearningRate': float(step),
         'clipExcessLog2': ceil_log2(CLIP - 1), 'initialParameterBound': initial, 'updatesPerRun': updates,
         'parameterBoundLog2': ceil_log2(Q(PARAMETER)), 'outputBoundLog2': ceil_log2(Q(OUTPUT)),
         'certifiedParameterBound': float(parameter), 'underflowLog2': ceil_log2(UNDERFLOW), 'biasCorrectionSteps': updates}
@@ -294,13 +304,13 @@ def conformance():
                 underflow += 1
     # Chains from create_v5: every published update keeps the invariants and moves no parameter beyond the step bound.
     chains = published = refused = 0
-    largest_step = largest_parameter = largest_output = largest_initial = Q(0)
+    largest_step = largest_parameter = largest_output = largest_initial = tiny_largest = Q(0)
     for seed in range(reg['initialSeeds']):
         for outputs in (1, 3):
             largest_initial = max(largest_initial, max(Q(float(np.abs(a).max())) for a in arrays(impl, impl.create_v5(seed, outputs, enabled=True))[0]))
     require(largest_initial <= INITIAL, 'initial parameter bound')
     for seed in reg['chainSeeds']:
-        for outputs, lr in ((3, 0.0003), (1, 0.0003), (3, 1.0)):
+        for outputs, lr in ((3, 0.0003), (1, 0.0003), (3, 1.0), (3, TINY)):
             snapshot = impl.create_v5(seed, outputs, enabled=True)
             chains += 1
             for index in range(reg['chainSteps']):
@@ -316,9 +326,12 @@ def conformance():
                 for old, new, m, v in zip(p0, p1, m1, v1):
                     for a, b_, c_, d_ in zip(old.tolist(), new.tolist(), m.tolist(), v.tolist()):
                         moved = abs(Q(b_) - Q(a))
-                        require(moved <= STEP * Q(lr) and abs(Q(c_)) <= MOMENT and 0 <= Q(d_) <= VARIANCE and
-                                Q(c_) ** 2 <= RATIO * Q(d_), 'update invariant')
-                        largest_step = max(largest_step, moved / Q(lr))
+                        require(moved <= STEP * Q(lr) * (1 + U) + U * abs(Q(a)) and abs(Q(c_)) <= MOMENT and
+                                0 <= Q(d_) <= VARIANCE and Q(c_) ** 2 <= RATIO * Q(d_), 'update invariant')
+                        if lr == TINY:
+                            tiny_largest = max(tiny_largest, moved / Q(lr))
+                        else:
+                            largest_step = max(largest_step, moved / Q(lr))
                         largest_parameter = max(largest_parameter, abs(Q(b_)))
                 require(following.step == snapshot.step + 1, 'step count')
                 out = impl.forward_v5(following, inputs, enabled=True)
@@ -328,6 +341,14 @@ def conformance():
                 largest_output = max(largest_output, Q(float(np.abs(out).max())))
                 snapshot = following; published += 1
     require(published >= chains * reg['chainSteps'] * 3 // 4, 'vacuous chains')
+    # Subtraction rounding: at a learning rate far below the spacing of binary64 near one, a computed step of about
+    # 4.95 lr (moments satisfying m^2 <= 54 v) rounds 1 - delta up to the next binary64, a movement of 2^-52 > 7.5 lr.
+    before = forged(impl, 3, 1.0, step=9999, m=-0.0055, v=1e-6)
+    after = impl.update_v5(before, ones, np.zeros((2, 3)), TINY, enabled=True)
+    require(after is not None and (-0.0055) ** 2 <= RATIO * 1e-6, 'subtraction-rounding fixture')
+    moved = {abs(Q(x) - 1) for array in arrays(impl, after)[0] for x in array.tolist()}
+    require(moved == {Q(1, 2 ** 52)} and Q(1, 2 ** 52) > STEP * Q(TINY) and
+            Q(1, 2 ** 52) <= STEP * Q(TINY) * (1 + U) + U, 'movement beyond the step bound, within the movement bound')
     # Final snapshots of real learner runs satisfy the run bounds.
     import causal_ppo_v7 as ppo
     import causal_replay_v3 as replay
@@ -352,7 +373,8 @@ def conformance():
     return {'status': 'property_tested', 'rangeRejections': len(rejected), 'underflowChecks': underflow, 'chains': chains,
             'publishedUpdates': published, 'refusedUpdates': refused, 'learnerSnapshots': learned,
             'initialSeeds': reg['initialSeeds'], 'largestInitialParameter': float(largest_initial),
-            'largestStepPerLearningRate': float(largest_step), 'largestParameter': float(largest_parameter),
+            'largestMovementPerLearningRate': float(largest_step), 'tinyRate': TINY, 'roundingMovementPerLearningRate': float(Q(1, 2 ** 52) / Q(TINY)),
+            'largestTinyRateMovementPerLearningRate': float(tiny_largest), 'largestParameter': float(largest_parameter),
             'largestOutput': float(largest_output), 'seed': reg['seed'], 'marketDataReads': 0, 'economicEvidence': False}
 
 

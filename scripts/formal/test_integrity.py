@@ -5443,14 +5443,14 @@ class OptimizerNumericsTests(unittest.TestCase):
         b=r['bounds']
         self.assertEqual((b['certifiedImplications'],b['satisfiableControls'],b['momentRatio'],b['stepPerLearningRate'],
                           b['clipExcessLog2'],b['updatesPerRun'],b['parameterBoundLog2'],b['outputBoundLog2'],b['underflowLog2']),
-                         (14,1,54,7.5,-44,16384,6,11,-1067))
+                         (15,2,54,7.5,-44,16384,6,11,-1067))
         s=r['source']
         self.assertEqual((s['sites'],s['matrixProducts'],s['elementwise'],s['scalar'],s['learners']),(36,5,19,5,2))
         c=r['conformance']
         self.assertEqual((c['rangeRejections'],c['underflowChecks'],c['chains'],c['learnerSnapshots'],c['initialSeeds'],
-                          c['marketDataReads']),(12,384,9,12,512,0))
-        self.assertGreaterEqual(c['publishedUpdates'],810)
-        self.assertLessEqual(c['largestStepPerLearningRate'],7.5)
+                          c['marketDataReads']),(12,384,12,12,512,0))
+        self.assertGreaterEqual(c['publishedUpdates'],1080)
+        self.assertLessEqual(c['largestMovementPerLearningRate'],7.5)
         self.assertLessEqual(c['largestInitialParameter'],8)
 
     def test_source_mutants_reject_even_with_refreshed_lock(self):
