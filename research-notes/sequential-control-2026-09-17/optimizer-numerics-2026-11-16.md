@@ -37,8 +37,10 @@ suffice.
 - Conformance: 12 range rejections, 384 underflow checks, 1440 published
   updates over 12 chains (learning rates 0.0003, 1 and 2.5e-17), one crafted
   subtraction-rounding update (movement 8.9 times a learning rate of
-  2.5e-17), 12 learner snapshots. At the default rate the largest observed
-  movement is 1.15 times the learning rate; the largest output about 370.
+  2.5e-17), 12 learner snapshots. In a local macOS run the largest movement at the
+  default rate was 1.15 times the learning rate and the largest output about
+  370; the receipt records only that observed values are within the bounds,
+  because their last bits depend on the BLAS build.
 
 ## What this does not show
 

@@ -372,10 +372,16 @@ def conformance():
                 learned += 1
     return {'status': 'property_tested', 'rangeRejections': len(rejected), 'underflowChecks': underflow, 'chains': chains,
             'publishedUpdates': published, 'refusedUpdates': refused, 'learnerSnapshots': learned,
-            'initialSeeds': reg['initialSeeds'], 'largestInitialParameter': float(largest_initial),
-            'largestMovementPerLearningRate': float(largest_step), 'tinyRate': TINY, 'roundingMovementPerLearningRate': float(Q(1, 2 ** 52) / Q(TINY)),
-            'largestTinyRateMovementPerLearningRate': float(tiny_largest), 'largestParameter': float(largest_parameter),
-            'largestOutput': float(largest_output), 'seed': reg['seed'], 'marketDataReads': 0, 'economicEvidence': False}
+            'initialSeeds': reg['initialSeeds'], 'tinyRate': TINY,
+            'roundingMovementPerLearningRate': float(Q(1, 2 ** 52) / Q(TINY)),
+            # Observed maxima depend on the BLAS build in their last bits, so only their relation to the bounds is
+            # recorded; the receipt must reproduce on every supported platform.
+            'observedWithinBounds': {'initialParameter': largest_initial <= INITIAL,
+                                     'defaultRateMovementWithinStep': 0 < largest_step <= STEP,
+                                     'tinyRateMovementPositive': tiny_largest > 0,
+                                     'parameterBelowRunBound': 0 < largest_parameter < PARAMETER,
+                                     'outputBelowRunBound': 0 < largest_output < OUTPUT},
+            'seed': reg['seed'], 'marketDataReads': 0, 'economicEvidence': False}
 
 
 def check_optimizer_numerics():

@@ -5450,8 +5450,9 @@ class OptimizerNumericsTests(unittest.TestCase):
         self.assertEqual((c['rangeRejections'],c['underflowChecks'],c['chains'],c['learnerSnapshots'],c['initialSeeds'],
                           c['marketDataReads']),(12,384,12,12,512,0))
         self.assertGreaterEqual(c['publishedUpdates'],1080)
-        self.assertLessEqual(c['largestMovementPerLearningRate'],7.5)
-        self.assertLessEqual(c['largestInitialParameter'],8)
+        self.assertTrue(all(c['observedWithinBounds'].values()) and len(c['observedWithinBounds'])==5)
+        self.assertGreater(c['roundingMovementPerLearningRate'],7.5)
+        self.assertFalse(any(key.startswith('largest') for key in c))
 
     def test_source_mutants_reject_even_with_refreshed_lock(self):
         p=self.proof()
