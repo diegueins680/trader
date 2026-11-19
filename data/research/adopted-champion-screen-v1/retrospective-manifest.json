@@ -1,0 +1,24 @@
+{
+  "files": {
+    "ETCUSDT-4h.csv": {
+      "firstOpenMs": 1756684800000,
+      "lastOpenMs": 1791489600000,
+      "rows": 2418,
+      "sha256": "bf20470dd7abffa2b8594178ba6ee3d40840da4fc22544b4136302152b80994a"
+    },
+    "SUIUSDT-6h.csv": {
+      "firstOpenMs": 1756684800000,
+      "lastOpenMs": 1791482400000,
+      "rows": 1612,
+      "sha256": "de03d0058fa116ab24e4e96d355d1e2e4897682ab934e9c71fa046fc9b057c0a"
+    },
+    "UNIUSDT-4h.csv": {
+      "firstOpenMs": 1756684800000,
+      "lastOpenMs": 1791489600000,
+      "rows": 2418,
+      "sha256": "01fcbe64cdcd8f97f9437d43fab3d96c2f927760338c0982464df2cca307fcd6"
+    }
+  },
+  "kind": "adopted_champion_screen_data_v1",
+  "source": "https://fapi.binance.com/fapi/v1/klines"
+}

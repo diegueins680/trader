@@ -486,6 +486,10 @@ All compact reports are prepared before the output directory is created and writ
 
 New runner exception records include the exception class, ensuring empty error messages still produce reportable failures. Training reasons must agree with terminal events. OPE coverage requires a valid v1 outcome payload, not an ID-only placeholder; schema validity does not establish estimator reliability. Conflicting older failure records require investigation; existing evidence archives are never rewritten automatically.
 
+The preregistered [adopted-champion screen](research-notes/adopted-champion-screen-2026-10-09/report.md) (`scripts/research/champion_screen.py`) replays the live fleet's frozen UNI/SUI/ETC combos through the live adoption path on post-creation data. Its 2026-10-09 retrospective phase **rejected all three**: zero round trips in 6.5 months, because their stored open thresholds (0.49%, 38.6%, 91.8% per bar) exceed every forecast. AVAX and ADA stay unevaluated under the holdout and carry rules. A one-shot prospective phase is readable from 2027-01-21. Nothing was promoted, resized or authorized.
+
+The proposed liquidation amendment records the first zero-equity bar as a 100% loss and subsequent zero-equity bars in that chunk as zero returns. The registered prospective phase still requires explicit approval of the amended runner and its source pins.
+
 ## CLI and API
 
 List the complete CLI surface with:
@@ -525,12 +529,16 @@ With `TRADER_TEST_DB_URL` set, Haskell smoke checks also run a black-box fingerp
 
 `--trade-log FILE` remains backward compatible with schema-1.1 backtest closed-trade rows. Applied live OPEN/CLOSE event rows use schema 1.2 and add `closeReason`/`close_reason` plus identical `riskState`/`risk_state` objects containing the exact pre-execution drawdown, daily loss, weekly loss, and configured-expectancy evidence supplied to the canonical halt decision, their equity references, and distinct market-event/processing timestamps. Missing expectancy stays `null`; non-finite or out-of-domain risk evidence is serialized as `null` and marked by `finite=false` or `valid=false`, and must be treated as unavailable, never as a bullish, bearish, or neutral zero. Live event rows retain their legacy zero-quantity/P&L compatibility fields and therefore are not substitutes for fill, round-trip P&L, or fee evidence. The complete versioned contract is in [`artifacts/cio/trade-log-schema-contract-2026-05-24.md`](artifacts/cio/trade-log-schema-contract-2026-05-24.md).
 
+`--adopt-combo-file FILE --adopt-combo-uuid UUID` (CLI backtest only, both required) loads one combo from a top-combos export and applies it exactly as live bot adoption does (venue cost floors, `--adoption-max-position-size-cap`) before running the normal backtest on `--data`/`--binance-symbol` input. It cannot be combined with `--serve` or `--trade-only`; JSON output is unchanged.
+
+`--backtest-signal-delay-bars N` (default `0`, backtest only) is a stale-signal stress. The decision at bar `t` uses the predicted return (rescaled to bar `t`'s price) and gate metadata from bar `t-N`; fills, stops and costs stay on bar `t`, and the first `N` bars cannot open positions. It cannot be combined with `--sweep-threshold` or `--optimize-operations`, because tuning would still read undelayed signals; both stress flags are also rejected with the maintenance modes `--ops-backfill-commits` and `--top-combos-backfill-close-timing`. `--backtest-cost-multiplier X` (default `1`, backtest only) multiplies fee, slippage, spread, impact and funding after any combo adoption. Neither stress, nor `--adopt-combo-file`, can be combined with `--serve`, `--trade-only`, `--binance-trade` or `--binance-live`.
+
 Important operational endpoints:
 
 - `GET /health` — process liveness and build commit
 - `GET /ready` — readiness; returns HTTP 503 while draining, during each live inventory scan, or until every returned nonzero position has a running, trade-enabled local runtime with the matching side. Starting/flat/wrong-side runtimes, invalid amounts and unsupported hedge positions cannot certify readiness. Start acknowledgment alone cannot restore it; the next successful complete scan must do so. This is a snapshot health signal, not continuous proof of persistent ownership. See the [readiness contract](formal/research/inventory-readiness-contract.md).
 - `GET /admin/health` — authenticated job and queue detail
-- `GET /metrics` — runtime metrics
+- `GET /metrics` — runtime metrics in Prometheus text format, including GHC heap gauges (`trader_ghc_live_bytes`, `trader_ghc_mem_in_use_bytes`, their peaks, allocation and GC counters); present when the server runs with `+RTS -T`, as the Hetzner compose service does
 - `POST /signal`, `/backtest`, `/trade` — synchronous work (`/trade` and `/trade/async` return 409 while a live bot owns the same account and symbol; stop the bot first or use close-position)
 - `/signal/async`, `/backtest/async`, `/trade/async` — persisted asynchronous work
 - `POST /binance/keys` — key status and a Binance `order/test` probe. When the probe cannot size the test order from `orderQuoteFraction` it reports the cause with numbers: the available quote balance for the supplied keys is zero, the fraction is not positive, or the fraction (and `maxOrderQuote`, if it capped) sizes the order at zero; set `orderQuantity`/`orderQuote` or a positive fraction, or use keys for the funded account. The generic `Provide orderQuantity or orderQuote, or set orderQuoteFraction.` remains only when none of the three is set.
