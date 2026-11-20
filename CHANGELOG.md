@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Removed automatic Fly.io deployments. Production releases deploy to the Hetzner trading and research servers.
+
 - Operations: the Hetzner API now runs with `+RTS --disable-delayed-os-memory-return`. The new heap gauges showed about 74 MB of live heap and 0.6 GB in use by the runtime, but 5.9 GB resident: a ~2 GB live peak at startup grows the heap to ~6 GB, and GHC's default lazy release (`MADV_FREE`) left those pages counted as resident. Freed heap is now returned immediately, so resident memory and the cgroup figure track real use.
 - Research proposal: preserve liquidated chunks in the adopted-champion screen's return and diagnostic files so the registered decision rules can evaluate them. Prospective use requires an approved amendment.
 - Operations: `GET /metrics` now reports GHC heap gauges (live bytes after the last GC, memory the runtime holds, peaks, allocation and GC counts), when the runtime collects statistics (`+RTS -T`), which the Hetzner compose service now passes. The Hetzner audit reports them under `ghcHeap`. The trading API's resident memory grew from 5.1 GB to 8.5 GB over about 64 hours after the 2026-11-16 deploy; these gauges show whether that is retained live data or heap the runtime keeps.

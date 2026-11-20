@@ -1549,23 +1549,13 @@ test("autoloop workflow requires a dedicated push token and never skips post-pus
   assert.doesNotMatch(workflow, /github\.token/);
 });
 
-test("CI Fly deploy skips external billing blockers", async () => {
-  const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /overdue invoices\|update your payment information/);
-  assert.match(workflow, /blocked by Fly billing state/);
-  assert.match(workflow, /Skipping \$\{label\} deploy for this run/);
-});
-
-test("CI Fly deploy gives live position recovery one uninterrupted window", async () => {
-  const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /--wait-timeout 60m/);
-  assert.match(workflow, /timeout reached waiting for health checks to pass/);
-  assert.match(workflow, /leaving the recovering machine in place without retrying/);
-  assert.ok(
-    workflow.indexOf("timeout reached waiting for health checks to pass") <
-      workflow.indexOf("503 Service Unavailable|502 Bad Gateway|504 Gateway Timeout|failed to set release status"),
-    "application readiness timeouts must be handled before transient transport failures",
-  );
+test("GitHub Actions workflows exclude Fly deployment", async () => {
+  const directory = new URL("../.github/workflows/", import.meta.url);
+  for (const name of await fs.readdir(directory)) {
+    if (!/\.ya?ml$/.test(name)) continue;
+    const workflow = await fs.readFile(new URL(name, directory), "utf8");
+    assert.doesNotMatch(workflow, /flyctl|fly\s+deploy|superfly\/|FLY_API_TOKEN|fly\.io\/install/i, name);
+  }
 });
 
 test("CI pins the checked-in Haskell toolchain without downloading a second compiler for HLint", async () => {
@@ -1580,16 +1570,6 @@ test("CI pins the checked-in Haskell toolchain without downloading a second comp
     assert.match(workflow, /--retry 2 --connect-timeout 15 --max-time 120/);
     assert.doesNotMatch(workflow, /apt-get install[^\n]*hlint/);
   }
-});
-
-test("CI Fly deploy reports app-scoped token fixes for unauthorized apps", async () => {
-  const workflow = await fs.readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.match(workflow, /unauthorized\|not authorized\|permission denied\|access denied/);
-  assert.match(workflow, /token validation error\|no verified tokens/);
-  assert.match(workflow, /FLY_API_TOKEN_FRONTEND failed Fly authentication; retrying frontend deploy with FLY_API_TOKEN/);
-  assert.match(workflow, /Set GitHub secret \$\{token_secret_name\} to a Fly deploy token scoped to that app/);
-  assert.match(workflow, /FLY_API_TOKEN_RESEARCH/);
-  assert.match(workflow, /FLY_API_TOKEN_FRONTEND/);
 });
 
 test("Hetzner deploy retries SSH failures and deploys only green commits", async () => {
