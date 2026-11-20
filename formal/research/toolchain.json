@@ -119,7 +119,7 @@
     "formal/research/contract.md": "e34ff52a09a9d126f00800a936e1896e08cf461046bfa066eb1df7696a6ea219",
     "formal/research/proof-ledger.json": "6af8ac39cf6edae2df5e4d57f1c08a78046f6e98b91e877ff26d9ae30efae739",
     "formal/research/counterexamples.json": "3c66df602da49d7ddcde19b24349d68ef4ab6f915effdb8c342995db236c03f4",
-    ".github/workflows/ci.yml": "e50b1b79355913b378cf402cf860928cb3882ae7e7a38d8ee75246a35f369e4c",
+    ".github/workflows/ci.yml": "935022916306e8227fcf99831c1846e8858de683b1b2ae5cdbae3130117b7b9c",
     "scripts/formal/gap_risk.py": "fd75f238803d83706adce631bf8c8d58500192db6e645121bbc02ca6ea3dffdf",
     "scripts/formal/gap_conformance.py": "e5e900f8aa492c786f61d69d4e791f09dd87833229a3f820c0afefb9d753ac7a",
     "formal/research/gap-counterexamples.json": "2f454df466fa5a3afdcd6276b2b0c42beb54fdc7a59f091de617413d8e12eac1",
