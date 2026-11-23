@@ -44,6 +44,17 @@ jobs:
             "${PROBE_USER:-root}@$PROBE_HOST" \
             'docker exec -i trader-api-1 node --input-type=module' \
             < .github/inspect-hetzner-operations.mjs > evidence.json
+          # Leaderboard build-gate timings from the API's own log events. The filter runs
+          # on the server so only these numeric event lines leave it, and only the
+          # summary is printed.
+          ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
+            "${PROBE_USER:-root}@$PROBE_HOST" \
+            'docker logs --since 3h trader-api-1 2>&1 | grep -F "\"event\":\"top_combos_" || true' \
+            | node .github/summarize-build-gate.mjs > build-gate.json
+          echo "build gate summary:"
+          node -e 'console.log(JSON.stringify(require("./build-gate.json"),null,2))'
           node -e 'const r=require("./evidence.json"); console.log(JSON.stringify(r,null,2)); if(r.error) process.exitCode=1;'
           if [[ '${{ matrix.role }}' == 'trading' ]]; then
             ssh -i "$key_file" -p "${PROBE_PORT:-22}" \
@@ -77,4 +88,5 @@ jobs:
           path: |
             evidence.json
             graduation-evidence.json
+            build-gate.json
           retention-days: 7
