@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Fix: every S3 call (leaderboard read, write, ETag lookup) now has a five-minute total deadline that covers retries and the body transfer, and returns an error when it expires. The HTTP timeout covered only the wait for response headers, so a download that stalled mid-body never returned. On 2026-11-22 a research sync pass stalled that way in `read-s3` while holding the leaderboard build gate, and `GET /optimizer/combos` hung for every caller for over 29 hours. Earlier S3 reads had stalled for 23 to 27 minutes on both Hetzner servers before completing; normal reads take seconds.
 - Removed automatic Fly.io deployments. Production releases deploy to the Hetzner trading and research servers.
 
 - Operations: the Hetzner API now runs with `+RTS --disable-delayed-os-memory-return`. The new heap gauges showed about 74 MB of live heap and 0.6 GB in use by the runtime, but 5.9 GB resident: a ~2 GB live peak at startup grows the heap to ~6 GB, and GHC's default lazy release (`MADV_FREE`) left those pages counted as resident. Freed heap is now returned immediately, so resident memory and the cgroup figure track real use.

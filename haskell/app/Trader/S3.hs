@@ -9,6 +9,8 @@ module Trader.S3 (
     s3HeadObjectETag,
     s3HeadObjectETagBounded,
     s3PutObject,
+    s3TotalDeadlineMicros,
+    withS3Deadline,
 ) where
 
 import Control.Applicative ((<|>))
@@ -26,6 +28,7 @@ import Network.HTTP.Types (statusCode)
 import Network.HTTP.Types.Header (hETag)
 import Network.HTTP.Types.URI (urlEncode)
 import System.Environment (lookupEnv)
+import System.Timeout (timeout)
 
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
@@ -263,6 +266,25 @@ resolveContainerCredentials = do
 s3Request :: S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
 s3Request = s3RequestWith s3RetryConfig Nothing
 
+{- | Upper bound, in microseconds, on one S3 call including its retries and the body
+transfer. http-client's response timeout only covers the wait for response headers, so
+a body that stalls mid-transfer otherwise blocks forever. On 2026-11-22 a research sync
+pass sat in read-s3 for over 29 hours while holding the leaderboard build gate, and
+every leaderboard request queued behind it. Normal reads of the ~80 MB leaderboard
+take seconds (p95 about 14 s).
+-}
+s3TotalDeadlineMicros :: Int
+s3TotalDeadlineMicros = 300 * 1000000
+
+{- | Run an S3 call under a total deadline. On expiry the call is interrupted with the
+asynchronous exception 'timeout' uses, which 'trySync' rethrows rather than captures,
+and the caller gets a 'Left'.
+-}
+withS3Deadline :: Int -> IO (Either String a) -> IO (Either String a)
+withS3Deadline micros action =
+    fromMaybe (Left ("S3 request exceeded its " ++ show (micros `div` 1000000) ++ " s deadline"))
+        <$> timeout micros action
+
 s3RequestWith :: RetryConfig -> Maybe Int -> S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
 s3RequestWith retryCfg mTimeoutMicros st reqMethod key body = do
     now <- getCurrentTime
@@ -329,10 +351,11 @@ s3RequestWith retryCfg mTimeoutMicros st reqMethod key body = do
                 , requestBody = HTTP.RequestBodyLBS body
                 , responseTimeout = maybe (responseTimeout req0) responseTimeoutMicro mTimeoutMicros
                 }
-    respOrErr <- trySync (httpLbsWithRetry retryCfg (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
-    case respOrErr of
-        Left e -> pure (Left ("S3 request failed: " ++ show e))
-        Right resp -> pure (Right resp)
+    withS3Deadline s3TotalDeadlineMicros $ do
+        respOrErr <- trySync (httpLbsWithRetry retryCfg (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
+        case respOrErr of
+            Left e -> pure (Left ("S3 request failed: " ++ show e))
+            Right resp -> pure (Right resp)
 
 s3Host :: S3State -> String
 s3Host st =

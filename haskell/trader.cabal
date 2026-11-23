@@ -402,6 +402,7 @@ test-suite trader-tests
                      , Trader.RoiScore
                      , Trader.Revenue
                      , Trader.SensitivityAnalysis
+                     , Trader.S3
                      , Trader.SignalGates
                      , Trader.Split
                      , Trader.Symbol
