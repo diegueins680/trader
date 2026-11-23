@@ -389,7 +389,7 @@
       "scope": "every Haskell module under haskell/app: no exception-capturing combinator is imported outside Trader.App.AsyncSafe and the async-filtering BacktestGate; the compiler rejects any other capture",
       "sites": {
         "catchSync": 4,
-        "trySync": 204
+        "trySync": 205
       },
       "status": "exhaustively_checked"
     }
@@ -975,7 +975,7 @@
       "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
       "haskell/app/Trader/Formal/RiskRegister.hs": "26e6682fcaa97a2a51adda281fe8876ff4b0b8aef518f3d380fbc5acd3e59fbb",
       "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
-      "haskell/app/Trader/Http.hs": "3a2d89cbeb2c2c979e6d6f9f8952c556ef11d95dd929ab0fb1c01425b0f82f3d",
+      "haskell/app/Trader/Http.hs": "ec27e7d9d8db041960d9467caa0520444f446924b914096cc77f4b4643959614",
       "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
       "haskell/app/Trader/KalmanFusion.hs": "1f16060b0151a37ffd685260d3eaba109bcbf3b9747fb90711bff194ac30ccf8",
       "haskell/app/Trader/KalmanPhysics.hs": "ab2bf6f9368ea2482a1a5109de06d73942b0e610054c50325c75523b19c67b04",
@@ -1041,7 +1041,7 @@
       "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
       "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
       "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
-      "haskell/app/Trader/S3.hs": "f8b7457165c49c6d5fcc0fd998fad75525f80a69dd237bfaaaf06d8b5a1d5bf8",
+      "haskell/app/Trader/S3.hs": "148b71c140644234fc0f587851b0ada940f6ea8a28741843ec972c68b6f6bf69",
       "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
       "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
       "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
@@ -4677,7 +4677,7 @@
     "haskell/app/Trader/Formal/Risk.hs": "bb59c75e6158479f49dda9c57d9a9c920fe15bdca35d77fbb8ba76160ade8540",
     "haskell/app/Trader/Formal/RiskRegister.hs": "26e6682fcaa97a2a51adda281fe8876ff4b0b8aef518f3d380fbc5acd3e59fbb",
     "haskell/app/Trader/GateTelemetry.hs": "7e66adc99577e9b2a23bb5a963a73ecf75e6e69d5fac23313ef16d2a52aac7b5",
-    "haskell/app/Trader/Http.hs": "3a2d89cbeb2c2c979e6d6f9f8952c556ef11d95dd929ab0fb1c01425b0f82f3d",
+    "haskell/app/Trader/Http.hs": "ec27e7d9d8db041960d9467caa0520444f446924b914096cc77f4b4643959614",
     "haskell/app/Trader/Kalman3.hs": "cebcb101865e8b7fcbbebbce866ea57cc6e8bf26d0df4263f4703e0977992477",
     "haskell/app/Trader/KalmanFusion.hs": "1f16060b0151a37ffd685260d3eaba109bcbf3b9747fb90711bff194ac30ccf8",
     "haskell/app/Trader/KalmanPhysics.hs": "ab2bf6f9368ea2482a1a5109de06d73942b0e610054c50325c75523b19c67b04",
@@ -4743,7 +4743,7 @@
     "haskell/app/Trader/Research/PolicyProposalV1.hs": "81dc03cc64603f77813e9fd03d54f4878845967bdaa06a5d5d7f949cecf1390c",
     "haskell/app/Trader/Revenue.hs": "0d5041cfc728e3fc348a80e3495a20437f81328289daaa538983f77a578dcd8d",
     "haskell/app/Trader/RoiScore.hs": "7176b75543bfcb510d14c55f34c1e8fad4808b48d86329f681b8c04ec3c2f36c",
-    "haskell/app/Trader/S3.hs": "f8b7457165c49c6d5fcc0fd998fad75525f80a69dd237bfaaaf06d8b5a1d5bf8",
+    "haskell/app/Trader/S3.hs": "148b71c140644234fc0f587851b0ada940f6ea8a28741843ec972c68b6f6bf69",
     "haskell/app/Trader/SensitivityAnalysis.hs": "1340bbef2cd68d43943edb0bc82412fb957aecdba754faf1dcb45f6d599e2b2d",
     "haskell/app/Trader/SensorVariance.hs": "1af0226c479abb1fac896be406127f02cdaf7e6f3f7e15ba9684fcf4efa21bcc",
     "haskell/app/Trader/SignalGates.hs": "d7dd5e278bd7ca061e43cf5e1adda79f00ae897a7cdd01ba6b474e7300f64de6",
