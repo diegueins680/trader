@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 const nowMs = Number(process.argv[2] ?? Date.now());
 const gate = new Map();
+const openPhase = new Map(); // attemptId -> sync phase started but not yet finished
 const phases = {};
 const dbReads = {};
 let first = null;
@@ -37,8 +38,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (event.phase === "acquired") { entry.acquiredAtMs = atMs; entry.waitMs = num(event.waitMs); }
     if (event.phase === "finished") { entry.finishedAtMs = atMs; entry.waitMs = num(event.waitMs); entry.heldMs = num(event.heldMs); }
     gate.set(event.attemptId, entry);
-  } else if (event.event === "top_combos_sync_phase" && event.state === "finished" && /^[a-z-]{1,20}$/.test(event.phase)) {
-    push(phases, event.phase, num(event.elapsedMs));
+  } else if (event.event === "top_combos_sync_phase" && /^[a-z0-9-]{1,20}$/.test(event.phase)) {
+    if (event.state === "started") openPhase.set(event.attemptId, { phase: event.phase, atMs });
+    if (event.state === "finished") { openPhase.delete(event.attemptId); push(phases, event.phase, num(event.elapsedMs)); }
   } else if (event.event === "top_combos_db_read" && ["connection-wait", "query"].includes(event.stage)) {
     push(dbReads, event.stage, num(event.elapsedMs));
   }
@@ -46,7 +48,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 const byOrigin = {};
 const open = [];
-for (const entry of gate.values()) {
+for (const [attemptId, entry] of gate) {
   const bucket = (byOrigin[entry.origin] ??= { finished: 0, waitMs: [], heldMs: [], startsAtMs: [] });
   if (entry.waitingAtMs != null) bucket.startsAtMs.push(entry.waitingAtMs);
   if (entry.finishedAtMs != null) {
@@ -57,7 +59,11 @@ for (const entry of gate.values()) {
     // Still queued or still holding the gate when the logs were read.
     const holding = entry.acquiredAtMs != null;
     const sinceMs = holding ? entry.acquiredAtMs : entry.waitingAtMs;
-    open.push({ origin: entry.origin, state: holding ? "holding" : "waiting", ageMs: Math.max(0, nowMs - sinceMs) });
+    const phase = openPhase.get(attemptId);
+    open.push({
+      origin: entry.origin, state: holding ? "holding" : "waiting", ageMs: Math.max(0, nowMs - sinceMs),
+      ...(phase ? { inPhase: phase.phase, phaseAgeMs: Math.round(Math.max(0, nowMs - phase.atMs)) } : {}),
+    });
   }
 }
 const gateSummary = Object.fromEntries(Object.entries(byOrigin).map(([origin, bucket]) => {
