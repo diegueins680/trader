@@ -32,7 +32,6 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.IO (BufferMode (NoBuffering), hClose, hIsClosed, hSetBuffering, openTempFile)
 import System.Timeout (timeout)
 import Trader.App.Args (Args (..), applyBackendAutostartSizingDefault, argRouterScorePnlWeight, argTunePenaltyTurnover, argWalkForwardEmbargoBars, argWalkForwardFolds, normalizeBarsForLookback, opts, parsePositioning, validateArgs)
-import Trader.App.AsyncSafe (trySync)
 import Trader.App.Env (canonicalizeUuidEnvValues)
 import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenantKeyFromPlatformParams, tenantKeyFromBinanceKeys, tenantKeyFromCoinbaseKeys)
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
@@ -390,7 +389,6 @@ import Trader.Predictors.Quantile (LinModel (..), QuantileModel (..), predictQua
 import Trader.Predictors.TCN (TCNModel (..), predictTCN, tcnFeaturesAt, trainTCN)
 import Trader.Predictors.Types (SensorId (..), predictorCode, predictorImplementationId, predictorSetFromString, predictorSetToList)
 import Trader.RoiScore (RoiScoreConfig (..), defaultFormalRoiScoreConfig)
-import Trader.S3 (s3TotalDeadlineMicros, withS3Deadline)
 import Trader.SensitivityAnalysis (
     ParameterSpec (..),
     SensitivityPoint (..),
@@ -606,7 +604,6 @@ main = do
     testTopCombosBuildGateLogAtomicity
     testTopCombosSyncPhaseObservation
     testTopCombosSyncPhaseLog
-    testS3Deadline
     testTopCombosDbReadObservation
     testTopCombosDbReadLog
     testNormalizeBarsForLookbackAutoAdjustsApiInputs
@@ -1165,26 +1162,6 @@ testTopCombosSyncPhaseObservation = do
     unmasked <- withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState
     inherited <- mask_ (withTopCombosSyncPhaseObserved SyncPlan collect getMaskingState)
     assert "sync phase preserves caller masking" (unmasked == Unmasked && inherited == MaskedInterruptible)
-
-{- | A stalled S3 call must come back as an error at its deadline. The stall runs
-inside 'trySync', as the S3 request does, so the timeout's asynchronous exception
-must not be captured as an ordinary failure.
--}
-testS3Deadline :: IO ()
-testS3Deadline = do
-    assert "S3 total deadline is five minutes" (s3TotalDeadlineMicros == 300 * 1000000)
-    fast <- withS3Deadline 1000000 (pure (Right (42 :: Int)))
-    assert "a call inside the deadline passes through" (fast == Right 42)
-    failed <- withS3Deadline 1000000 (pure (Left "S3 GET failed (status 500)") :: IO (Either String Int))
-    assert "an error inside the deadline passes through" (failed == Left "S3 GET failed (status 500)")
-    stalled <-
-        timeout 5000000 $
-            withS3Deadline 200000 $ do
-                captured <- trySync (threadDelay 30000000) :: IO (Either SomeException ())
-                pure (either (const (Left "captured")) (const (Right ())) captured)
-    case stalled of
-        Nothing -> assert "a stalled S3 call returns at its deadline" False
-        Just result -> assert "a stalled S3 call becomes a deadline error, not a captured exception" (isLeft result && result /= Left "captured")
 
 testTopCombosSyncPhaseLog :: IO ()
 testTopCombosSyncPhaseLog =

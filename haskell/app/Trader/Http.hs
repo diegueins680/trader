@@ -13,6 +13,7 @@ module Trader.Http (
     boundedBackoffMs,
     jitteredDelayMs,
     defaultTimeoutMicros,
+    withTotalDeadline,
 ) where
 
 import Control.Concurrent (MVar, modifyMVar, newMVar, threadDelay)
@@ -36,6 +37,7 @@ import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Random (randomRIO)
+import System.Timeout (timeout)
 import Text.Read (readMaybe)
 import Trader.App.AsyncSafe (trySync)
 
@@ -96,6 +98,17 @@ venueRetryConfig = defaultRetryConfig{rcRetryWrites = False}
 
 defaultTimeoutMicros :: Int
 defaultTimeoutMicros = 15 * 1000000
+
+{- | Run a call that reports failure as 'Left' under a total deadline, in microseconds.
+The manager's response timeout only covers the wait for response headers, so a body
+that stalls mid-transfer otherwise never returns. On expiry the call is interrupted
+with the asynchronous exception 'timeout' uses, which 'trySync' rethrows rather than
+captures, and the caller gets a 'Left' naming the label.
+-}
+withTotalDeadline :: String -> Int -> IO (Either String a) -> IO (Either String a)
+withTotalDeadline label micros action =
+    fromMaybe (Left (label ++ " exceeded its " ++ show (micros `div` 1000000) ++ " s deadline"))
+        <$> timeout micros action
 
 newHttpManager :: IO Manager
 newHttpManager =

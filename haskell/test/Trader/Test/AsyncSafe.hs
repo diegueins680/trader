@@ -9,6 +9,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Maybe (isNothing)
 import System.Timeout (timeout)
 import Trader.App.AsyncSafe (catchSync, isAsyncException, trySync)
+import Trader.Http (withTotalDeadline)
 
 asyncSafeSuite :: [(String, IO ())]
 asyncSafeSuite =
@@ -17,7 +18,25 @@ asyncSafeSuite =
     , ("trySync still captures synchronous failures", synchronousCaptured)
     , ("trySync does not defeat System.Timeout.timeout", timeoutPropagates)
     , ("catchSync rethrows killThread and still handles synchronous failures", catchSyncBehaves)
+    , ("withTotalDeadline turns a stall inside trySync into a deadline error", totalDeadlineBehaves)
     ]
+
+{- | A stalled request must come back as an error at its deadline. The stall runs
+inside 'trySync', as an S3 request does, so the timeout's asynchronous exception
+must not be captured as an ordinary failure.
+-}
+totalDeadlineBehaves :: IO ()
+totalDeadlineBehaves = do
+    fast <- withTotalDeadline "test" 1000000 (pure (Right (42 :: Int)))
+    expect "a call inside the deadline passes through" (Right 42) fast
+    failed <- withTotalDeadline "test" 1000000 (pure (Left "status 500") :: IO (Either String Int))
+    expect "an error inside the deadline passes through" (Left "status 500") failed
+    stalled <-
+        timeout 5000000 $
+            withTotalDeadline "test" 200000 $ do
+                captured <- trySync (threadDelay 30000000) :: IO (Either SomeException ())
+                pure (either (const (Left "captured")) (const (Right ())) captured)
+    expect "a stall returns as a deadline error" (Just (Left "test exceeded its 0 s deadline")) stalled
 
 expect :: (Eq a, Show a) => String -> a -> a -> IO ()
 expect label wanted actual =

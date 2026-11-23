@@ -10,7 +10,6 @@ module Trader.S3 (
     s3HeadObjectETagBounded,
     s3PutObject,
     s3TotalDeadlineMicros,
-    withS3Deadline,
 ) where
 
 import Control.Applicative ((<|>))
@@ -28,14 +27,13 @@ import Network.HTTP.Types (statusCode)
 import Network.HTTP.Types.Header (hETag)
 import Network.HTTP.Types.URI (urlEncode)
 import System.Environment (lookupEnv)
-import System.Timeout (timeout)
 
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Network.HTTP.Client as HTTP
 import Trader.App.AsyncSafe (trySync)
-import Trader.Http (RetryConfig (..), defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import Trader.Http (RetryConfig (..), defaultRetryConfig, getSharedManager, httpLbsWithRetry, withTotalDeadline)
 
 data AwsCredentials = AwsCredentials
     { awsAccessKeyId :: !BS.ByteString
@@ -276,15 +274,6 @@ take seconds (p95 about 14 s).
 s3TotalDeadlineMicros :: Int
 s3TotalDeadlineMicros = 300 * 1000000
 
-{- | Run an S3 call under a total deadline. On expiry the call is interrupted with the
-asynchronous exception 'timeout' uses, which 'trySync' rethrows rather than captures,
-and the caller gets a 'Left'.
--}
-withS3Deadline :: Int -> IO (Either String a) -> IO (Either String a)
-withS3Deadline micros action =
-    fromMaybe (Left ("S3 request exceeded its " ++ show (micros `div` 1000000) ++ " s deadline"))
-        <$> timeout micros action
-
 s3RequestWith :: RetryConfig -> Maybe Int -> S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
 s3RequestWith retryCfg mTimeoutMicros st reqMethod key body = do
     now <- getCurrentTime
@@ -351,7 +340,7 @@ s3RequestWith retryCfg mTimeoutMicros st reqMethod key body = do
                 , requestBody = HTTP.RequestBodyLBS body
                 , responseTimeout = maybe (responseTimeout req0) responseTimeoutMicro mTimeoutMicros
                 }
-    withS3Deadline s3TotalDeadlineMicros $ do
+    withTotalDeadline "S3 request" s3TotalDeadlineMicros $ do
         respOrErr <- trySync (httpLbsWithRetry retryCfg (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
         case respOrErr of
             Left e -> pure (Left ("S3 request failed: " ++ show e))
