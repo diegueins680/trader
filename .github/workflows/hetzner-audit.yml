@@ -51,7 +51,7 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$host_keys" -o ConnectTimeout=20 \
             "${PROBE_USER:-root}@$PROBE_HOST" \
-            'docker logs --since 3h trader-api-1 2>&1 | grep -F "\"event\":\"top_combos_" || true' \
+            'docker logs --since 96h trader-api-1 2>&1 | grep -F "\"event\":\"top_combos_" || true' \
             | node .github/summarize-build-gate.mjs > build-gate.json
           echo "build gate summary:"
           node -e 'console.log(JSON.stringify(require("./build-gate.json"),null,2))'
