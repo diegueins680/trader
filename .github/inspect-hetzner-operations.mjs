@@ -15,7 +15,11 @@ const safeText = value => {
   for (const secret of secretValues) text = text.split(secret).join("[redacted]");
   return text.replace(/(signature|apiKey|apiSecret|authorization)\s*[=:]\s*[^\s,&]+/gi, "$1=[redacted]").slice(0, 700);
 };
-const safeError = error => ({ name: error?.name ?? "Error", message: safeText(error?.message) });
+// fetch reports transport failures as a bare "fetch failed"; the reason is in error.cause.
+const safeCause = cause => cause == null ? {} : {
+  cause: { name: safeText(cause.name ?? "Error"), code: cause.code == null ? null : safeText(cause.code), message: safeText(cause.message) },
+};
+const safeError = error => ({ name: error?.name ?? "Error", message: safeText(error?.message), ...safeCause(error?.cause) });
 const tenantKey = "binance:" + createHash("sha256").update(env.BINANCE_API_KEY.trim() + ":" + env.BINANCE_API_SECRET.trim()).digest("hex");
 const headers = { authorization: "Bearer " + env.TRADER_API_TOKEN, "x-tenant-key": tenantKey };
 const request = async (route, payload) => {
@@ -28,9 +32,11 @@ const request = async (route, payload) => {
   if (!response.ok) throw Error(`HTTP ${response.status} on ${route}`);
   return response.json();
 };
-const result = { capturedAt: new Date().toISOString(), role: env.TRADER_SERVER_ROLE };
+const result = { capturedAt: new Date().toISOString(), role: env.TRADER_SERVER_ROLE, durationsMs: {} };
 const attempt = async (key, action) => {
+  const startedAt = performance.now();
   try { result[key] = await action(); } catch (error) { result[key] = { error: safeError(error) }; }
+  result.durationsMs[key] = Math.round(performance.now() - startedAt);
 };
 await attempt("health", () => request("/health"));
 await attempt("ready", () => request("/ready"));
