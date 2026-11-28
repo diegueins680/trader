@@ -37,7 +37,7 @@ import Trader.App.Runtime (hashKeyHex, resolveTenantKeyFromParams, resolveTenant
 import Trader.Binance (BinanceTrade (..), FuturesPositionRisk (..), Kline (..), binanceExceptionSummary, futuresPositionRiskLeverageSane)
 import Trader.BinanceTradeAnalysis (attachBinanceTradeMaxPnl, binanceTradeMaxPnlKlineRanges)
 import Trader.BotSnapshotRecovery (TradeMemorySnapshotContext (..), restoreTradeMemoryFromStatus)
-import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxOpenThreshold, adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboOpenThresholdWithinAdoptionCeiling, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans)
+import Trader.BotStartSemantics (AdoptionEvidenceConfig (..), BacktestVerdict (..), adoptionMaxOpenThreshold, adoptionMaxPositionSizeCap, adoptionMaxWalkForwardSharpeStd, adoptionMinEdgeFloor, adoptionMinTradeCount, adoptionMinWalkForwardSharpeMean, backtestVerdictAborts, botStartSymbolDisabled, botStartupBacktestAborts, botStartupBacktestRoiAcceptable, botStartupBacktestVerdict, botStartupBacktestVerdictWithMinTrades, botStartupGuardShouldPrune, capAdoptedMaxPositionSize, capAdoptedMaxPositionSizeWithCap, capAdoptedMinPositionSize, capBotStartSymbolsPreservingOrphans, comboMinEdgeMeetsAdoptionFloor, comboMinEdgeMeetsAdoptionFloorWithConfig, comboOpenThresholdWithinAdoptionCeiling, comboTradeCountMeetsAdoptionFloor, comboTradeCountMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeMeetsAdoptionFloor, comboWalkForwardSharpeMeetsAdoptionFloorWithConfig, comboWalkForwardSharpeStdMeetsAdoptionCeiling, comboWalkForwardSharpeStdMeetsAdoptionCeilingWithConfig, defaultBotStartupBacktestMinTrades, deployableOverrideEvidenceEligible, filterBotStartAttemptsPreservingOrphans, prioritizeBotStartSymbols, queuedStartOrderErrorIssue, throttleBotStartSymbolsPreservingOrphans, tightenExposureLimit)
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
     CapitalPreservationReport (..),
@@ -13597,6 +13597,21 @@ testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
     assert
         "adoption sizing floor preserves a conservative value below the cap"
         (capAdoptedMinPositionSize 0.05 0.03 == 0.03)
+    assert
+        "a fleet exposure ceiling applies when the request carries no limit"
+        (tightenExposureLimit (Just 1) Nothing == Just 1)
+    assert
+        "a fleet exposure ceiling cannot be loosened by a larger requested limit"
+        (tightenExposureLimit (Just 1) (Just 2.5) == Just 1)
+    assert
+        "a fleet exposure ceiling cannot be cleared by a disabled or invalid requested limit"
+        (tightenExposureLimit (Just 1) (Just 0) == Just 1 && tightenExposureLimit (Just 1) (Just (0 / 0)) == Just 1)
+    assert
+        "a requested exposure limit below the fleet ceiling is kept"
+        (tightenExposureLimit (Just 1) (Just 0.5) == Just 0.5)
+    assert
+        "without an active fleet ceiling the requested exposure limit is unchanged"
+        (tightenExposureLimit Nothing (Just 2.5) == Just 2.5 && tightenExposureLimit (Just 0) (Just 2.5) == Just 2.5 && isNothing (tightenExposureLimit Nothing Nothing))
     assert
         "cap clamps negative inputs to zero"
         (capAdoptedMaxPositionSize (negate 0.5) == 0)
