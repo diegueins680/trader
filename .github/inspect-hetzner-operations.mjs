@@ -91,6 +91,23 @@ await attempt("leaderboard", async () => {
     count: combos.length, tiers, generatedAtMs: board.generatedAtMs,
     newest: combos.slice().sort((a, b) => b.createdAtMs - a.createdAtMs).slice(0, 4).map(row),
     pins: pins.filter(Boolean).map((uuid, i) => { const combo = combos.find(x => x.uuid === uuid); return { symbol: combo?.params?.binanceSymbol ?? combo?.params?.symbol ?? (env.TRADER_SERVER_ROLE === "trading" ? symbols[i] : null), uuid, present: !!combo, processing: combo?.processing, backtest: combo ? { interval: combo.params?.interval, bars: combo.params?.bars, openThreshold: combo.openThreshold ?? combo.params?.openThreshold, tradeCount: combo.metrics?.tradeCount, roundTrips: combo.metrics?.roundTrips, positionChanges: combo.metrics?.positionChanges, exposure: combo.metrics?.exposure, avgHoldingPeriods: combo.metrics?.avgHoldingPeriods, orderQuoteFraction: combo.params?.orderQuoteFraction ?? null, maxPositionSize: combo.params?.maxPositionSize ?? null, minPositionSize: combo.params?.minPositionSize ?? null, confidenceSizing: combo.params?.confidenceSizing ?? null } : null }; }),
+    // Backtest activity for the best strict deployable candidates of every symbol,
+    // so pin reviews can compare expected trade frequency, not only score.
+    candidates: Object.entries(combos.reduce((bySymbol, combo) => {
+      const symbol = combo.params?.binanceSymbol ?? combo.params?.symbol;
+      if (symbol && combo.processing?.tier === "deployable" && !combo.processing?.relaxed) (bySymbol[symbol] ??= []).push(combo);
+      return bySymbol;
+    }, {})).sort(([a], [b]) => a.localeCompare(b)).map(([symbol, list]) => ({
+      symbol, strictCount: list.length,
+      top: list.sort((a, b) => (b.processing?.validatedScore ?? 0) - (a.processing?.validatedScore ?? 0)).slice(0, 3).map(combo => ({
+        uuid: combo.uuid, createdAtMs: combo.createdAtMs, method: combo.params?.method, interval: combo.params?.interval,
+        bars: combo.params?.bars, validatedScore: combo.processing?.validatedScore, bucket: combo.processing?.mapEliteBucket,
+        finalEquity: combo.finalEquity, openThreshold: combo.openThreshold ?? combo.params?.openThreshold,
+        tradeCount: combo.metrics?.tradeCount, roundTrips: combo.metrics?.roundTrips, exposure: combo.metrics?.exposure,
+        avgHoldingPeriods: combo.metrics?.avgHoldingPeriods, maxDrawdown: combo.metrics?.maxDrawdown,
+        maxPositionSize: combo.params?.maxPositionSize ?? null, minPositionSize: combo.params?.minPositionSize ?? null,
+      })),
+    })),
     replacements: missing.map(symbol => ({ symbol, strict: combos.filter(combo => (combo.params?.binanceSymbol ?? combo.params?.symbol) === symbol && combo.processing?.tier === "deployable" && !combo.processing?.relaxed).slice(0, 5).map(row) })),
   };
 });
