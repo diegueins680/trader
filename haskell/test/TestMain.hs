@@ -13611,7 +13611,7 @@ testCapAdoptedMaxPositionSizeBoundsLiveExposure = do
         (tightenExposureLimit (Just 1) (Just 0.5) == Just 0.5)
     assert
         "without an active fleet ceiling the requested exposure limit is unchanged"
-        (tightenExposureLimit Nothing (Just 2.5) == Just 2.5 && tightenExposureLimit (Just 0) (Just 2.5) == Just 2.5 && tightenExposureLimit Nothing Nothing == Nothing)
+        (tightenExposureLimit Nothing (Just 2.5) == Just 2.5 && tightenExposureLimit (Just 0) (Just 2.5) == Just 2.5 && isNothing (tightenExposureLimit Nothing Nothing))
     assert
         "cap clamps negative inputs to zero"
         (capAdoptedMaxPositionSize (negate 0.5) == 0)
