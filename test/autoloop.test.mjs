@@ -1906,8 +1906,12 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
-  // The cap stays above every pinned combo's backtested minimum-size floor; nine workers can reach 149.94%.
+  // The cap stays above every pinned combo's backtested minimum-size floor; the fleet ceiling bounds nine workers to 100%.
   assert.match(hetznerTrading, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.1666$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_MAX_GROSS_EXPOSURE=1\.0$/m);
+  assert.match(compose, /TRADER_BOT_MAX_GROSS_EXPOSURE: \$\{TRADER_BOT_MAX_GROSS_EXPOSURE:-\}/);
+  assert.match(main, /mMaxGrossExposure <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_MAX_GROSS_EXPOSURE" maxGrossExposureRaw/);
+  assert.match(main, /maxGrossExposure = tightenExposureLimit \(argMaxGrossExposure base\)/);
   assert.match(
     hetznerTrading,
     /^TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=[0-9a-f-]{36}(?:,[0-9a-f-]{36}){8}$/m,

@@ -20,6 +20,7 @@ module Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     adoptionMaxPositionSizeCap,
     capAdoptedMinPositionSize,
+    tightenExposureLimit,
     capAdoptedMaxPositionSize,
     capAdoptedMaxPositionSizeWithCap,
     AdoptionEvidenceConfig (..),
@@ -102,6 +103,24 @@ capAdoptedMinPositionSize adoptedMax raw
     | isNaN adoptedMax || isInfinite adoptedMax = 0
     | adoptedMax < 0 = 0
     | otherwise = min adoptedMax raw
+
+{- | Combine an operator-configured fleet exposure ceiling with the limit an
+adopted combo or a start request asks for. A positive, finite ceiling can be
+tightened but never loosened or cleared: the result is the smaller of the two
+positive limits, or the ceiling when the request carries none. Without an
+active ceiling the requested limit is returned unchanged, so deployments that
+configure no ceiling keep their existing behaviour.
+-}
+tightenExposureLimit :: Maybe Double -> Maybe Double -> Maybe Double
+tightenExposureLimit ceiling requested =
+    case (activeLimit ceiling, activeLimit requested) of
+        (Nothing, _) -> requested
+        (Just c, Nothing) -> Just c
+        (Just c, Just r) -> Just (min c r)
+  where
+    activeLimit :: Maybe Double -> Maybe Double
+    activeLimit (Just x) | not (isNaN x), not (isInfinite x), x > 0 = Just x
+    activeLimit _ = Nothing
 
 {- | Minimum backtest @tradeCount@ a top-combo must report on its stored
 metrics before the bot-start path is allowed to adopt it for live trading.

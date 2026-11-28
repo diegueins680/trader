@@ -275,6 +275,7 @@ import Trader.BotStartSemantics (
     shouldPreserveProvidedComboOnActiveAdopt,
     shouldResolveOriginComboOnAutoStart,
     throttleBotStartSymbolsPreservingOrphans,
+    tightenExposureLimit,
  )
 import Trader.CapitalPreservation (
     CapitalPreservationConfig (..),
@@ -12921,7 +12922,8 @@ parseTopComboToArgs base combo = do
         costAwareEdge = pickBool "costAwareEdge" (argCostAwareEdge base)
         trendLookback = max 0 (pickI "trendLookback" (argTrendLookback base))
         maxPositionSize = max 0 (pickD "maxPositionSize" (argMaxPositionSize base))
-        maxGrossExposure = pickMaybeMaybeDbl "maxGrossExposure" (argMaxGrossExposure base)
+        -- A fleet ceiling on the base args can be tightened by a combo, never loosened or cleared.
+        maxGrossExposure = tightenExposureLimit (argMaxGrossExposure base) (pickMaybeMaybeDbl "maxGrossExposure" (argMaxGrossExposure base))
         maxNetExposure = pickMaybeMaybeDbl "maxNetExposure" (argMaxNetExposure base)
         maxExposurePerBase = pickMaybeMaybeDbl "maxExposurePerBase" (argMaxExposurePerBase base)
 
@@ -16727,6 +16729,7 @@ applyBotStartupEnvPreset args = do
     openThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_OPEN_THRESHOLD"
     closeThresholdRaw <- lookupTrimmedEnv "TRADER_BOT_START_CLOSE_THRESHOLD"
     adoptionMaxPositionSizeCapRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP"
+    maxGrossExposureRaw <- lookupTrimmedEnv "TRADER_BOT_MAX_GROSS_EXPOSURE"
     adoptionRelaxGatesRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES"
     adoptionRelaxTargetCountRaw <- lookupTrimmedEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT"
     executionMakerFirstRaw <- lookupTrimmedEnv "TRADER_EXECUTION_MAKER_FIRST"
@@ -16755,6 +16758,7 @@ applyBotStartupEnvPreset args = do
     mOpenThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_OPEN_THRESHOLD" openThresholdRaw
     mCloseThreshold <- readBotStartupThresholdEnv "TRADER_BOT_START_CLOSE_THRESHOLD" closeThresholdRaw
     mAdoptionMaxPositionSizeCap <- readBotStartupThresholdEnv "TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP" adoptionMaxPositionSizeCapRaw
+    mMaxGrossExposure <- readBotStartupNonNegativeDoubleEnv "TRADER_BOT_MAX_GROSS_EXPOSURE" maxGrossExposureRaw
     mAdoptionRelaxGates <- readBotStartupBoolEnv "TRADER_BOT_START_ADOPTION_RELAX_GATES" adoptionRelaxGatesRaw
     mAdoptionRelaxTargetCount <- readBotStartupPositiveIntEnv "TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT" adoptionRelaxTargetCountRaw
     mExecutionMakerFirst <- readBotStartupBoolEnv "TRADER_EXECUTION_MAKER_FIRST" executionMakerFirstRaw
@@ -16779,6 +16783,7 @@ applyBotStartupEnvPreset args = do
                 , openThresholdRaw
                 , closeThresholdRaw
                 , adoptionMaxPositionSizeCapRaw
+                , maxGrossExposureRaw
                 , adoptionRelaxGatesRaw
                 , adoptionRelaxTargetCountRaw
                 , executionMakerFirstRaw
@@ -16797,6 +16802,10 @@ applyBotStartupEnvPreset args = do
                 , argOpenThreshold = openThreshold
                 , argCloseThreshold = closeThreshold
                 , argAdoptionMaxPositionSizeCap = fromMaybe (argAdoptionMaxPositionSizeCap args) mAdoptionMaxPositionSizeCap
+                , argMaxGrossExposure =
+                    case mMaxGrossExposure of
+                        Nothing -> argMaxGrossExposure args
+                        Just _ -> tightenExposureLimit mMaxGrossExposure (argMaxGrossExposure args)
                 , argAdoptionRelaxGates = fromMaybe (argAdoptionRelaxGates args) mAdoptionRelaxGates
                 , argAdoptionRelaxTargetCount = fromMaybe (argAdoptionRelaxTargetCount args) mAdoptionRelaxTargetCount
                 , argExecutionMakerFirst = fromMaybe (argExecutionMakerFirst args) mExecutionMakerFirst
@@ -25711,7 +25720,7 @@ argsFromApi baseArgs p = do
                 , argNoTradeWindows = noTradeWindows
                 , argMaxOpenPositions = pickMaybe (apMaxOpenPositions p) (argMaxOpenPositions baseArgs)
                 , argMaxOpenPerBase = pickMaybe (apMaxOpenPerBase p) (argMaxOpenPerBase baseArgs)
-                , argMaxGrossExposure = pickMaybe (apMaxGrossExposure p) (argMaxGrossExposure baseArgs)
+                , argMaxGrossExposure = tightenExposureLimit (argMaxGrossExposure baseArgs) (pickMaybe (apMaxGrossExposure p) (argMaxGrossExposure baseArgs))
                 , argMaxNetExposure = pickMaybe (apMaxNetExposure p) (argMaxNetExposure baseArgs)
                 , argMaxExposurePerBase = pickMaybe (apMaxExposurePerBase p) (argMaxExposurePerBase baseArgs)
                 , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
