@@ -1839,7 +1839,7 @@ test("trading auto-start prioritizes recoverable positions without pinning later
     assert.match(config, /TRADER_PORTFOLIO_SELECTOR_WEIGHT_STEP=0\.01/);
     assert.match(config, /TRADER_BOT_PROTECTION_ORDERS=true/);
     assert.match(config, /TRADER_BOT_START_ADOPTION_RELAX_GATES=true/);
-    assert.match(config, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=(?:0\.01|0\.1666)$/m);
+    assert.match(config, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=(?:0\.01|0\.1111)$/m);
     assert.match(config, /TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=/);
   }
 
@@ -1896,21 +1896,21 @@ test("trading auto-start prioritizes recoverable positions without pinning later
   assert.match(hetznerTrading, /^TRADER_BOT_DISABLED_SYMBOLS=MATICUSDT$/m);
   assert.match(
     hetznerTrading,
-    /^TRADER_BOT_SYMBOLS=SOLUSDT,BCHUSDT,NEARUSDT,ARBUSDT,DOGEUSDT,ETHUSDT$/m,
+    /^TRADER_BOT_SYMBOLS=SOLUSDT,BCHUSDT,NEARUSDT,ARBUSDT,DOGEUSDT,ETHUSDT,AAVEUSDT,LINKUSDT,UNIUSDT$/m,
   );
-  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=6$/m);
-  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=6$/m);
-  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=6$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS=9$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_TOP_COMBO_BOTS_STARTUP=9$/m);
+  assert.match(hetznerTrading, /^TRADER_BOT_AUTOSTART_MAX_BOTS=9$/m);
   assert.match(hetznerTrading, /^TRADER_BOT_START_MAX_SYMBOLS=8$/m);
   assert.match(hetznerTrading, /^TRADER_TOP_COMBOS_SYNC_EVERY_SEC=900$/m);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_ROLLOUT_MODE=shadow/);
   assert.match(hetznerTrading, /TRADER_BOT_START_ADOPTION_RELAX_TARGET_COUNT=5/);
   assert.match(hetznerTrading, /TRADER_BOT_START_METHOD=ta_best/);
-  // Six workers at this cap keep aggregate configured exposure at or below 100% of equity.
-  assert.match(hetznerTrading, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.1666$/m);
+  // Nine workers at this cap keep aggregate configured exposure at or below 100% of equity.
+  assert.match(hetznerTrading, /^TRADER_BOT_START_ADOPTION_MAX_POSITION_SIZE_CAP=0\.1111$/m);
   assert.match(
     hetznerTrading,
-    /^TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=[0-9a-f-]{36}(?:,[0-9a-f-]{36}){5}$/m,
+    /^TRADER_TOP_COMBO_DEPLOYABLE_OVERRIDE_UUIDS=[0-9a-f-]{36}(?:,[0-9a-f-]{36}){8}$/m,
   );
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_BOT_WEIGHT=0\.01/);
   assert.match(hetznerTrading, /TRADER_PORTFOLIO_SELECTOR_MAX_GROSS_WEIGHT=0\.05/);
